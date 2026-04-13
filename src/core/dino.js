@@ -149,6 +149,7 @@ const distBarFill    = document.getElementById('distance-bar-fill');
 const pauseBtn       = document.getElementById('pause-btn');
 const muteBtn        = document.getElementById('mute-btn');
 const bgMusic        = document.getElementById('bg-music');
+const levelClearMusic = document.getElementById('level-clear-music');
 
 // ── Audio State ─────────────────────────────────────────────────────────────
 let audioCtx = null;
@@ -360,20 +361,28 @@ function playStartSound() {
 }
 
 function updateMusic() {
-    if (!bgMusic) return;
+    if (!bgMusic || !levelClearMusic) return;
     if (gameState === 'PLAYING') {
         if (bgMusic.paused) {
             bgMusic.muted = isMusicMuted;
             bgMusic.play().catch(() => {});
         }
+    } else if (gameState === 'GAME_OVER') {
+        if (!bgMusic.paused) bgMusic.pause();
+        if (levelClearMusic.paused) {
+            levelClearMusic.muted = isMusicMuted;
+            levelClearMusic.play().catch(() => {});
+        }
     } else {
         if (!bgMusic.paused) bgMusic.pause();
+        if (!levelClearMusic.paused) levelClearMusic.pause();
     }
 }
 
 function toggleMute() {
     isMusicMuted = !isMusicMuted;
-    bgMusic.muted = isMusicMuted;
+    if (bgMusic) bgMusic.muted = isMusicMuted;
+    if (levelClearMusic) levelClearMusic.muted = isMusicMuted;
     muteBtn.textContent = isMusicMuted ? '🔇' : '🔊';
     muteBtn.classList.toggle('is-muted', isMusicMuted);
 }
@@ -514,6 +523,10 @@ function triggerJump(pressed) {
 function startGame() {
     initAudio();
     playStartSound();
+    if (levelClearMusic) {
+        levelClearMusic.pause();
+        levelClearMusic.currentTime = 0;
+    }
     gameState      = 'PLAYING';
     stats          = { hoppahs: 0, ballballs: 0, golden: 0, duckducks: 0 };
     speed          = INIT_SPEED;

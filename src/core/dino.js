@@ -164,49 +164,38 @@ function getSfxVol() {
 }
 
 function playUppahSound() {
-    // Chiptune "Uppah!" — rising then peaking sweep mimicking a toddler saying Uppah!
     if (!audioCtx) return;
     try {
         const vol = getSfxVol();
         const now = audioCtx.currentTime;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = 'square';
-        // "Up": quick rise, then "pah": peak and resolve
-        osc.frequency.setValueAtTime(320, now);
-        osc.frequency.exponentialRampToValueAtTime(800, now + 0.07);
-        osc.frequency.exponentialRampToValueAtTime(1300, now + 0.11);
-        osc.frequency.exponentialRampToValueAtTime(700, now + 0.22);
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.13 * vol, now + 0.01);
-        gain.gain.setValueAtTime(0.13 * vol, now + 0.12);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(380, now);
+        osc.frequency.exponentialRampToValueAtTime(580, now + 0.07);
+        gain.gain.setValueAtTime(0.12 * vol, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.start(now); osc.stop(now + 0.23);
+        osc.start(now); osc.stop(now + 0.14);
     } catch(e) {}
 }
 
 function playDownSound() {
-    // Chiptune "Down!" — descending sweep, lower/heavier than Uppah
     if (!audioCtx) return;
     try {
         const vol = getSfxVol();
         const now = audioCtx.currentTime;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = 'square';
-        // Falling "dow-n": starts mid, drops to deep
-        osc.frequency.setValueAtTime(480, now);
-        osc.frequency.exponentialRampToValueAtTime(200, now + 0.10);
-        osc.frequency.exponentialRampToValueAtTime(110, now + 0.22);
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.15 * vol, now + 0.01);
-        gain.gain.setValueAtTime(0.15 * vol, now + 0.09);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(280, now);
+        osc.frequency.exponentialRampToValueAtTime(140, now + 0.09);
+        gain.gain.setValueAtTime(0.15 * vol, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.10);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.start(now); osc.stop(now + 0.23);
+        osc.start(now); osc.stop(now + 0.10);
     } catch(e) {}
 }
 
@@ -421,14 +410,20 @@ function setupInputs() {
 
 function triggerDuck(on) {
     if (gameState !== 'PLAYING') return;
-    isDuckHeld = on;
-    if (on && player.state !== 'JUMPING') {
-        player.state = 'DUCKING';
-        player.h = 18 * SCALE;
-        playDownSound();
-    } else if (!on && player.state === 'DUCKING') {
-        player.state = 'RUNNING';
-        player.h = 32 * SCALE;
+    if (on && !isDuckHeld) {
+        // Only fire once on initial press, not on keyboard auto-repeat
+        isDuckHeld = true;
+        if (player.state !== 'JUMPING') {
+            player.state = 'DUCKING';
+            player.h = 18 * SCALE;
+            playDownSound();
+        }
+    } else if (!on && isDuckHeld) {
+        isDuckHeld = false;
+        if (player.state === 'DUCKING') {
+            player.state = 'RUNNING';
+            player.h = 32 * SCALE;
+        }
     }
 }
 

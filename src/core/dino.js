@@ -170,8 +170,8 @@ function playUppahSound() {
         const vol = getSfxVol();
         const now = audioCtx.currentTime;
 
-        // +4 semitones — toddler sparkle (×1.26)
-        const sh = Math.pow(2, 4 / 12);
+        // +1 semitone — lowered to be less squeaky (×1.06)
+        const sh = Math.pow(2, 1 / 12);
 
         // 8-bit WaveShaper crusher at output (harsh retro quantisation)
         const crusher = audioCtx.createWaveShaper();

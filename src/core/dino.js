@@ -513,7 +513,8 @@ function spawnNext() {
     if (speed < 400 || r < 0.45) {
         // Ground obstacle — Hoppah
         const bouncing = Math.random() < 0.50 && speed > 380;
-        const hopY = bouncing ? GROUND_Y - 8 * SCALE : GROUND_Y;
+        // bouncing hoppahs must be high enough to clear the ducking hitbox
+        const hopY = bouncing ? GROUND_Y - 18 * SCALE : GROUND_Y;
         obstacles.push({
             type:  bouncing ? 'hoppah_bounce' : 'hoppah_still',
             x:     W + 80, y: hopY,
@@ -530,8 +531,8 @@ function spawnNext() {
 
         const yMap = [
             GROUND_Y,
-            GROUND_Y - 8 * SCALE,
-            GROUND_Y - 26 * SCALE
+            GROUND_Y - 18 * SCALE, // Must clear ducking hitbox
+            GROUND_Y - 30 * SCALE  // High enough to jump or duck
         ];
         
         const isGroundDuck = tier === 0;

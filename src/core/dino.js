@@ -254,7 +254,6 @@ function updateMusic() {
             bgMusic.muted = isMusicMuted;
             bgMusic.play().catch(() => {});
         }
-        if (bgMusic.currentTime >= 50) bgMusic.currentTime = 0;
     } else {
         if (!bgMusic.paused) bgMusic.pause();
     }
@@ -293,6 +292,7 @@ let player = {
 };
 
 let isDuckHeld = false;
+let isJumpHeld = false;  // for variable jump height
 
 // ── Init ───────────────────────────────────────────────────────────────────
 function init() {
@@ -338,10 +338,11 @@ function setupInputs() {
             return;
         }
         if (['ArrowDown','s','S'].includes(e.key)) { e.preventDefault(); triggerDuck(true); }
-        if (['ArrowUp','w','W',' '].includes(e.key)) { e.preventDefault(); triggerJump(); }
+        if (['ArrowUp','w','W',' '].includes(e.key)) { e.preventDefault(); triggerJump(true); }
     });
     window.addEventListener('keyup', (e) => {
         if (['ArrowDown','s','S'].includes(e.key)) triggerDuck(false);
+        if (['ArrowUp','w','W',' '].includes(e.key)) triggerJump(false);
     });
 
     const zL = document.getElementById('zone-left');
@@ -351,8 +352,11 @@ function setupInputs() {
     zL.addEventListener('mousedown',   () => triggerDuck(true));
     zL.addEventListener('mouseup',     () => triggerDuck(false));
     zL.addEventListener('mouseleave',  () => triggerDuck(false));
-    zR.addEventListener('touchstart',  (e) => { e.preventDefault(); initAudio(); triggerJump(); }, {passive:false});
-    zR.addEventListener('mousedown',   () => { initAudio(); triggerJump(); });
+    zR.addEventListener('touchstart',  (e) => { e.preventDefault(); initAudio(); triggerJump(true); }, {passive:false});
+    zR.addEventListener('touchend',    (e) => { e.preventDefault(); triggerJump(false); }, {passive:false});
+    zR.addEventListener('mousedown',   () => { initAudio(); triggerJump(true); });
+    zR.addEventListener('mouseup',     () => triggerJump(false));
+    zR.addEventListener('mouseleave',  () => triggerJump(false));
 
     muteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -377,9 +381,10 @@ function triggerDuck(on) {
     }
 }
 
-function triggerJump() {
+function triggerJump(pressed) {
     if (gameState !== 'PLAYING') return;
-    if (player.state === 'RUNNING') {
+    isJumpHeld = pressed;
+    if (pressed && player.state === 'RUNNING') {
         player.state = 'JUMPING';
         player.vy   = JUMP_VEL;
         playJumpSound();
@@ -412,6 +417,7 @@ function startGame() {
     gigiRunFrame   = 0;
     gigiRunClock   = 0;
     isDuckHeld     = false;
+    isJumpHeld     = false;
 
     startScreen.style.display = 'none';
     pauseScreen.style.display = 'none';
@@ -618,8 +624,18 @@ function update(dt) {
 
     // ── Player physics ─────────────────────────────────────────────────────
     if (player.state === 'JUMPING') {
-        player.vy += (isDuckHeld ? GRAVITY_PX * 2.5 : GRAVITY_PX) * dt;
-        player.y  += player.vy  * dt;
+        // Variable jump height:
+        //  - Holding duck mid-air → 2.5× gravity (fast-fall, same as before)
+        //  - Released jump key while still rising → 3× gravity (short hop)
+        //  - Holding jump key → normal gravity (full arc)
+        let grav = GRAVITY_PX;
+        if (isDuckHeld) {
+            grav *= 2.5; // fast-fall
+        } else if (!isJumpHeld && player.vy < 0) {
+            grav *= 3;   // jump-cut: released early while ascending
+        }
+        player.vy += grav * dt;
+        player.y  += player.vy * dt;
         if (player.y >= GROUND_Y) {
             player.y   = GROUND_Y;
             player.vy  = 0;

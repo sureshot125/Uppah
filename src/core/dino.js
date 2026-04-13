@@ -164,38 +164,110 @@ function getSfxVol() {
 }
 
 function playUppahSound() {
+    // Nintendo-era chiptune voice: sawtooth+formant + 8-bit crusher + pulse arpeggio shimmer
     if (!audioCtx) return;
     try {
         const vol = getSfxVol();
         const now = audioCtx.currentTime;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(380, now);
-        osc.frequency.exponentialRampToValueAtTime(580, now + 0.07);
-        gain.gain.setValueAtTime(0.12 * vol, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(now); osc.stop(now + 0.14);
+
+        // +4 semitones — toddler sparkle (×1.26)
+        const sh = Math.pow(2, 4 / 12);
+
+        // 8-bit WaveShaper crusher at output (harsh retro quantisation)
+        const crusher = audioCtx.createWaveShaper();
+        (() => {
+            const bits = 8, steps = 1 << bits, len = 512;
+            const c = new Float32Array(len);
+            for (let i = 0; i < len; i++) {
+                const x = (i / len) * 2 - 1;
+                c[i] = Math.round(x * steps * 0.5) / (steps * 0.5);
+            }
+            crusher.curve = c;
+            crusher.oversample = 'none'; // keep aliasing — that's the charm
+        })();
+
+        // Master envelope: UP (0→110ms) — "p" consonant dip (110ms→130ms) — PAH (130ms→280ms)
+        const master = audioCtx.createGain();
+        master.gain.setValueAtTime(vol * 0.28,  now);
+        master.gain.setValueAtTime(vol * 0.28,  now + 0.09);          // "UP" sustain
+        master.gain.linearRampToValueAtTime(vol * 0.02, now + 0.115); // "p" dip
+        master.gain.linearRampToValueAtTime(vol * 0.28, now + 0.135); // "PAH" onset
+        master.gain.exponentialRampToValueAtTime(0.001, now + 0.30);  // "PAH" fade
+        crusher.connect(master);
+        master.connect(audioCtx.destination);
+
+        // ── Layer 1: Sawtooth + bandpass voice ──────────────────────────────
+        // Pitch contour: "UP" (280→480Hz shifted) then "pah" falls (→340Hz shifted)
+        const vOsc  = audioCtx.createOscillator();
+        const vFilt = audioCtx.createBiquadFilter();
+        const vGain = audioCtx.createGain();
+        vOsc.type = 'sawtooth';
+        vOsc.frequency.setValueAtTime(280 * sh, now);                       // "uh" onset
+        vOsc.frequency.exponentialRampToValueAtTime(480 * sh, now + 0.09);  // "UP" rise
+        vOsc.frequency.exponentialRampToValueAtTime(340 * sh, now + 0.20);  // "pah" settle
+        vFilt.type = 'bandpass';
+        vFilt.frequency.setValueAtTime(900, now);
+        vFilt.frequency.linearRampToValueAtTime(1250, now + 0.09);  // "ah" formant
+        vFilt.Q.value = 5;
+        vGain.gain.value = 0.65;
+        vOsc.connect(vFilt); vFilt.connect(vGain); vGain.connect(crusher);
+        vOsc.start(now); vOsc.stop(now + 0.23);
+
+        // ── Layer 2: 12.5% pulse arpeggio C5 → E5 → G5 ─────────────────────
+        // Fires on the "PAH" syllable (135ms onwards) for the "happy shimmer"
+        const pWave = (() => {
+            const D = 0.125, M = 32;
+            const re = new Float32Array(M + 1);
+            const im = new Float32Array(M + 1);
+            for (let n = 1; n <= M; n++) {
+                im[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * D);
+            }
+            return audioCtx.createPeriodicWave(re, im, { disableNormalization: false });
+        })();
+
+        [523.25, 659.25, 783.99].forEach((freq, i) => {
+            const t = now + 0.135 + i * 0.05;
+            const aOsc  = audioCtx.createOscillator();
+            const aGain = audioCtx.createGain();
+            aOsc.setPeriodicWave(pWave);
+            aOsc.frequency.value = freq;
+            aGain.gain.setValueAtTime(0.30, t);
+            aGain.gain.exponentialRampToValueAtTime(0.001, t + 0.055);
+            aOsc.connect(aGain); aGain.connect(crusher);
+            aOsc.start(t); aOsc.stop(t + 0.06);
+        });
+
     } catch(e) {}
 }
 
+
 function playDownSound() {
+    // Sawtooth + bandpass descending — toddler saying "down"
+    // Pitch slides from mid to low, filter shifts "ow" → nasal "n"
     if (!audioCtx) return;
     try {
         const vol = getSfxVol();
         const now = audioCtx.currentTime;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(280, now);
-        osc.frequency.exponentialRampToValueAtTime(140, now + 0.09);
-        gain.gain.setValueAtTime(0.15 * vol, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.10);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(now); osc.stop(now + 0.10);
+        const osc    = audioCtx.createOscillator();
+        const filter = audioCtx.createBiquadFilter();
+        const gain   = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        // "down" — pitch descends the whole word
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(170, now + 0.18);
+        osc.frequency.exponentialRampToValueAtTime(130, now + 0.30);
+        // Formant: "ow" vowel opens, then closes into nasal "n"
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(700, now);
+        filter.frequency.linearRampToValueAtTime(450, now + 0.22);
+        filter.Q.value = 3;
+        // Envelope: immediate attack, sustain through "ow", fade on "n"
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.20 * vol, now + 0.02);
+        gain.gain.setValueAtTime(0.16 * vol, now + 0.10);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.30);
+        osc.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(now); osc.stop(now + 0.31);
     } catch(e) {}
 }
 

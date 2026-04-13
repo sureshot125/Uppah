@@ -125,16 +125,15 @@ const bgMusic        = document.getElementById('bg-music');
 
 // ── Audio State ─────────────────────────────────────────────────────────────
 let audioCtx = null;
-let isMuted  = false;
+let isMusicMuted = false;
 
 function initAudio() {
     if (audioCtx) return;
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    // Browser allows audio now that we've had a user interaction
 }
 
 function playJumpSound() {
-    if (!audioCtx || isMuted) return;
+    if (!audioCtx) return;
     try {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
@@ -145,8 +144,86 @@ function playJumpSound() {
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+    } catch(e) {}
+}
+
+function playCollectSound() {
+    if (!audioCtx) return;
+    try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.08);
+    } catch(e) {}
+}
+
+function playGoldenSound() {
+    if (!audioCtx) return;
+    try {
+        const now = audioCtx.currentTime;
+        [800, 1000, 1200].forEach((freq, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.frequency.setValueAtTime(freq, now + i * 0.05);
+            gain.gain.setValueAtTime(0.1, now + i * 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.05 + 0.1);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(now + i * 0.05); osc.stop(now + i * 0.05 + 0.1);
+        });
+    } catch(e) {}
+}
+
+function playHitSound() {
+    if (!audioCtx) return;
+    try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(40, audioCtx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+    } catch(e) {}
+}
+
+function playGameOverSound() {
+    if (!audioCtx) return;
+    try {
+        const now = audioCtx.currentTime;
+        [400, 300, 200].forEach((freq, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.frequency.setValueAtTime(freq, now + i * 0.2);
+            gain.gain.setValueAtTime(0.2, now + i * 0.2);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.2 + 0.4);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(now + i * 0.2); osc.stop(now + i * 0.2 + 0.4);
+        });
+    } catch(e) {}
+}
+
+function playStartSound() {
+    if (!audioCtx) return;
+    try {
+        const now = audioCtx.currentTime;
+        [600, 800, 1000].forEach((freq, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.frequency.setValueAtTime(freq, now + i * 0.08);
+            gain.gain.setValueAtTime(0.1, now + i * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.1);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(now + i * 0.08); osc.stop(now + i * 0.08 + 0.1);
+        });
     } catch(e) {}
 }
 
@@ -154,23 +231,20 @@ function updateMusic() {
     if (!bgMusic) return;
     if (gameState === 'PLAYING') {
         if (bgMusic.paused) {
-            bgMusic.muted = isMuted;
+            bgMusic.muted = isMusicMuted;
             bgMusic.play().catch(() => {});
         }
-        // Custom Loop: First 50 seconds
-        if (bgMusic.currentTime >= 50) {
-            bgMusic.currentTime = 0;
-        }
+        if (bgMusic.currentTime >= 50) bgMusic.currentTime = 0;
     } else {
         if (!bgMusic.paused) bgMusic.pause();
     }
 }
 
 function toggleMute() {
-    isMuted = !isMuted;
-    bgMusic.muted = isMuted;
-    muteBtn.textContent = isMuted ? '🔇' : '🔊';
-    muteBtn.classList.toggle('is-muted', isMuted);
+    isMusicMuted = !isMusicMuted;
+    bgMusic.muted = isMusicMuted;
+    muteBtn.textContent = isMusicMuted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('is-muted', isMusicMuted);
 }
 let gameState = 'START';
 let lastTime  = 0;
@@ -295,6 +369,7 @@ function triggerJump() {
 // ── Game lifecycle ─────────────────────────────────────────────────────────
 function startGame() {
     initAudio();
+    playStartSound();
     gameState      = 'PLAYING';
     stats          = { hoppahs: 0, ballballs: 0, golden: 0, duckducks: 0 };
     speed          = INIT_SPEED;
@@ -348,6 +423,7 @@ function resume() {
 
 function gameOver() {
     gameState = 'GAME_OVER';
+    playGameOverSound();
     pauseBtn.disabled = true;
     document.getElementById('start-emoji').style.display = 'none';
     document.getElementById('start-title').style.display = 'none';
@@ -589,9 +665,14 @@ function update(dt) {
                 o.hit = true;
                 if (o.layer === 'coin') {
                     // Collect ballball
-                    if (o.type === 'golden') stats.golden++;
-                    else stats.ballballs++;
-                    const boost = o.type === 'golden' ? MAX_DIST : 6.3;
+                    if (o.type === 'golden') {
+                        stats.golden++;
+                        playGoldenSound();
+                    } else {
+                        stats.ballballs++;
+                        playCollectSound();
+                    }
+                    const boost = o.type === 'golden' ? MAX_DIST : 5.7;
                     distance = o.type === 'golden' ? MAX_DIST : Math.min(MAX_DIST, distance + boost);
                     const col = o.type === 'golden' ? '#FFD700' : '#FFB300';
                     spawnParticle(BABY_X + player.w/2, player.y - player.h/2, col, 6);
@@ -599,6 +680,7 @@ function update(dt) {
                 } else {
                     // Hit obstacle — stumble → lose distance
                     distance -= 25;
+                    playHitSound();
                     player.damageClock = 0.4;
                     spawnParticle(BABY_X + player.w/2, player.y - player.h/2, '#FF4444', 10);
                     stumbleFlash.style.opacity = 1;
@@ -637,8 +719,6 @@ function update(dt) {
 
     // ── Game over ──────────────────────────────────────────────────────────
     if (distance <= 0) { distance = 0; gameOver(); }
-
-    updateMusic();
 }
 
 // ── Draw ───────────────────────────────────────────────────────────────────
@@ -875,6 +955,7 @@ function loop(t) {
     lastTime = t;
 
     if (gameState === 'PLAYING') update(dt);
+    updateMusic();
     draw();
     requestAnimationFrame(loop);
 }

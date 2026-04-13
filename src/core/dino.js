@@ -161,7 +161,7 @@ function initAudio() {
 }
 
 function getSfxVol() {
-    return (!bgMusic || bgMusic.paused || isMusicMuted) ? 1.0 : 2.0;
+    return (!bgMusic || bgMusic.paused || isMusicMuted) ? 1.5 : 3.0;
 }
 
 function playUppahSound() {

@@ -163,20 +163,70 @@ function getSfxVol() {
     return (!bgMusic || bgMusic.paused || isMusicMuted) ? 1.0 : 2.0;
 }
 
-function playJumpSound() {
+function playUppahSound() {
+    // Chiptune "Uppah!" — rising then peaking sweep mimicking a toddler saying Uppah!
     if (!audioCtx) return;
     try {
         const vol = getSfxVol();
+        const now = audioCtx.currentTime;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'square';
-        osc.frequency.setValueAtTime(600, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.1 * vol, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01 * vol, audioCtx.currentTime + 0.1);
+        // "Up": quick rise, then "pah": peak and resolve
+        osc.frequency.setValueAtTime(320, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.07);
+        osc.frequency.exponentialRampToValueAtTime(1300, now + 0.11);
+        osc.frequency.exponentialRampToValueAtTime(700, now + 0.22);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.13 * vol, now + 0.01);
+        gain.gain.setValueAtTime(0.13 * vol, now + 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        osc.start(now); osc.stop(now + 0.23);
+    } catch(e) {}
+}
+
+function playDownSound() {
+    // Chiptune "Down!" — descending sweep, lower/heavier than Uppah
+    if (!audioCtx) return;
+    try {
+        const vol = getSfxVol();
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'square';
+        // Falling "dow-n": starts mid, drops to deep
+        osc.frequency.setValueAtTime(480, now);
+        osc.frequency.exponentialRampToValueAtTime(200, now + 0.10);
+        osc.frequency.exponentialRampToValueAtTime(110, now + 0.22);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.15 * vol, now + 0.01);
+        gain.gain.setValueAtTime(0.15 * vol, now + 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now); osc.stop(now + 0.23);
+    } catch(e) {}
+}
+
+function playFootstepSound(right) {
+    // Tiny chiptune pitter-patter — alternating left/right toddler footfall
+    if (!audioCtx) return;
+    try {
+        const vol = getSfxVol();
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        // Right foot slightly higher than left to create L/R alternation
+        osc.frequency.setValueAtTime(right ? 230 : 175, now);
+        osc.frequency.exponentialRampToValueAtTime(right ? 130 : 100, now + 0.045);
+        gain.gain.setValueAtTime(0.065 * vol, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now); osc.stop(now + 0.05);
     } catch(e) {}
 }
 
@@ -375,6 +425,7 @@ function triggerDuck(on) {
     if (on && player.state !== 'JUMPING') {
         player.state = 'DUCKING';
         player.h = 18 * SCALE;
+        playDownSound();
     } else if (!on && player.state === 'DUCKING') {
         player.state = 'RUNNING';
         player.h = 32 * SCALE;
@@ -387,7 +438,7 @@ function triggerJump(pressed) {
     if (pressed && player.state === 'RUNNING') {
         player.state = 'JUMPING';
         player.vy   = JUMP_VEL;
-        playJumpSound();
+        playUppahSound();
     }
 }
 
@@ -648,12 +699,15 @@ function update(dt) {
         player.damageClock -= dt;
     }
 
-    // ── Run animation (Ansel) ─────────────────────────────────────
+    // ── Run animation (Ansel) + footstep sounds ─────────────────────────────
     if (player.state === 'RUNNING') {
         player.runClock += dt;
         if (player.runClock > 0.08) {
             player.runClock = 0;
             player.runFrame = (player.runFrame + 1) % ANSEL_FRAMES;
+            // Trigger pitter-patter on frame 0 (right foot) and frame 3 (left foot)
+            if (player.runFrame === 0) playFootstepSound(true);
+            if (player.runFrame === 3) playFootstepSound(false);
         }
     }
 

@@ -47,22 +47,23 @@ function resizeCanvas() {
 
     GROUND_Y = Math.round(H * 0.93);
 
-    // SCALE: keep game content proportional to canvas width
-    // Reference: 960px wide = SCALE 4. Clamped so things stay playable.
-    SCALE = Math.max(1.5, Math.min(5, W / 240));
+    // SCALE tracks canvas height relative to the 480px reference.
+    // Capped at 4 so desktops (H > 480) look exactly as originally designed.
+    SCALE = Math.max(1.5, Math.min(4, (H / 480) * 4));
 
-    // Baby stays ≈25% from left — gives 75% of canvas width as reaction window
+    // Baby sits at 25% from left — gives 75% of width as reaction window.
+    // On desktop 960px: BABY_X = 240 (was 220, barely perceptible shift).
     BABY_X = Math.round(W * 0.25);
 
-    // Character render sizes proportional to canvas height
-    BABY_RENDER_H    = Math.round(H * 0.33);
+    // Character render sizes derived from SCALE so sprite matches hitbox proportionally.
+    BABY_RENDER_H    = Math.round(40 * SCALE);   // 160px at SCALE=4 (reference)
     BABY_RENDER_W    = Math.round(BABY_RENDER_H * (252 / 370));
     BABY_FOOT_OFFSET = Math.round(BABY_RENDER_H * (27  / 370));
-    GIGI_RENDER_H    = Math.round(H * 0.395);
+    GIGI_RENDER_H    = Math.round(47.5 * SCALE); // 190px at SCALE=4 (reference)
     GIGI_RENDER_W    = Math.round(GIGI_RENDER_H * (354 / 496));
     GIGI_FOOT_OFFSET = Math.round(GIGI_RENDER_H * (37  / 496));
 
-    // Keep player hitbox in sync with new SCALE (safe to call before player exists)
+    // Keep player hitbox in sync (safe to call before player is defined at boot)
     if (typeof player !== 'undefined') {
         player.w = 24 * SCALE;
         player.h = player.state === 'DUCKING' ? 18 * SCALE : 32 * SCALE;

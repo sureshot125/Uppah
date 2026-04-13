@@ -36,6 +36,7 @@ const MIN_GAP_COEFF = 1.1;     // gap = MIN_GAP_COEFF × speed  (seconds)
 // ── Layout ─────────────────────────────────────────────────────────────────
 let GROUND_Y = 445;   // y of floor line — recalculated on resize
 let BABY_X   = 220;   // baby left-edge screen x — recalculated on resize
+const VIEWPORT_ZOOM = 1.25; // zoom factor: 1.25× makes chars 25% bigger, less lookahead
 
 function resizeCanvas() {
     const container = canvas.parentElement;
@@ -963,6 +964,12 @@ function draw() {
     ctx.save();
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
+
+    // Zoom in: anchor on player feet so ground stays in place and characters are larger.
+    // Obstacles still enter from the right but the lookahead window is narrower.
+    ctx.translate(BABY_X, GROUND_Y);
+    ctx.scale(VIEWPORT_ZOOM, VIEWPORT_ZOOM);
+    ctx.translate(-BABY_X, -GROUND_Y);
 
 
     // ── Draw coins (render behind obstacles and characters) ────────────────

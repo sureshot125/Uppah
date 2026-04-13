@@ -25,17 +25,17 @@ let W      = canvas.width;   // will be set dynamically
 let H      = canvas.height;  // will be set dynamically
 
 // ── Physics & Speed (Chrome-faithful, converted to px/s) ───────────────────
-const SCALE         = 4;
-const GRAVITY_PX    = 2200;      // px/s²
-const JUMP_VEL      = -710;      // px/s  (Chrome: -12 units/frame @ 60fps → -720)
-const INIT_SPEED    = 360;       // px/s
-const MAX_SPEED     = 580;       // px/s — soft cap, feels fair
-const ACCEL         = 2.0;       // px/s per second — gentler ramp
-const MIN_GAP_COEFF = 1.1;       // gap = MIN_GAP_COEFF × speed  (seconds)
+let SCALE           = 4;       // recalculated in resizeCanvas()
+const GRAVITY_PX    = 2200;    // px/s²
+const JUMP_VEL      = -710;    // px/s  (Chrome: -12 units/frame @ 60fps → -720)
+const INIT_SPEED    = 360;     // px/s
+const MAX_SPEED     = 580;     // px/s — soft cap, feels fair
+const ACCEL         = 2.0;     // px/s per second — gentler ramp
+const MIN_GAP_COEFF = 1.1;     // gap = MIN_GAP_COEFF × speed  (seconds)
 
 // ── Layout ─────────────────────────────────────────────────────────────────
-let GROUND_Y      = 445;       // y of floor line — recalculated on resize
-const BABY_X        = 220;       // Baby always drawn here on-screen
+let GROUND_Y = 445;   // y of floor line — recalculated on resize
+let BABY_X   = 220;   // baby left-edge screen x — recalculated on resize
 
 function resizeCanvas() {
     const container = canvas.parentElement;
@@ -44,30 +44,53 @@ function resizeCanvas() {
     canvas.height = Math.round(rect.height);
     W = canvas.width;
     H = canvas.height;
+
     GROUND_Y = Math.round(H * 0.93);
+
+    // SCALE: keep game content proportional to canvas width
+    // Reference: 960px wide = SCALE 4. Clamped so things stay playable.
+    SCALE = Math.max(1.5, Math.min(5, W / 240));
+
+    // Baby stays ≈25% from left — gives 75% of canvas width as reaction window
+    BABY_X = Math.round(W * 0.25);
+
+    // Character render sizes proportional to canvas height
+    BABY_RENDER_H    = Math.round(H * 0.33);
+    BABY_RENDER_W    = Math.round(BABY_RENDER_H * (252 / 370));
+    BABY_FOOT_OFFSET = Math.round(BABY_RENDER_H * (27  / 370));
+    GIGI_RENDER_H    = Math.round(H * 0.395);
+    GIGI_RENDER_W    = Math.round(GIGI_RENDER_H * (354 / 496));
+    GIGI_FOOT_OFFSET = Math.round(GIGI_RENDER_H * (37  / 496));
+
+    // Keep player hitbox in sync with new SCALE (safe to call before player exists)
+    if (typeof player !== 'undefined') {
+        player.w = 24 * SCALE;
+        player.h = player.state === 'DUCKING' ? 18 * SCALE : 32 * SCALE;
+        if (player.state === 'RUNNING') player.y = GROUND_Y;
+    }
 }
 
 // ── Distance/Health bar ────────────────────────────────────────────────────
-const MAX_DIST      = 100;       // abstract units (like HP)
-const DRAIN_RATE    = 3.5;       // units/second passive drain
-const DANGER_THRESH = 22;        // below this → danger state
+const MAX_DIST      = 100;     // abstract units (like HP)
+const DRAIN_RATE    = 3.5;     // units/second passive drain
+const DANGER_THRESH = 22;      // below this → danger state
 
-// ── Obstacle score gates (Chrome: pterodactyls unlock at 450) ──────────────
-const AIR_OBS_GATE  = 400;       // score before which no air obstacles spawn
+// ── Obstacle score gates ───────────────────────────────────────────────────
+const AIR_OBS_GATE  = 400;
 
-// ── Assets ──────────────────────────────────────────────────────────────
+// ── Assets ─────────────────────────────────────────────────────────────────
 const images = {};
 // Ansel (Baby): 6 frames, 252×370 RGBA. bottom padding = 27px → 7.3%
 const ANSEL_FRAMES     = 6;
-const BABY_RENDER_H    = 160;
-const BABY_RENDER_W    = Math.round(BABY_RENDER_H * (252 / 370)); // ~109px
-const BABY_FOOT_OFFSET = Math.round(BABY_RENDER_H * (27 / 370));  // ~12px
+let BABY_RENDER_H    = 160;
+let BABY_RENDER_W    = Math.round(BABY_RENDER_H * (252 / 370)); // ~109px
+let BABY_FOOT_OFFSET = Math.round(BABY_RENDER_H * (27  / 370)); // ~12px
 
 // Gigi (Mom): 8 frames, 354×496 RGBA. bottom padding = 37px → 7.5%
 const GIGI_FRAMES      = 8;
-const GIGI_RENDER_H    = 190;
-const GIGI_RENDER_W    = Math.round(GIGI_RENDER_H * (354 / 496)); // ~136px
-const GIGI_FOOT_OFFSET = Math.round(GIGI_RENDER_H * (37 / 496));  // ~14px
+let GIGI_RENDER_H    = 190;
+let GIGI_RENDER_W    = Math.round(GIGI_RENDER_H * (354 / 496)); // ~136px
+let GIGI_FOOT_OFFSET = Math.round(GIGI_RENDER_H * (37  / 496)); // ~14px
 
 let gigiRunFrame = 0;
 let gigiRunClock = 0;
@@ -103,7 +126,10 @@ const ASSETS = {
 };
 let assetsLoaded = 0;
 
-function getAnselFrame(idx) { return images['ansel_0' + ((idx % ANSEL_FRAMES) + 1)]; }
+function getAnselFrame(idx) {
+    const n = ((idx % ANSEL_FRAMES) + 1).toString().padStart(2, '0');
+    return images['ansel_' + n];
+}
 function getGigiFrame(idx)  {
     const n = ((idx % GIGI_FRAMES) + 1).toString().padStart(2, '0');
     return images['gigi_' + n];
@@ -310,7 +336,7 @@ function setupInputs() {
             else if (gameState === 'PAUSED') resume();
             return;
         }
-        if (['ArrowDown','s','S'].includes(e.key)) triggerDuck(true);
+        if (['ArrowDown','s','S'].includes(e.key)) { e.preventDefault(); triggerDuck(true); }
         if (['ArrowUp','w','W',' '].includes(e.key)) { e.preventDefault(); triggerJump(); }
     });
     window.addEventListener('keyup', (e) => {
@@ -411,7 +437,7 @@ function resume() {
     gameState = 'PLAYING';
     pauseScreen.style.display = 'none';
     pauseBtn.textContent = '⏸ Pause';
-    lastTime = 0;
+    lastTime = performance.now(); // prevent dt spike on first post-resume frame
 }
 
 function gameOver() {
@@ -581,7 +607,9 @@ function update(dt) {
     }
 
     // ── Ground scroll ──────────────────────────────────────────────────────
-    groundX = (groundX + speed * dt) % 40;
+    // Subtract instead of modulo to avoid floating-point accumulation drift
+    groundX += speed * dt;
+    if (groundX >= 40) groundX -= 40;
     scrolled += speed * dt;
 
     // ── Distance/health bar (passive drain scaled by diffFactor) ───────────
@@ -647,12 +675,14 @@ function update(dt) {
 
         // ── Collision check ─────────────────────────────────────────────
         if (!o.hit) {
-            // Precise hitboxes for UPPAH Dino
+            // Hitbox: shrink 12% on each side horizontally.
+            // Y is only inset from the top — feet are anchored to GROUND_Y so
+            // the bottom of the hitbox is intentionally flush with the ground.
             const shrink = 0.12;
             const px = BABY_X + player.w * shrink;
             const py = player.y - player.h + player.h * shrink;
-            const pw = player.w * (1 - shrink*2);
-            const ph = player.h * (1 - shrink*2);
+            const pw = player.w * (1 - shrink * 2);
+            const ph = player.h * (1 - shrink * 2);
 
             const ox = o.x + o.w * shrink;
             const oy = o.y - o.h + o.h * shrink;
@@ -799,9 +829,9 @@ function draw() {
     ctx.imageSmoothingQuality = 'high';
 
     const safeRatio   = Math.max(0, Math.min(1, distance / MAX_DIST));
-    // Far left when safe; right behind baby when catching up
-    const maxSafeX    = -GIGI_RENDER_W * 0.1; // just barely off the left edge when safe
-    const maxDangerX  = 275 - 54.5 - GIGI_RENDER_W + 5; // right behind baby (drawW for Ansel running is ~109)
+    // Gigi slides from just-off-left-edge (safe) to right behind Ansel (max danger)
+    const maxSafeX    = -GIGI_RENDER_W * 0.1;                    // barely off-screen left
+    const maxDangerX  = BABY_X - GIGI_RENDER_W + 10;             // right edge flush with Ansel's left
     const gigiScreenX = maxDangerX - safeRatio * (maxDangerX - maxSafeX);
 
     // Pulse red glow when in danger
@@ -882,7 +912,8 @@ function draw() {
         footOff = BABY_FOOT_OFFSET;
     }
 
-    const targetX = 275 - drawW / 2;
+    // Center the sprite on the hitbox's horizontal midpoint
+    const targetX = BABY_X + player.w / 2 - drawW / 2;
     // Anchor feet to ground: drawY = player.y - drawH + footOff
     drawImg(pImg, targetX, player.y - drawH + footOff, drawW, drawH);
     ctx.imageSmoothingEnabled = false;

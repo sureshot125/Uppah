@@ -31,16 +31,16 @@
             overflow: hidden;
         }
 
-        /* Outer chrome wrapper — fills ALL available height */
         #wrapper {
             width: 100%;
             max-width: 980px;
             height: 100vh;
+            height: 100dvh; /* Dynamic viewport height for mobile browsers */
             display: flex;
             flex-direction: column;
             align-items: stretch;
-            gap: 8px;
-            padding: 10px 12px;
+            gap: 6px;
+            padding: 8px 10px;
         }
 
         /* Top HUD bar */
@@ -298,6 +298,64 @@
             letter-spacing: 1px;
         }
 
+        /* Mobile portrait: maximize the canvas, shrink chrome */
+        @media (max-width: 600px), (max-aspect-ratio: 3/4) {
+            #wrapper {
+                gap: 4px;
+                padding: 6px 6px;
+            }
+
+            #game-title {
+                font-size: 18px;
+                letter-spacing: 2px;
+            }
+
+            .hud-value {
+                font-size: 16px !important;
+                letter-spacing: 0;
+            }
+
+            #pause-btn {
+                padding: 4px 10px;
+                font-size: 12px;
+            }
+
+            #mute-btn {
+                width: 30px;
+                height: 30px;
+                font-size: 15px;
+            }
+
+            #controls-row {
+                gap: 6px;
+            }
+
+            .ctrl-zone {
+                height: 52px;
+            }
+
+            .ctrl-icon {
+                font-size: 20px;
+            }
+
+            .ctrl-text {
+                font-size: 9px;
+            }
+
+            #distance-bar-container {
+                gap: 6px;
+            }
+
+            .db-label {
+                font-size: 10px;
+            }
+
+            #distance-text {
+                font-size: 9px;
+                letter-spacing: 1px;
+            }
+        }
+
         /* Overlay Screens */
         .overlay {
             position: absolute;
@@ -494,7 +552,7 @@
     <!-- Background Music (Loops first 50s) -->
     <video id="bg-music" src="assets/Uppah_.mp4" playsinline muted style="display:none"></video>
 
-    <script src="src/core/dino.js?v=35"></script>
+    <script src="src/core/dino.js?v=36"></script>
 </body>
 
 </html>

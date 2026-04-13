@@ -363,11 +363,15 @@ function playStartSound() {
 function updateMusic() {
     if (!bgMusic || !levelClearMusic) return;
     if (gameState === 'PLAYING') {
+        if (!levelClearMusic.paused) {
+            levelClearMusic.pause();
+            levelClearMusic.currentTime = 0;
+        }
         if (bgMusic.paused) {
             bgMusic.muted = isMusicMuted;
             bgMusic.play().catch(() => {});
         }
-    } else if (gameState === 'GAME_OVER') {
+    } else if (gameState === 'GAME_OVER' || gameState === 'START') {
         if (!bgMusic.paused) bgMusic.pause();
         if (levelClearMusic.paused) {
             levelClearMusic.muted = isMusicMuted;

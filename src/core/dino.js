@@ -132,16 +132,21 @@ function initAudio() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 }
 
+function getSfxVol() {
+    return (!bgMusic || bgMusic.paused || isMusicMuted) ? 1.0 : 2.0;
+}
+
 function playJumpSound() {
     if (!audioCtx) return;
     try {
+        const vol = getSfxVol();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'square';
         osc.frequency.setValueAtTime(600, audioCtx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1 * vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01 * vol, audioCtx.currentTime + 0.1);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         osc.start(); osc.stop(audioCtx.currentTime + 0.1);
@@ -151,13 +156,14 @@ function playJumpSound() {
 function playCollectSound() {
     if (!audioCtx) return;
     try {
+        const vol = getSfxVol();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(800, audioCtx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.08);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.1 * vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01 * vol, audioCtx.currentTime + 0.08);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         osc.start(); osc.stop(audioCtx.currentTime + 0.08);
@@ -167,13 +173,14 @@ function playCollectSound() {
 function playGoldenSound() {
     if (!audioCtx) return;
     try {
+        const vol = getSfxVol();
         const now = audioCtx.currentTime;
         [800, 1000, 1200].forEach((freq, i) => {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.frequency.setValueAtTime(freq, now + i * 0.05);
-            gain.gain.setValueAtTime(0.1, now + i * 0.05);
-            gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.05 + 0.1);
+            gain.gain.setValueAtTime(0.1 * vol, now + i * 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.01 * vol, now + i * 0.05 + 0.1);
             osc.connect(gain); gain.connect(audioCtx.destination);
             osc.start(now + i * 0.05); osc.stop(now + i * 0.05 + 0.1);
         });
@@ -183,13 +190,14 @@ function playGoldenSound() {
 function playHitSound() {
     if (!audioCtx) return;
     try {
+        const vol = getSfxVol();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(150, audioCtx.currentTime);
         osc.frequency.linearRampToValueAtTime(40, audioCtx.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.2 * vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01 * vol, audioCtx.currentTime + 0.2);
         osc.connect(gain); gain.connect(audioCtx.destination);
         osc.start(); osc.stop(audioCtx.currentTime + 0.2);
     } catch(e) {}
@@ -198,13 +206,14 @@ function playHitSound() {
 function playStartSound() {
     if (!audioCtx) return;
     try {
+        const vol = getSfxVol();
         const now = audioCtx.currentTime;
         [600, 800, 1000].forEach((freq, i) => {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.frequency.setValueAtTime(freq, now + i * 0.08);
-            gain.gain.setValueAtTime(0.1, now + i * 0.08);
-            gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.1);
+            gain.gain.setValueAtTime(0.1 * vol, now + i * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.01 * vol, now + i * 0.08 + 0.1);
             osc.connect(gain); gain.connect(audioCtx.destination);
             osc.start(now + i * 0.08); osc.stop(now + i * 0.08 + 0.1);
         });
@@ -432,7 +441,8 @@ function fmtScore(n) { return Math.floor(n).toString().padStart(5, '0'); }
 let spawnCount = 0;
 function calcGap() {
     spawnCount++;
-    const base = MIN_GAP_COEFF * speed;
+    const diffFactor = 1.0 + (scrolled / 30000); 
+    const base = MIN_GAP_COEFF * speed / diffFactor; // Tighter gaps at higher difficulty
     // Every 4–6 obstacles, give a wider breather gap
     const isBreather = (spawnCount % (4 + Math.floor(Math.random() * 3)) === 0);
     const mult = isBreather ? (1.6 + Math.random() * 0.5) : (0.75 + Math.random() * 0.5);
@@ -500,9 +510,9 @@ function spawnNext() {
     const r = Math.random();
     let coinIntent = 'free';
 
-    if (speed < 400 || r < 0.55) {
+    if (speed < 400 || r < 0.45) {
         // Ground obstacle — Hoppah
-        const bouncing = Math.random() < 0.3 && speed > 380;
+        const bouncing = Math.random() < 0.50 && speed > 380;
         const hopY = bouncing ? GROUND_Y - 8 * SCALE : GROUND_Y;
         obstacles.push({
             type:  bouncing ? 'hoppah_bounce' : 'hoppah_still',
@@ -515,8 +525,8 @@ function spawnNext() {
     } else {
         // Air obstacle — Duckduck branch (Tiers: 0=ground, 1=low-air, 2=high-air)
         const tierRoll = Math.random();
-        // Weighted distribution: 20% Ground (Jump), 65% Low-air (Duck), 15% High-air (Jump/Duck)
-        const tier = tierRoll < 0.20 ? 0 : tierRoll < 0.85 ? 1 : 2; 
+        // Weighted distribution: 15% Ground (Jump), 75% Low-air (Duck), 10% High-air (Jump/Duck)
+        const tier = tierRoll < 0.15 ? 0 : tierRoll < 0.90 ? 1 : 2; 
 
         const yMap = [
             GROUND_Y,
@@ -556,19 +566,25 @@ function update(dt) {
     scoreVal.textContent = `🏀 ${stats.ballballs}  ⭐ ${stats.golden}  🦆 ${stats.duckducks}  🐰 ${stats.hoppahs}`;
     document.getElementById('distance-text').textContent = 'DISTANCE';
 
+    // Difficulty scaling
+    const diffFactor = 1.0 + (scrolled / 30000); 
+
     // Speed milestone tracking (flash removed)
     const milestone = Math.floor(speed / 80);
     if (flashTimer !== milestone) { flashTimer = milestone; }
 
-    if (speed < MAX_SPEED) {
-        speed = Math.min(MAX_SPEED, speed + ACCEL * dt);
+    const curMaxSpeed = MAX_SPEED + (diffFactor - 1) * 80; // Slowly raise max speed
+
+    if (speed < curMaxSpeed) {
+        speed = Math.min(curMaxSpeed, speed + ACCEL * dt);
     }
 
     // ── Ground scroll ──────────────────────────────────────────────────────
     groundX = (groundX + speed * dt) % 40;
+    scrolled += speed * dt;
 
-    // ── Distance/health bar (passive drain) ────────────────────────────────
-    distance -= DRAIN_RATE * dt;
+    // ── Distance/health bar (passive drain scaled by diffFactor) ───────────
+    distance -= DRAIN_RATE * diffFactor * dt;
 
     // ── Player physics ─────────────────────────────────────────────────────
     if (player.state === 'JUMPING') {

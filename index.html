@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>UPPAH - Premium Toddler Game</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="700"></canvas>
+        
+        <!-- UI Overlay -->
+        <div id="ui-layer">
+            <div id="top-bar">
+                <div class="meter-container">
+                    <div class="meter-label">Diaper</div>
+                    <div class="meter-bg"><div id="diaper-fill"></div></div>
+                </div>
+                <div class="meter-container" style="margin-top: 5px;">
+                    <div class="meter-label" style="color: #FF6B9D">Happy</div>
+                    <div class="meter-bg"><div id="happy-fill"></div></div>
+                </div>
+                <div id="score-display">
+                    Score: <span id="score-value">0</span>
+                    <div class="ballball-count">🏀 x <span id="ballball-value">0</span></div>
+                </div>
+            </div>
+
+            <!-- Speech Bubble Base (dynamically styled via JS) -->
+            <div id="speech-bubble" class="hidden">uppah!</div>
+            <div id="gigi-warning" class="hidden">GIGI CLOSE!</div>
+        </div>
+
+        <!-- Touch Zones -->
+        <div id="controls-layer">
+            <div id="zone-left">
+                <div class="zone-text">⬇️ DUCK<br><small>HOLD</small></div>
+            </div>
+            <div id="zone-right">
+                <div class="zone-text">⬆️ JUMP<br><small>TAP</small></div>
+            </div>
+        </div>
+        
+        <div id="start-screen">
+            <h1>UPPAH!</h1>
+            <p>Tap to Play</p>
+        </div>
+    </div>
+    <script src="src/core/main.js"></script>
+</body>
+</html>

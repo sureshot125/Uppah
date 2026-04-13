@@ -1,0 +1,245 @@
+* {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none; /* Prevent scroll on touch */
+}
+
+body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #1a1a2e;
+    font-family: 'Outfit', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+#game-container {
+    position: relative;
+    width: 400px;
+    height: 700px;
+    max-width: 100vw;
+    max-height: 100vh;
+    background-color: #87CEEB; /* Sky blue placeholder */
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+#gameCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+
+/* UI Layer */
+#ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 5;
+    pointer-events: none; /* Let touches pass through to controls */
+}
+
+#top-bar {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    right: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 10px 15px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.meter-container {
+    display: flex;
+    flex-direction: column;
+    width: 120px;
+}
+
+.meter-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    color: #333;
+    font-weight: 800;
+    margin-bottom: 3px;
+    text-shadow: 1px 1px 0 #fff;
+}
+
+.meter-bg {
+    width: 100%;
+    height: 12px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 6px;
+    border: 2px solid white;
+    overflow: hidden;
+}
+
+#diaper-fill {
+    height: 100%;
+    background-color: #FFFFFF;
+    width: 100%;
+    transition: width 0.2s, background-color 0.2s;
+}
+
+#happy-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #FF6B9D, #FFB366);
+    background-color: #FF6B9D;
+    width: 50%;
+    transition: width 0.2s;
+}
+
+#score-display {
+    text-align: right;
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 2px 2px 0 #000;
+}
+
+.ballball-count {
+    font-size: 14px;
+    color: #FF9800;
+}
+
+/* Controls Layer */
+#controls-layer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 30%; /* Bottom 30% of screen */
+    display: flex;
+    z-index: 10;
+}
+
+#zone-left, #zone-right {
+    flex: 1;
+    position: relative;
+    border-top: 2px dashed rgba(255,255,255,0.3);
+    background: linear-gradient(to top, rgba(0,0,0,0.3), transparent);
+}
+
+#zone-left {
+    border-right: 1px dashed rgba(255,255,255,0.3);
+}
+
+#zone-right {
+    border-left: 1px dashed rgba(255,255,255,0.3);
+}
+
+#zone-left:active, #zone-right:active {
+    background: linear-gradient(to top, rgba(255,255,255,0.2), rgba(0,0,0,0.1));
+}
+
+.zone-text {
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
+    text-align: center;
+    color: rgba(255,255,255,0.7);
+    font-size: 20px;
+    font-weight: 800;
+    pointer-events: none;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+
+.zone-text small {
+    font-size: 12px;
+}
+
+/* Speech Bubble */
+#speech-bubble {
+    position: absolute;
+    padding: 6px 12px;
+    background: white;
+    border-radius: 16px;
+    font-weight: 800;
+    font-size: 16px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    transform: scale(0);
+    transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    white-space: nowrap;
+}
+
+#speech-bubble::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    left: 20px;
+    border-width: 6px 6px 0;
+    border-style: solid;
+    border-color: white transparent transparent transparent;
+}
+
+#speech-bubble.show-uppah {
+    transform: scale(1);
+    color: #FF6B9D;
+}
+
+#speech-bubble.show-down {
+    transform: scale(1);
+    color: #6BB6FF;
+}
+
+/* UI Alerts */
+#gigi-warning {
+    position: absolute;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #FF0044;
+    color: white;
+    padding: 5px 15px;
+    border-radius: 10px;
+    font-weight: bold;
+    animation: flash 0.5s infinite alternate;
+}
+
+@keyframes flash {
+    from { opacity: 0.5; box-shadow: 0 0 5px red; }
+    to { opacity: 1; box-shadow: 0 0 20px red; }
+}
+
+.vignette-danger {
+    box-shadow: inset 0 0 50px red !important;
+}
+
+.hidden {
+    display: none !important;
+}
+
+#start-screen {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #FF6B9D;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    z-index: 20;
+    cursor: pointer;
+}
+
+#start-screen h1 {
+    font-size: 60px;
+    margin: 0 0 10px 0;
+    text-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+}

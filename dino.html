@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>UPPAH — Run Baby Run</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;900&display=swap" rel="stylesheet">
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        body,
+        html {
+            width: 100%;
+            height: 100%;
+            background: #0d0d1a;
+            display: flex;
+            flex-direction: column;
+            justify-content: stretch;
+            align-items: center;
+            font-family: 'Outfit', sans-serif;
+            overflow: hidden;
+        }
+
+        /* Outer chrome wrapper — fills ALL available height */
+        #wrapper {
+            width: 100%;
+            max-width: 980px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            padding: 10px 12px;
+        }
+
+        /* Top HUD bar */
+        #hud {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 4px;
+            flex-shrink: 0;
+        }
+
+        .hud-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .hud-value {
+            font-size: 28px;
+            font-weight: 900;
+            color: #fff;
+            letter-spacing: 2px;
+            text-shadow: 0 0 20px rgba(255, 107, 157, 0.6);
+        }
+
+        #hi-score-box,
+        #score-box {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+        }
+
+        #score-box {
+            align-items: flex-end;
+        }
+
+        /* Title */
+        #title-box {
+            text-align: center;
+        }
+
+        #game-title {
+            font-size: 28px;
+            font-weight: 900;
+            background: linear-gradient(90deg, #FF6B9D, #FFD63A, #6BB6FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 4px;
+        }
+
+        /* Pause button */
+        #pause-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1.5px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            padding: 6px 14px;
+            cursor: pointer;
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            color: #ccc;
+            transition: background 0.15s, color 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        #mute-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1.5px solid rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 18px;
+            color: #ccc;
+            transition: all 0.2s;
+        }
+
+        #mute-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+            transform: scale(1.05);
+        }
+
+        #mute-btn.is-muted {
+            color: #FF6B9D;
+            border-color: rgba(255, 107, 157, 0.3);
+        }
+
+        #pause-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+
+        #pause-btn:disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+
+        /* Game Canvas Container — grows to fill remaining space */
+        #game-container {
+            position: relative;
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 16px;
+            overflow: hidden;
+            background: #111;
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08), 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 80px rgba(255, 107, 157, 0.1);
+        }
+
+        /* Canvas fills the container completely */
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+
+
+        /* Danger vignette */
+        #danger-vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            box-shadow: inset 0 0 80px rgba(255, 30, 30, 0.0);
+            transition: box-shadow 0.2s;
+            border-radius: 16px;
+        }
+
+        #danger-vignette.danger {
+            box-shadow: inset 0 0 80px rgba(255, 30, 30, 0.55);
+        }
+
+        /* Stumble flash */
+        #stumble-flash {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 80, 80, 0.45);
+            pointer-events: none;
+            opacity: 0;
+            border-radius: 16px;
+        }
+
+        /* GIGI distance bar */
+        #distance-bar-container {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+
+        .db-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
+
+        #distance-bar-bg {
+            flex: 1;
+            height: 16px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+        }
+
+        #distance-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            top: 0;
+            left: 0;
+            font-size: 11px;
+            font-weight: 900;
+            color: #fff;
+            line-height: 16px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 1);
+            pointer-events: none;
+        }
+
+        #distance-bar-fill {
+            height: 100%;
+            width: 100%;
+            border-radius: 5px;
+            background: linear-gradient(90deg, #FF6B9D, #FFD63A);
+            transition: width 0.15s, background 0.3s;
+        }
+
+        #distance-bar-fill.danger {
+            background: linear-gradient(90deg, #FF3333, #FF8800);
+        }
+
+        /* Controls hint */
+        #controls-row {
+            width: 100%;
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .ctrl-zone {
+            flex: 1;
+            height: 70px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            gap: 4px;
+            border: 1.5px dashed rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.03);
+            transition: background 0.1s;
+        }
+
+        .ctrl-zone:active {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .ctrl-icon {
+            font-size: 22px;
+        }
+
+        .ctrl-text {
+            font-size: 11px;
+            font-weight: 700;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Overlay Screens */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            z-index: 20;
+            border-radius: 16px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            cursor: pointer;
+        }
+
+        #start-screen {
+            background: rgba(13, 13, 26, 0.85);
+        }
+
+        #pause-screen {
+            background: rgba(13, 13, 26, 0.8);
+            display: none;
+        }
+
+        .overlay h1 {
+            font-size: 48px;
+            font-weight: 900;
+            background: linear-gradient(135deg, #FF6B9D, #FFD63A);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .overlay p {
+            font-size: 16px;
+            color: rgba(255, 255, 255, 0.5);
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .overlay .sub {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        #speed-flash {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 36px;
+            font-weight: 900;
+            color: #FFD63A;
+            opacity: 0;
+            text-align: center;
+            text-shadow: 0 0 20px #FFD63A, 0 2px 8px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+            white-space: nowrap;
+            letter-spacing: 3px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="wrapper">
+        <div id="hud">
+            <div id="title-box">
+                <div id="game-title">UPPAH!</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+                <button id="pause-btn" disabled>⏸ Pause</button>
+                <div id="score-box">
+                    <span class="hud-value" id="score-val" style="font-size: 24px;">🏀 0 ⭐ 0 🦆 0 🐰 0</span>
+                </div>
+                <button id="mute-btn" title="Toggle Sound">🔊</button>
+            </div>
+        </div>
+
+        <div id="game-container">
+            <canvas id="gameCanvas" width="960" height="480"></canvas>
+            <div id="danger-vignette"></div>
+            <div id="stumble-flash"></div>
+            <div id="speed-flash">⚡ SPEED BOOST!</div>
+
+            <div id="start-screen" class="overlay">
+                <img id="game-over-img" src="assets/Game Over.png"
+                    style="display:none; max-width:50%; max-height:40%; object-fit:contain; filter: drop-shadow(0 0 20px rgba(0,0,0,0.5)); margin-bottom:20px;">
+                <div id="game-over-stats" style="display:none; text-align:center; padding-bottom: 20px;"></div>
+
+                <div id="start-hints" style="display:flex; flex-direction:column; align-items:center;">
+                    <div style="position:relative; display:inline-block; margin:10px 0 20px 0;">
+                        <img src="assets/Ansel Up.png"
+                            style="height:110px; object-fit:contain; filter:drop-shadow(0 0 15px rgba(255,107,157,0.6));">
+                        <div
+                            style="position:absolute; top:-36px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.95); border-radius:16px; padding:6px 14px; font-size:20px; font-weight:900; color:#FF6B9D; white-space:nowrap; box-shadow:0 2px 10px rgba(0,0,0,0.3);">
+                            Uppah!
+                            <div
+                                style="position:absolute; bottom:-8px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid rgba(255,255,255,0.95);">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="max-width: 550px; text-align: center; margin-bottom: 20px;">
+                        <p
+                            style="font-size: 18px; color: #FFF; margin: 0 0 10px 0; font-weight: 500; line-height: 1.4;">
+                            Gigi just turned her back for one second… <br>
+                            <span style="color: #FFD63A; font-weight: 900; font-size: 20px;">…and now Ansel is on the
+                                move.</span>
+                        </p>
+                        <p
+                            style="font-size: 15px; color: rgba(255,255,255,0.85); margin: 0 0 10px 0; line-height: 1.5;">
+                            He’s waddling full speed through the house, the yard, and beyond — chasing ballballs,
+                            squeaking duckducks, and hopping with hoppahs — while Gigi is right behind him trying to
+                            catch up.
+                        </p>
+                        <p style="font-size: 16px; color: #FF6B9D; font-weight: 900; margin:0;">The further you go, the
+                            faster things get.</p>
+                    </div>
+
+                    <div
+                        style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 15px 25px; max-width: 550px; text-align: left; margin-bottom: 20px;">
+                        <h2
+                            style="color: #FFD63A; font-size: 18px; font-weight: 900; margin: 0 0 10px 0; text-align: center;">
+                            🎮 How to Play</h2>
+                        <p
+                            style="color: white; font-size: 14px; margin: 0 0 12px 0; text-align: center; font-weight: 500;">
+                            You only need two moves:</p>
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px;">
+                                <div style="color: #FF6B9D; font-weight: 900; font-size: 15px; margin-bottom: 3px;">⬆️
+                                    TAP RIGHT / SPACE — UPPAH! (Jump)</div>
+                                <div style="color: rgba(255,255,255,0.8); font-size: 13px; line-height: 1.4;">Jump over
+                                    things on the ground like duckducks and sitting hoppahs.</div>
+                            </div>
+                            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px;">
+                                <div style="color: #4CAF50; font-weight: 900; font-size: 15px; margin-bottom: 3px;">⬇️
+                                    HOLD LEFT / DOWN — DOWN (Duck)</div>
+                                <div style="color: rgba(255,255,255,0.8); font-size: 13px; line-height: 1.4;">Duck under
+                                    things in the air like jumping hoppahs and flying duckducks.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h1 id="start-emoji" style="display:none">🍼</h1>
+                <h1 id="start-title" style="display:none">UPPAH!</h1>
+                <div id="start-sub"
+                    style="background:#FFD63A; color:#1a1a1a; font-weight:900; font-size:18px; padding:12px 40px; border-radius:50px; cursor:pointer; text-transform:uppercase; letter-spacing:1px; box-shadow:0 4px 15px rgba(255,214,58,0.3); pointer-events:auto; display:inline-block;">
+                    TAP TO PLAY</div>
+            </div>
+
+            <div id="pause-screen" class="overlay">
+                <div style="position: relative; display: inline-block;">
+                    <img src="assets/Ansel Up.png"
+                        style="height: 180px; object-fit: contain; filter: drop-shadow(0 0 20px rgba(255,107,157,0.6));">
+                    <div
+                        style="position:absolute; top:-36px; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.95); border-radius:16px; padding:8px 16px; font-size:22px; font-weight:900; color:#FF6B9D; white-space:nowrap; box-shadow:0 2px 10px rgba(0,0,0,0.3);">
+                        Uppah!
+                        <div
+                            style="position:absolute; bottom:-9px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid rgba(255,255,255,0.95);">
+                        </div>
+                    </div>
+                </div>
+                <p>PAUSED</p>
+                <span class="sub">Tap to Resume</span>
+            </div>
+        </div>
+
+        <div id="distance-bar-container">
+            <span class="db-label">👵 Gigi</span>
+            <div id="distance-bar-bg">
+                <div id="distance-bar-fill"></div>
+                <div id="distance-text">DISTANCE 70m</div>
+            </div>
+            <span class="db-label">🍼 Ansel</span>
+        </div>
+
+        <div id="controls-row">
+            <div class="ctrl-zone" id="zone-left">
+                <span class="ctrl-icon">⬇️</span>
+                <span class="ctrl-text">Hold to Duck</span>
+            </div>
+            <div class="ctrl-zone" id="zone-right">
+                <span class="ctrl-icon">⬆️</span>
+                <span class="ctrl-text">Tap to Jump</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Background Music (Loops first 50s) -->
+    <video id="bg-music" src="assets/Uppah_.mp4" playsinline muted style="display:none"></video>
+
+    <script src="src/core/dino.js?v=32"></script>
+</body>
+
+</html>

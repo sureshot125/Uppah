@@ -427,16 +427,7 @@ function init() {
 
     for (const k in ASSETS) {
         images[k] = new Image();
-        images[k].onload = () => {
-            // Defringe to remove white matte halo from PNG edges
-            images[k] = defringeImage(images[k]);
-            assetsLoaded++;
-            if (assetsLoaded === Object.keys(ASSETS).length) {
-                setupInputs();
-                requestAnimationFrame(loop);
-            }
-        };
-        images[k].onerror = () => {
+        images[k].onload = images[k].onerror = () => {
             assetsLoaded++;
             if (assetsLoaded === Object.keys(ASSETS).length) {
                 setupInputs();
@@ -444,38 +435,6 @@ function init() {
             }
         };
         images[k].src = ASSETS[k];
-    }
-}
-
-// ── Defringe ───────────────────────────────────────────────────────────────
-// Remove white-matte halo from PNGs: for every semi-transparent pixel that
-// is suspiciously bright (white bleed from export), reduce its alpha
-// proportional to its brightness so the halo becomes transparent.
-function defringeImage(img) {
-    try {
-        const oc  = document.createElement('canvas');
-        oc.width  = img.naturalWidth  || img.width;
-        oc.height = img.naturalHeight || img.height;
-        if (!oc.width || !oc.height) return img;
-        const ox  = oc.getContext('2d');
-        ox.drawImage(img, 0, 0);
-        const id = ox.getImageData(0, 0, oc.width, oc.height);
-        const d  = id.data;
-        for (let i = 0; i < d.length; i += 4) {
-            const a = d[i + 3];
-            if (a === 0 || a === 255) continue; // fully transparent or fully opaque — skip
-            const r = d[i], g = d[i + 1], b = d[i + 2];
-            // Brightness of the semi-transparent pixel (0=black, 1=white)
-            const brightness = (r + g + b) / 765;
-            if (brightness > 0.45) {
-                // Scale alpha down — brighter fringe pixel → more transparent
-                d[i + 3] = Math.round(a * (1 - brightness) * 2);
-            }
-        }
-        ox.putImageData(id, 0, 0);
-        return oc; // canvas is accepted by ctx.drawImage() just like an Image
-    } catch (e) {
-        return img; // cross-origin or security error: fallback to original
     }
 }
 
@@ -1166,16 +1125,11 @@ function draw() {
 }
 
 // Helper: draw image if loaded; else draw a colour rect placeholder
-function drawImg(src, x, y, w, h) {
+function drawImg(img, x, y, w, h) {
     x = Math.round(x);
     y = Math.round(y);
-    // Accept both HTMLImageElement and HTMLCanvasElement (post-defringe)
-    const ready = src && (
-        (src instanceof HTMLCanvasElement && src.width > 0) ||
-        (src instanceof HTMLImageElement  && src.complete && src.naturalWidth > 0)
-    );
-    if (ready) {
-        ctx.drawImage(src, x, y, w, h);
+    if (img && img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, x, y, w, h);
     } else {
         ctx.fillStyle = 'rgba(255,255,255,0.15)';
         ctx.fillRect(x, y, w, h);

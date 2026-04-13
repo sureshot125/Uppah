@@ -195,22 +195,6 @@ function playHitSound() {
     } catch(e) {}
 }
 
-function playGameOverSound() {
-    if (!audioCtx) return;
-    try {
-        const now = audioCtx.currentTime;
-        [400, 300, 200].forEach((freq, i) => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.frequency.setValueAtTime(freq, now + i * 0.2);
-            gain.gain.setValueAtTime(0.2, now + i * 0.2);
-            gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.2 + 0.4);
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.start(now + i * 0.2); osc.stop(now + i * 0.2 + 0.4);
-        });
-    } catch(e) {}
-}
-
 function playStartSound() {
     if (!audioCtx) return;
     try {
@@ -423,7 +407,6 @@ function resume() {
 
 function gameOver() {
     gameState = 'GAME_OVER';
-    playGameOverSound();
     pauseBtn.disabled = true;
     document.getElementById('start-emoji').style.display = 'none';
     document.getElementById('start-title').style.display = 'none';

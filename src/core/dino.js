@@ -186,13 +186,14 @@ function playUppahSound() {
             crusher.oversample = 'none'; // keep aliasing — that's the charm
         })();
 
-        // Master envelope: UP (0→110ms) — "p" consonant dip (110ms→130ms) — PAH (130ms→280ms)
+        // Master envelope: UP (0→80ms) — "p" consonant dip (80ms→130ms) — PAH (130ms→300ms)
         const master = audioCtx.createGain();
-        master.gain.setValueAtTime(vol * 0.28,  now);
-        master.gain.setValueAtTime(vol * 0.28,  now + 0.09);          // "UP" sustain
-        master.gain.linearRampToValueAtTime(vol * 0.02, now + 0.115); // "p" dip
-        master.gain.linearRampToValueAtTime(vol * 0.28, now + 0.135); // "PAH" onset
-        master.gain.exponentialRampToValueAtTime(0.001, now + 0.30);  // "PAH" fade
+        master.gain.setValueAtTime(vol * 0.45,  now);
+        master.gain.setValueAtTime(vol * 0.45,  now + 0.08);          // "UP" sustain
+        master.gain.linearRampToValueAtTime(vol * 0.01, now + 0.10);  // "p" dip start
+        master.gain.setValueAtTime(vol * 0.01,  now + 0.13);          // "p" dip hold
+        master.gain.linearRampToValueAtTime(vol * 0.45, now + 0.15);  // "PAH" onset
+        master.gain.exponentialRampToValueAtTime(0.001, now + 0.35);  // "PAH" fade
         crusher.connect(master);
         master.connect(audioCtx.destination);
 
@@ -226,7 +227,7 @@ function playUppahSound() {
         })();
 
         [523.25, 659.25, 783.99].forEach((freq, i) => {
-            const t = now + 0.135 + i * 0.05;
+            const t = now + 0.15 + i * 0.06;
             const aOsc  = audioCtx.createOscillator();
             const aGain = audioCtx.createGain();
             aOsc.setPeriodicWave(pWave);
@@ -263,8 +264,8 @@ function playDownSound() {
         filter.Q.value = 3;
         // Envelope: immediate attack, sustain through "ow", fade on "n"
         gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.20 * vol, now + 0.02);
-        gain.gain.setValueAtTime(0.16 * vol, now + 0.10);
+        gain.gain.linearRampToValueAtTime(0.35 * vol, now + 0.02);
+        gain.gain.setValueAtTime(0.28 * vol, now + 0.10);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.30);
         osc.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
         osc.start(now); osc.stop(now + 0.31);
@@ -283,7 +284,7 @@ function playFootstepSound(right) {
         // Right foot slightly higher than left to create L/R alternation
         osc.frequency.setValueAtTime(right ? 230 : 175, now);
         osc.frequency.exponentialRampToValueAtTime(right ? 130 : 100, now + 0.045);
-        gain.gain.setValueAtTime(0.065 * vol, now);
+        gain.gain.setValueAtTime(0.12 * vol, now);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
@@ -300,7 +301,7 @@ function playCollectSound() {
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(800, audioCtx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.08);
-        gain.gain.setValueAtTime(0.1 * vol, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.2 * vol, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01 * vol, audioCtx.currentTime + 0.08);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
@@ -317,7 +318,7 @@ function playGoldenSound() {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.frequency.setValueAtTime(freq, now + i * 0.05);
-            gain.gain.setValueAtTime(0.1 * vol, now + i * 0.05);
+            gain.gain.setValueAtTime(0.2 * vol, now + i * 0.05);
             gain.gain.exponentialRampToValueAtTime(0.01 * vol, now + i * 0.05 + 0.1);
             osc.connect(gain); gain.connect(audioCtx.destination);
             osc.start(now + i * 0.05); osc.stop(now + i * 0.05 + 0.1);
@@ -334,7 +335,7 @@ function playHitSound() {
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(150, audioCtx.currentTime);
         osc.frequency.linearRampToValueAtTime(40, audioCtx.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.2 * vol, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.35 * vol, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01 * vol, audioCtx.currentTime + 0.2);
         osc.connect(gain); gain.connect(audioCtx.destination);
         osc.start(); osc.stop(audioCtx.currentTime + 0.2);
@@ -350,7 +351,7 @@ function playStartSound() {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.frequency.setValueAtTime(freq, now + i * 0.08);
-            gain.gain.setValueAtTime(0.1 * vol, now + i * 0.08);
+            gain.gain.setValueAtTime(0.2 * vol, now + i * 0.08);
             gain.gain.exponentialRampToValueAtTime(0.01 * vol, now + i * 0.08 + 0.1);
             osc.connect(gain); gain.connect(audioCtx.destination);
             osc.start(now + i * 0.08); osc.stop(now + i * 0.08 + 0.1);

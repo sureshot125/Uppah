@@ -635,42 +635,74 @@ function flashMsg(msg, color) {
     speedFlash._t = setTimeout(() => speedFlash.style.opacity = 0, 900);
 }
 
+// Returns true if two axis-aligned rects overlap (with an optional margin)
+function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh, margin) {
+    margin = margin || 0;
+    return ax - margin < bx + bw &&
+           ax + aw + margin > bx &&
+           ay - ah - margin < by &&   // ay/by are bottom-edge (foot-anchored)
+           ay + margin > by - bh;
+}
+
+// Returns true if candidate coin (cx, cy, cw, ch) would overlap any existing obstacle or coin
+function coinOverlapsExisting(cx, cy, cw, ch) {
+    const margin = 4 * SCALE; // small safety gap so coins don't kiss obstacle edges
+    for (const o of obstacles) {
+        if (o.hit) continue;
+        if (rectsOverlap(cx, cy, cw, ch, o.x, o.y, o.w, o.h, margin)) return true;
+    }
+    return false;
+}
+
 // Intent-driven coin helper
-// intent: 'jump' = arc coins above ground; 'duck' = ground-level train; 'free' = scattered ground coins
+// intent: 'jump'  = arc coins high above ground (must jump to collect)
+//         'duck'  = sparse ground train (run/duck through)
+//         'free'  = single easy ground coin (breather gap)
 function spawnCoins(startX, intent) {
+    // ── Golden BallBall (7% chance) — always mid-air ──────────────────────
     if (Math.random() < 0.07) {
-        // Golden BallBall — always mid-air (must jump to collect)
         const goldY = GROUND_Y - 28 * SCALE;
-        obstacles.push({ type:'golden', x:startX, y:goldY,
-            w:18*SCALE, h:18*SCALE, hit:false, layer:'coin' });
+        const gw = 18*SCALE, gh = 18*SCALE;
+        if (!coinOverlapsExisting(startX, goldY, gw, gh)) {
+            obstacles.push({ type:'golden', x:startX, y:goldY,
+                             w:gw, h:gh, hit:false, layer:'coin' });
+        }
         return;
     }
+
+    // Build a candidate list then filter out any that collide ────────────
+    const candidates = [];
+
     if (intent === 'jump') {
-        // Arc of coins at jump-peak height — reward for clearing the obstacle
-        const count = 2 + Math.floor(Math.random() * 2);
+        // High arc — near jump-peak height so the player must leave the ground
+        const count = 1 + Math.floor(Math.random() * 2); // 1–2 coins
         for (let i = 0; i < count; i++) {
-            obstacles.push({ type:'ballball',
-                x: startX + i * 20*SCALE,
-                y: GROUND_Y - (18 + i*3)*SCALE,
-                w:16*SCALE, h:16*SCALE, hit:false, layer:'coin' });
+            candidates.push({
+                x: startX + i * 24*SCALE,
+                y: GROUND_Y - (26 + i*4)*SCALE,
+                w: 16*SCALE, h: 16*SCALE
+            });
         }
     } else if (intent === 'duck') {
-        // Ground-level train — collectible while ducking past
-        const count = 2 + Math.floor(Math.random() * 3);
+        // Sparse ground train — fewer + wider spacing prevents visual pile-ups
+        const count = 1 + Math.floor(Math.random() * 2); // 1–2 coins
         for (let i = 0; i < count; i++) {
-            obstacles.push({ type:'ballball',
-                x: startX + i * 18*SCALE,
+            candidates.push({
+                x: startX + i * 28*SCALE,  // wide spacing (was 18)
                 y: GROUND_Y,
-                w:16*SCALE, h:16*SCALE, hit:false, layer:'coin' });
+                w: 16*SCALE, h: 16*SCALE
+            });
         }
     } else {
-        // Breather / free: 1–2 easy ground coins
-        const count = 1 + Math.floor(Math.random() * 2);
-        for (let i = 0; i < count; i++) {
-            obstacles.push({ type:'ballball',
-                x: startX + i * 22*SCALE,
-                y: GROUND_Y,
-                w:16*SCALE, h:16*SCALE, hit:false, layer:'coin' });
+        // Breather / free — just 1 ground coin
+        candidates.push({ x: startX, y: GROUND_Y, w: 16*SCALE, h: 16*SCALE });
+    }
+
+    // Push only non-overlapping candidates
+    for (const c of candidates) {
+        if (!coinOverlapsExisting(c.x, c.y, c.w, c.h)) {
+            obstacles.push({ type:'ballball', x:c.x, y:c.y,
+                             w:c.w, h:c.h, hit:false, layer:'coin' });
         }
     }
 }

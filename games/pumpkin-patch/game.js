@@ -107,15 +107,13 @@ const PUMPKIN_SPECS = {
     pumpkin_orange_s: { w: 15, h: 11 },
     pumpkin_golden:   { w: 22, h: 16 },
 };
+// Pumpkins lying on the path when a round starts. Once they're used up, pumpkins come from the
+// vines (and from anything that falls off the tower: BOOMed pumpkins are spent).
 const LAYOUT = [
     { key: 'pumpkin_orange_m', x: 420 },
-    { key: 'pumpkin_gold_s',   x: 520 },
-    { key: 'pumpkin_green_m',  x: 640 },
     { key: 'pumpkin_deep_xl',  x: 800 },
     { key: 'pumpkin_white_m',  x: 1110 },
-    { key: 'pumpkin_orange_s', x: 1220 },
     { key: 'pumpkin_orange_l', x: 1345 },
-    { key: 'pumpkin_warty_s',  x: 1470 },
     { key: 'pumpkin_gold_s',   x: 1570 },
 ];
 // What a MORE! batch is drawn from (repeats = more likely)
@@ -126,8 +124,11 @@ const MORE_POOL = [
 const MORE_BATCH = 5;
 
 // ── Growing patch: pumpkins grow in two lanes of the vine rows behind the path ──
-// Tap a ripe one and Ansel (in his straw hat) wades in, tugs it off the vine and
-// carries it back; tap an unripe one and he waters it so it grows.
+// Plants sprout and grow to a green, unripe pumpkin on their own, then wait for water (left
+// alone, an unripe one ripens only slowly).
+// Tap a ripe one and Ansel (in his straw hat) wades in, tugs it off the vine and carries
+// it back; tap a sprout or an unripe one and he waters it, it ripens in front of him, and
+// he picks it and carries it back in the same trip.
 // Gigi's visit: she stands between the two vine rows (the front row hides her feet), at
 // roughly Ansel's height, and jogs rather than sprints.
 const GIGI = { y: 1962, depth: 5, scale: 0.55, speed: 250 };
@@ -140,7 +141,11 @@ const GROW_SPOTS = [
     { lane: 0, x: 1430 }, { lane: 0, x: 1660 },
     { lane: 1, x: 450 }, { lane: 1, x: 700 }, { lane: 1, x: 1290 }, { lane: 1, x: 1545 },
 ];
-const GROW = { sproutDelay: [4, 8], stageTime: [9, 14], goldenChance: 0.06 };
+// sproutDelay: seconds from a pick to a new sprout; stageTime: sprout to unripe; ripenTime:
+// unripe to ripe without water (slow, so most vine pumpkins get watered; null = only water
+// ripens one); start: each spot's stage when a round begins (0 bare, 1 sprout, 2 unripe, 3 ripe).
+const GROW = { sproutDelay: [4, 8], stageTime: [9, 14], ripenTime: [30, 50], goldenChance: 0.06,
+    start: [2, 1, 3, 2, 1, 2, 2, 1, 3, 2] };
 const PILES = [
     { key: 'leafpile_b', x: 262,  hides: 'pumpkin_orange_s' },
     { key: 'leafpile_a', x: 1695, hides: 'pumpkin_orange_m' },
@@ -212,12 +217,12 @@ const HEFT = {
 // amp/speed: hover sway half-width (px) and glide speed (px/s); perfect: snap zone (px);
 // wind: gust strength (plus RULES.duskWind toward sunset); gap: calm seconds between gusts.
 const STAGES = [
-    { at: 0,  name: 'CALM',   amp: 34,  speed: 135, perfect: 22, wind: 0.2,  gap: [7, 10] },
-    { at: 4,  name: 'BREEZY', amp: 42,  speed: 150, perfect: 12, wind: 0.35, gap: [7, 10] },
-    { at: 8,  name: 'WINDY',  amp: 56,  speed: 175, perfect: 10, wind: 0.5,  gap: [5, 8] },
-    { at: 13, name: 'GUSTY',  amp: 72,  speed: 205, perfect: 9,  wind: 0.65, gap: [4, 7] },
-    { at: 20, name: 'STORMY', amp: 90,  speed: 235, perfect: 8,  wind: 0.8,  gap: [3.5, 6] },
-    { at: 30, name: 'WILD WIND', amp: 104, speed: 265, perfect: 7, wind: 1,  gap: [3, 5] },
+    { at: 0,  name: 'CALM',   amp: 34,  speed: 145, perfect: 22, wind: 0.2,  gap: [7, 10] },
+    { at: 4,  name: 'BREEZY', amp: 42,  speed: 170, perfect: 12, wind: 0.35, gap: [7, 10] },
+    { at: 8,  name: 'WINDY',  amp: 56,  speed: 195, perfect: 10, wind: 0.5,  gap: [5, 8] },
+    { at: 13, name: 'GUSTY',  amp: 72,  speed: 220, perfect: 9,  wind: 0.65, gap: [4, 7] },
+    { at: 20, name: 'STORMY', amp: 90,  speed: 245, perfect: 8,  wind: 0.8,  gap: [3.5, 6] },
+    { at: 30, name: 'WILD WIND', amp: 104, speed: 270, perfect: 7, wind: 1,  gap: [3, 5] },
 ];
 
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -420,6 +425,16 @@ const DESKTOP = (() => {
 const MUTE_KEY = 'uppah.pumpkinpatch.muted';
 const BOOM_HOLD = 0.5; // seconds B must be held: a stray key press never sets off a BOOM
 const LIFE_SCALE = 0.72; // the pumpkin-life icons in the HUD
+
+// Calm: the patch should feel peaceful. Every burst of sparkles, leaves or dust is a fraction of
+// what the effect asks for, nothing shakes or flashes the screen, and text fades in instead of
+// bouncing.
+const FX_SCALE = 0.3;
+function calmFx(em) {
+    const explode = em.explode.bind(em);
+    em.explode = (n, x, y) => explode(Math.max(1, Math.round((n || 1) * FX_SCALE)), x, y);
+    return em;
+}
 
 // A broad touch (a resting palm, the side of a hand) is not a tap.
 function isPalm(p) {
@@ -886,6 +901,7 @@ class PatchScene extends Phaser.Scene {
         this.load.spritesheet('giraffe', ART + 'giraffe.png', { frameWidth: 224, frameHeight: 352 });
         // windsock art (make_art.py)
         this.load.spritesheet('windsock', ART + 'windsock.png', { frameWidth: 136, frameHeight: 288 });
+        this.htpPreload(); // how to play
     }
 
     create() {
@@ -927,28 +943,27 @@ class PatchScene extends Phaser.Scene {
         this.hayBody = this.matter.add.rectangle(HAY_X, GROUND - HAY_H / 2, HAY_W, HAY_H,
             { ...solid, label: 'hay' });
         this.hayImg = this.add.image(HAY_X, GROUND + 4, 'haybale').setOrigin(0.5, 1).setDepth(8);
-        // BOOM lives on the bale: a little wooden sign hangs on its front when there's a tower to
-        // bank; tap the bale (or the tower) and Ansel gives it a big shove
-        // (the sign hangs from its top edge so it can grow when the camera pulls back)
-        this.baleSign = this.add.container(HAY_X, HAY_TOP + 34).setDepth(21.5).setVisible(false);
+        // BOOM lives at the bale: when there's a tower to bank, a little wooden plank is propped
+        // against the bale's foot, down on the path, so the whole bale stays in view. It hangs from
+        // its top edge, so when the camera pulls back it grows down into the dirt, never over the bale.
+        this.baleSign = this.add.container(HAY_X, GROUND - 2).setDepth(21.5).setVisible(false);
         this.baleSignInner = this.add.container(0, 0);
-        const SIGN_W = 164, SIGN_H = 76; // narrower than the bale, hung low so its top shows
+        const SIGN_W = 150, SIGN_H = 60;
         const signBoard = this.add.nineslice(0, SIGN_H / 2, 'panel', null, SIGN_W, SIGN_H, 20, 20, 20, 20);
-        this.baleSignTitle = this.add.text(0, SIGN_H / 2 - 13, 'BOOM!', {
-            fontFamily: FONT, fontSize: '24px', color: '#ff9a3a', stroke: INK, strokeThickness: 7,
+        this.baleSignTitle = this.add.text(0, SIGN_H / 2 - 12, 'BOOM!', {
+            fontFamily: FONT, fontSize: '22px', color: '#ff9a3a', stroke: INK, strokeThickness: 7,
         }).setOrigin(0.5);
-        this.baleSignValue = this.add.text(0, SIGN_H / 2 + 14, '', {
-            fontFamily: FONT, fontSize: '20px', color: '#ffd35a', stroke: INK, strokeThickness: 6,
+        this.baleSignValue = this.add.text(0, SIGN_H / 2 + 13, '', {
+            fontFamily: FONT, fontSize: '18px', color: '#ffd35a', stroke: INK, strokeThickness: 6,
         }).setOrigin(0.5);
         // fills while B is held
-        this.boomFillBg = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 9, SIGN_W - 32, 8, 0x2b1810).setOrigin(0, 0.5).setVisible(false);
-        this.boomFill = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 9, SIGN_W - 32, 8, 0xff9a3a).setOrigin(0, 0.5).setVisible(false);
+        this.boomFillBg = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 7, SIGN_W - 32, 6, 0x2b1810).setOrigin(0, 0.5).setVisible(false);
+        this.boomFill = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 7, SIGN_W - 32, 6, 0xff9a3a).setOrigin(0, 0.5).setVisible(false);
         this.baleSignInner.add([signBoard, this.baleSignTitle, this.baleSignValue, this.boomFillBg, this.boomFill]);
         this.baleSign.add(this.baleSignInner);
         this.signSize = { w: SIGN_W, h: SIGN_H };
         this.boomHold = 0; this.boomLatch = false;
         this.baleSignOn = false;
-        this.baleShimmyT = 0;
         this.add.image(HAY_X, GROUND + 4, 'shadow').setScale(1.35, 1).setDepth(7);
 
         // Leaf piles (each hides one pumpkin the first time Ansel dives in)
@@ -1015,34 +1030,34 @@ class PatchScene extends Phaser.Scene {
             rotate: { start: 0, end: 540 }, scale: { min: 0.7, max: 1.1 },
             frequency: 260, quantity: 1,
         }).setDepth(30);
-        this.burst = this.add.particles(0, 0, 'leaves', {
+        this.burst = calmFx(this.add.particles(0, 0, 'leaves', {
             frame: [0, 1, 2, 3, 4, 5, 6, 7],
-            lifespan: { min: 1400, max: 2600 },
-            speedX: { min: -300, max: 300 }, speedY: { min: -620, max: -240 },
-            gravityY: 520, rotate: { start: 0, end: 720 }, scale: { min: 0.9, max: 1.3 },
+            lifespan: { min: 1400, max: 2400 },
+            speedX: { min: -150, max: 150 }, speedY: { min: -360, max: -160 },
+            gravityY: 360, rotate: { start: 0, end: 360 }, scale: { min: 0.9, max: 1.2 },
             emitting: false,
-        }).setDepth(31);
+        })).setDepth(31);
         // Leaves shaken loose from the tree line flutter down
-        this.treeLeaves = this.add.particles(0, 0, 'leaves', {
+        this.treeLeaves = calmFx(this.add.particles(0, 0, 'leaves', {
             frame: [0, 1, 2, 3, 4, 5, 6, 7],
             lifespan: { min: 2200, max: 3400 }, speedX: { min: -70, max: 70 }, speedY: { min: 30, max: 110 },
             gravityY: 40, rotate: { start: 0, end: 360 }, scale: { min: 0.9, max: 1.3 }, emitting: false,
-        }).setDepth(30);
+        })).setDepth(30);
         // Dust kicked up by landings and footsteps
-        this.dust = this.add.particles(0, 0, 'dust', {
-            lifespan: { min: 350, max: 600 }, speedX: { min: -140, max: 140 }, speedY: { min: -90, max: -10 },
-            gravityY: 120, scale: { start: 1.2, end: 0.2 }, alpha: { start: 1, end: 0 }, emitting: false,
-        }).setDepth(32);
-        // A little puff wherever a finger lands, so every tap does something
-        this.poof = this.add.particles(0, 0, 'dust', {
-            lifespan: 380, speed: { min: 70, max: 170 }, angle: { min: 0, max: 360 },
-            scale: { start: 1, end: 0 }, alpha: { start: 0.9, end: 0 }, emitting: false,
-        }).setDepth(65);
+        this.dust = calmFx(this.add.particles(0, 0, 'dust', {
+            lifespan: { min: 350, max: 600 }, speedX: { min: -90, max: 90 }, speedY: { min: -60, max: -10 },
+            gravityY: 120, scale: { start: 1.1, end: 0.2 }, alpha: { start: 0.8, end: 0 }, emitting: false,
+        })).setDepth(32);
+        // A soft little puff where a finger lands
+        this.poof = calmFx(this.add.particles(0, 0, 'dust', {
+            lifespan: 320, speed: { min: 25, max: 70 }, angle: { min: 0, max: 360 },
+            scale: { start: 0.8, end: 0 }, alpha: { start: 0.5, end: 0 }, emitting: false,
+        })).setDepth(65);
         // Sparkles for perfect drops and the bunny
-        this.sparkles = this.add.particles(0, 0, 'sparkle', {
-            lifespan: { min: 450, max: 800 }, speed: { min: 90, max: 280 }, angle: { min: 0, max: 360 },
-            scale: { start: 1.3, end: 0 }, rotate: { start: 0, end: 180 }, emitting: false,
-        }).setDepth(63);
+        this.sparkles = calmFx(this.add.particles(0, 0, 'sparkle', {
+            lifespan: { min: 500, max: 900 }, speed: { min: 40, max: 140 }, angle: { min: 0, max: 360 },
+            scale: { start: 1.1, end: 0 }, rotate: { start: 0, end: 90 }, emitting: false,
+        })).setDepth(63);
 
         // Gigi cameo actor
         // Gigi visits from the back of the patch, between the vine rows: small enough to be part of the
@@ -1372,10 +1387,11 @@ class PatchScene extends Phaser.Scene {
             onComplete: () => { a.jumpY = 0; } });
     }
 
-    // Is there anything left to pick up (not counting pumpkins still hidden in leaves)?
+    // Is there anything left to fetch: a pumpkin on the path, or a vine pumpkin to pick or water
+    // (not counting pumpkins still hidden in leaves)?
     anyLoose() {
-        return this.items.some(it => it.body && it.state !== 'tower' && it.state !== 'hidden') ||
-            (this.spots || []).some(sp => sp.stage >= 3 && !sp.busy);
+        return this.items.some(it => it.body && it.state !== 'tower' && it.state !== 'hidden' && it.state !== 'spent') ||
+            (this.spots || []).some(sp => sp.stage >= 1 && !sp.busy);
     }
 
     more() {
@@ -1385,13 +1401,14 @@ class PatchScene extends Phaser.Scene {
         this.setPose('cheer');
         Sfx.more();
         this.say('MORE!', 1300, true);
-        // the whole patch grows: every spot comes up a stage, rippling out from Ansel
+        // the whole patch grows a stage or two, rippling out from Ansel, but never past unripe:
+        // only water ripens a pumpkin
         const order = [...this.spots].sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x));
         order.forEach((sp, i) => {
             this.time.delayedCall(250 + i * 110, () => {
                 if (sp.busy) return;
-                this.growSpot(sp);
-                if (sp.stage < 3 && i % 2 === 0) this.growSpot(sp);
+                if (sp.stage < 2) this.growSpot(sp);
+                if (sp.stage < 2 && i % 2 === 0) this.growSpot(sp);
             });
         });
         // and tuck a new surprise into any leaf pile that's empty
@@ -1430,7 +1447,7 @@ class PatchScene extends Phaser.Scene {
     pumpkinAt(wx, wy) {
         let best = null, bd = 1e9;
         for (const it of this.items) {
-            if (!it.body || it.state === 'tower' || it.state === 'hidden') continue;
+            if (!it.body || it.state === 'tower' || it.state === 'hidden' || it.state === 'spent') continue;
             const d = Phaser.Math.Distance.Between(wx, wy, it.body.position.x, it.body.position.y);
             const r = Math.max(it.bw, it.bh) / 2 + 40;
             if (d < r && d < bd) { best = it; bd = d; }
@@ -1540,7 +1557,7 @@ class PatchScene extends Phaser.Scene {
         this.spots.forEach((sp, i) => {
             if (sp.img) { this.tweens.killTweensOf(sp.img); sp.img.destroy(); }
             Object.assign(sp, { stage: 0, t: 0, img: null, key: null, golden: false, busy: false });
-            const start = [3, 2, 3, 1, 2, 3, 2, 1, 3, 2][i % 10];
+            const start = GROW.start[i % GROW.start.length];
             for (let k = 0; k < start; k++) this.growSpot(sp, false);
         });
     }
@@ -1559,7 +1576,9 @@ class PatchScene extends Phaser.Scene {
         }
         if (!sp.img) sp.img = this.add.image(sp.x, lane.y + 6, key).setOrigin(0.5, 1).setDepth(lane.depth);
         sp.img.setTexture(key).setScale(scale).setAngle(0);
-        sp.t = Phaser.Math.FloatBetween(...GROW.stageTime);
+        // an unripe pumpkin waits for water (or, if GROW.ripenTime is set, ripens slowly by itself)
+        sp.t = sp.stage === 2 ? (GROW.ripenTime ? Phaser.Math.FloatBetween(...GROW.ripenTime) : Infinity)
+            : Phaser.Math.FloatBetween(...GROW.stageTime);
         if (fx) {
             sp.img.setScale(scale * 0.5);
             this.tweens.add({ targets: sp.img, scale, duration: 260, ease: 'Back.Out' });
@@ -1691,7 +1710,7 @@ class PatchScene extends Phaser.Scene {
                 this.say('NNNGH!', 900);
                 this.holdPose(it, 'heave', 110);
                 this.time.delayedCall(130, lift);
-                this.cameras.main.shake(110, 0.003);
+                this.cameras.main.shake(90, 0.001);
             } else {
                 lift();
             }
@@ -1699,7 +1718,8 @@ class PatchScene extends Phaser.Scene {
     }
 
     // The 12-frame watering animation (the can and the drops are in the frames). The plant
-    // grows on the pour, all the way to a ripe pumpkin, so one trip with the can pays off.
+    // grows on the pour, all the way to a ripe pumpkin, and he picks it and carries it back
+    // in the same trip.
     waterSpot(sp, lane) {
         const a = this.ansel;
         const step = 85;
@@ -1711,6 +1731,7 @@ class PatchScene extends Phaser.Scene {
             this.say(sp.stage >= 3 ? (sp.golden ? 'GOLDEN!' : 'PUMPKIN!') : 'GROW!', 900);
         });
         this.time.delayedCall(12 * step, () => {
+            if (sp.stage >= 3 && sp.img) { this.pickFromVine(sp, lane); return; }
             sp.busy = false;
             this.setPose('run');
             this.leaveLane(false, () => { a.busy = false; });
@@ -1888,7 +1909,7 @@ class PatchScene extends Phaser.Scene {
                 this.dust.explode(Math.min(10, 3 + Math.round(rv)), c ? c.x : it.body.position.x,
                     c ? c.y : it.body.bounds.max.y);
                 this.tweens.add({ targets: it.img, scaleX: 1.12, scaleY: 0.88, duration: 70, yoyo: true });
-                if (it.heavy && rv > 6) this.cameras.main.shake(120, 0.004);
+                if (it.heavy && rv > 6 && !it.blown) this.cameras.main.shake(90, 0.0012); // a BOOM never shakes
             }
         }
     }
@@ -1965,7 +1986,7 @@ class PatchScene extends Phaser.Scene {
             a.carrying.img.x = p.x;
             a.carrying.img.y = p.y + idleBob - a.jumpY;
             a.carrying.img.angle = a.moving ? Math.sin(time / 120) * 2 : 0;
-            if (a.carrying.golden && Math.random() < 0.15) {
+            if (a.carrying.golden && Math.random() < 0.04) {
                 this.sparkles.explode(1, a.carrying.img.x + Phaser.Math.Between(-30, 30), a.carrying.img.y);
             }
         }
@@ -2025,7 +2046,10 @@ class PatchScene extends Phaser.Scene {
                 // things that fell (off the stack, out of a leaf pile, out of the sky) are loose again
                 if (it.state === 'falling') it.state = 'ground';
                 it.fromDrop = false;
+                it.blown = false;
             }
+            // a BOOMed pumpkin has been banked: once it lands (or after a while), it fades away
+            if (it.state === 'spent' && (it.settleT > 0.35 || it.airT > 3)) { this.fadeSpent(it); continue; }
             if (it.settleT > 0.45 && it.state === 'ground' && it.body.bounds.max.y < HAY_TOP + 20 &&
                 Math.abs(it.body.position.x - HAY_X) < HAY_W / 2 + 10) {
                 const side = it.body.position.x < HAY_X ? -1 : 1;
@@ -2214,6 +2238,7 @@ class PatchScene extends Phaser.Scene {
             st.sway.x = 0; st.sway.v = 0; st.tip.tipT = 0; st.danger = 0;
         }
         if (this.ui && this.ui.ready) this.ui.newRound();
+        if (this.ui && this.ui.htpRoundStarted) this.ui.htpRoundStarted(); // how to play
     }
 
     // Tap-to-retry from the end card: a fresh patch and empty bales.
@@ -2370,27 +2395,26 @@ class PatchScene extends Phaser.Scene {
         const v = value ? '+' + value : '';
         if (v !== this.baleSignValue.text) this.baleSignValue.setText(v);
         const H = this.signSize.h;
-        this.baleSignTitle.setY(v ? H / 2 - 13 : H / 2);
+        this.baleSignTitle.setY(v ? H / 2 - 12 : H / 2);
         // keep the words readable when the camera pulls back for a tall tower
-        this.baleSignInner.setScale(Phaser.Math.Clamp(0.9 / (this.camZoom || 1), 1, 1.5));
+        this.baleSignInner.setScale(Phaser.Math.Clamp(0.9 / (this.camZoom || 1), 1, 1.3));
         if (avail !== this.baleSignOn) {
             this.baleSignOn = avail;
             this.tweens.killTweensOf(sign);
             if (avail) {
-                sign.setVisible(true).setScale(0.2).setAngle(0);
-                this.tweens.add({ targets: sign, scale: 1, duration: 320, ease: 'Back.Out' });
-                this.baleShimmyT = 1.2;
+                sign.setVisible(true).setScale(1).setAngle(0).setAlpha(0);
+                this.tweens.add({ targets: sign, alpha: 1, duration: 400, ease: 'Sine.Out' });
+                this.baleSwayT = 2;
             } else {
                 sign.setVisible(false);
             }
         }
         if (!avail) return;
-        this.baleShimmyT -= dt * (1 + 2 * (danger || 0));
-        if (this.baleShimmyT <= 0) {
-            this.baleShimmyT = 3.2;
-            this.tweens.add({ targets: sign, angle: { from: -5, to: 5 }, duration: 90, yoyo: true, repeat: 2,
+        this.baleSwayT = (this.baleSwayT ?? 2) - dt * (1 + (danger || 0));
+        if (this.baleSwayT <= 0) {
+            this.baleSwayT = 6;
+            this.tweens.add({ targets: sign, angle: { from: -1.5, to: 1.5 }, duration: 700, yoyo: true, ease: 'Sine.InOut',
                 onComplete: () => sign.setAngle(0) });
-            this.tweens.add({ targets: this.hayImg, scaleX: 1.04, scaleY: 0.96, duration: 90, yoyo: true, repeat: 1 });
         }
     }
 
@@ -2440,7 +2464,6 @@ class PatchScene extends Phaser.Scene {
     // The tower goes flying (no lives lost: it was on purpose) and the pumpkins land in the patch.
     blowUp(stack) {
         Sfx.boom();
-        this.cameras.main.shake(380, 0.012);
         this.burst.explode(40, stack.x, stack.topY);
         const dirAway = this.ansel.x < stack.x ? 1 : -1;
         for (const it of stack.items) {
@@ -2450,7 +2473,8 @@ class PatchScene extends Phaser.Scene {
             MB().setVelocity(it.body, { x: dirAway * (6 + Math.random() * 7) + (Math.random() - 0.5) * 8,
                                         y: -6 - Math.random() * 7 - k });
             MB().setAngularVelocity(it.body, (Math.random() - 0.5) * 0.3);
-            it.state = 'falling';
+            it.state = 'spent'; // banked: it fades away once it lands, it doesn't go back on the path
+            it.blown = true;
             it.airT = 0;
             it.pts = 0;
             it.rock = null;
@@ -2620,7 +2644,7 @@ class PatchScene extends Phaser.Scene {
         if (sup) {
             const sq = Math.min(0.24, 0.05 * ratio);
             this.tweens.add({ targets: sup.img, scaleX: 1 + sq * 0.8, scaleY: 1 - sq, duration: 90 + 20 * Math.min(ratio, 4), yoyo: true, ease: 'Quad.Out' });
-            if (ratio > 1.5) this.cameras.main.shake(140, Math.min(0.008, 0.0025 * ratio));
+            if (ratio > 1.5) this.cameras.main.shake(100, Math.min(0.0025, 0.0008 * ratio));
         }
         const dir = res.x >= (sup ? sup.rx : stack.x) ? 1 : -1;
         const height = stack.balance ? stack.balance.height : 0;
@@ -2699,7 +2723,7 @@ class PatchScene extends Phaser.Scene {
             this.say('UH OH!', 900);
         } else {
             Sfx.creak(pieceOf(pieces[0]).m);
-            this.time.delayedCall(220, () => { Sfx.crash(); this.cameras.main.shake(380, 0.01); });
+            this.time.delayedCall(220, () => { Sfx.crash(); this.cameras.main.shake(160, 0.003); });
             this.burst.explode(16, G.px, G.py);
             this.say('OH NO!', 1100);
         }
@@ -2743,6 +2767,19 @@ class PatchScene extends Phaser.Scene {
         }
     }
 
+    // A banked pumpkin leaves quietly: no more body, a slow fade, then it's gone.
+    fadeSpent(it) {
+        this.removeBody(it);
+        it.shadow.setVisible(false);
+        it.state = 'gone';
+        this.tweens.add({ targets: it.img, alpha: 0, duration: 900, ease: 'Sine.In', onComplete: () => {
+            it.img.destroy();
+            it.shadow.destroy();
+            const i = this.items.indexOf(it);
+            if (i >= 0) this.items.splice(i, 1);
+        } });
+    }
+
     // Let a pumpkin that was in the air fall as an ordinary physics body.
     looseDrop(it) {
         this.addBody(it, it.img.x, it.img.y, Phaser.Math.DegToRad(it.img.angle));
@@ -2753,8 +2790,8 @@ class PatchScene extends Phaser.Scene {
     popText(x, y, text, color, size) {
         const t = this.add.text(x, y, text, {
             fontFamily: FONT, fontSize: size + 'px', color, stroke: INK, strokeThickness: 8,
-        }).setOrigin(0.5, 1).setDepth(62).setScale(0.4 * this.textScale);
-        this.tweens.add({ targets: t, scale: this.textScale, duration: 200, ease: 'Back.Out' });
+        }).setOrigin(0.5, 1).setDepth(62).setScale(0.9 * this.textScale).setAlpha(0);
+        this.tweens.add({ targets: t, scale: this.textScale, alpha: 1, duration: 260, ease: 'Sine.Out' });
         this.tweens.add({ targets: t, y: y - 80 * this.textScale, alpha: 0, delay: 650, duration: 650, onComplete: () => t.destroy() });
     }
     // ── end CHALLENGE ROUND ──────────────────────────────────────────────────
@@ -2844,7 +2881,7 @@ class PatchScene extends Phaser.Scene {
         if (this.started && !this.roundOver && !this.handDone && !midDrop && !a.busy) {
             let best = null, bd = 1e9;
             for (const it of this.items) {
-                if (!it.body || it.state === 'tower' || it.state === 'hidden') continue;
+                if (!it.body || it.state === 'tower' || it.state === 'hidden' || it.state === 'spent') continue;
                 const d = Math.abs(it.body.position.x - a.x);
                 if (d > 70 && d < bd) { bd = d; best = it; }
             }
@@ -2989,6 +3026,7 @@ class UIScene extends Phaser.Scene {
         this.title.setDepth(100);
 
         this.createChallengeUI();
+        this.htpCreate(); // how to play: the card, the title's extras, pause menu buttons
 
         this.layout(this.scale.width, this.scale.height);
         this.scale.on('resize', size => {
@@ -2997,6 +3035,7 @@ class UIScene extends Phaser.Scene {
         });
 
         this.input.on('pointerdown', p => {
+            if (this.htpTap(p)) return; // how to play
             if (this.hitButton(p)) { this.toggleSound(); return; }
             if (this.hitPause(p)) { this.setPaused(!this.paused); return; }
             if (this.paused) { this.setPaused(false); return; }
@@ -3005,6 +3044,7 @@ class UIScene extends Phaser.Scene {
         });
         // M, P and Esc live here so they still work while the patch is paused
         this.input.keyboard.on('keydown', e => {
+            if (this.htpKey(e)) return; // how to play
             if (e.code === 'KeyM') this.toggleSound();
             else if (e.code === 'KeyP' || e.code === 'Escape') this.setPaused(!this.paused);
             else if (this.paused && (e.code === 'Space' || e.code === 'Enter')) this.setPaused(false);
@@ -3063,6 +3103,7 @@ class UIScene extends Phaser.Scene {
 
     startGame() {
         if (this.patch.started) return;
+        if (this.htpGate()) return; // how to play
         this.pauseBtn.setVisible(true);
         this.pauseIcon.setVisible(true);
         this.tweens.add({ targets: this.title, alpha: 0, duration: 300, onComplete: () => this.title.setVisible(false) });
@@ -3157,9 +3198,9 @@ class UIScene extends Phaser.Scene {
     }
 
     showBanner(text) {
-        this.bannerText.setText(text).setAlpha(1).setScale(0.3);
+        this.bannerText.setText(text).setAlpha(0).setScale(0.94);
         this.tweens.killTweensOf(this.bannerText);
-        this.tweens.add({ targets: this.bannerText, scale: 1, duration: 380, ease: 'Back.Out' });
+        this.tweens.add({ targets: this.bannerText, alpha: 1, scale: 1, duration: 420, ease: 'Sine.Out' });
         this.tweens.add({ targets: this.bannerText, alpha: 0, duration: 500, delay: 2200 });
     }
 
@@ -3198,11 +3239,11 @@ class UIScene extends Phaser.Scene {
         E.tower = this.add.container(0, 0); // the round's tallest tower, on a little hay bale
         E.root.add([E.shade, E.panel, E.wood, E.title, E.tower, E.hero, E.rows, E.best, E.go]);
         this.tweens.add({ targets: E.go, alpha: 0.35, duration: 600, yoyo: true, repeat: -1 });
-        this.tweens.add({ targets: E.best, scale: 1.12, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-        this.endSparkles = this.add.particles(0, 0, 'sparkle', {
-            lifespan: { min: 500, max: 900 }, speed: { min: 120, max: 320 }, angle: { min: 0, max: 360 },
-            scale: { start: 1.6, end: 0 }, rotate: { start: 0, end: 180 }, emitting: false,
-        }).setDepth(125);
+        this.tweens.add({ targets: E.best, scale: 1.05, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        this.endSparkles = calmFx(this.add.particles(0, 0, 'sparkle', {
+            lifespan: { min: 600, max: 1000 }, speed: { min: 50, max: 160 }, angle: { min: 0, max: 360 },
+            scale: { start: 1.3, end: 0 }, rotate: { start: 0, end: 90 }, emitting: false,
+        })).setDepth(125);
         this.endShown = false;
         this.endReady = false;
 
@@ -3284,8 +3325,9 @@ class UIScene extends Phaser.Scene {
             ic.setVisible(i < Math.max(RULES.lives, n));
             ic.setAlpha(on ? 1 : 0.3).setTint(on ? 0xffffff : 0x5a4a3a);
             if (lost && i === n) {
-                this.tweens.add({ targets: ic, scale: LIFE_SCALE * 1.4, duration: 90, yoyo: true, repeat: 2 });
-                this.cameras.main.flash(120, 120, 20, 10);
+                this.tweens.add({ targets: ic, scale: LIFE_SCALE * 1.25, duration: 160, yoyo: true, ease: 'Sine.InOut' });
+                const tint = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0xb03018, 0.14).setOrigin(0).setDepth(80);
+                this.tweens.add({ targets: tint, alpha: 0, duration: 380, ease: 'Sine.Out', onComplete: () => tint.destroy() });
             } else if (!lost && on && i === n - 1) {
                 this.tweens.add({ targets: ic, scale: LIFE_SCALE * 1.35, duration: 140, yoyo: true });
             }
@@ -3782,10 +3824,10 @@ const PatchEggs = {
             s.homeY = L.y;
             return s;
         });
-        this.eggSeeds = this.add.particles(0, 0, 'egg_seed', {
-            lifespan: { min: 700, max: 1200 }, speedX: { min: -340, max: 340 }, speedY: { min: -300, max: 20 },
-            gravityY: 760, rotate: { start: 0, end: 360 }, scale: { min: 0.7, max: 0.95 }, emitting: false,
-        }).setDepth(1.2);
+        this.eggSeeds = calmFx(this.add.particles(0, 0, 'egg_seed', {
+            lifespan: { min: 700, max: 1200 }, speedX: { min: -220, max: 220 }, speedY: { min: -220, max: 20 },
+            gravityY: 700, rotate: { start: 0, end: 360 }, scale: { min: 0.7, max: 0.95 }, emitting: false,
+        })).setDepth(1.2);
 
         // Sky: faces for the sun and moon, the clouds (copies, shown only while they puff), a rainbow
         this.eggRays = this.add.sprite(J.sun[0], J.sun[1], 'egg_sun_rays', 0).setDepth(0.11).setAlpha(0);
@@ -4762,10 +4804,10 @@ const UIEggs = {
             fontFamily: FONT, fontSize: '18px', color: '#ffe3a6', stroke: INK, strokeThickness: 5,
         }).setOrigin(0, 0.5);
         badge.add([bb, star, count]);
-        const fx = this.add.particles(0, 0, 'sparkle', {
-            lifespan: 500, speed: { min: 60, max: 170 }, angle: { min: 0, max: 360 },
+        const fx = calmFx(this.add.particles(0, 0, 'sparkle', {
+            lifespan: 600, speed: { min: 40, max: 120 }, angle: { min: 0, max: 360 },
             scale: { start: 1, end: 0 }, emitting: false,
-        }).setDepth(96);
+        })).setDepth(96);
         this.eggUi = { J, N, tray, bg, slots, badge, star, count, fx, shown: false, sc: 1, trayY: 14, trayH: 64, tw: 120 };
         this.eggUiCount();
         this.eggUiLayout(this.scale.width, this.scale.height);
@@ -4908,6 +4950,885 @@ const UIEggs = {
 Object.assign(PatchScene.prototype, PatchEggs);
 Object.assign(UIScene.prototype, UIEggs);
 // ═════════════════════════════════════════════════════════════ end SURPRISES ══
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HOW TO PLAY: an illustrated, skippable explainer, plus the title card's extras
+//
+// Four wooden-sign panels built from the game's own sprites, each with a little
+// looping scene: STACK 'EM UP (the goal, the landing ring, heavy at the bottom,
+// controls), DON'T LET IT FALL (pumpkin lives, wind, earning lives back), BOOM!
+// (banking the tower) and BEAT THE SUNSET (the afternoon is the clock, the last BOOM,
+// what else is in the patch). Touch players see taps; mouse-and-keyboard players
+// (DESKTOP) see keycaps. NEXT / BACK / SKIP buttons, swipes, a tap on the card, the
+// page pumpkins and the keyboard (→ Space Enter: next, ←: back, Esc: skip) all work.
+// It opens by itself after the title tap until the player has started HTP_AUTO rounds
+// (counted in localStorage), from the title's "?" button (or ? / H) any time, and from
+// the pause menu (which also gets a HOME button).
+// Title extras: the flat dark shade becomes stepped bands so the live patch shows
+// through, the round's HUD stays off the title, a best-score line, and "?" and HOME
+// (back to the Uppah home page) buttons; the sound button sits above the shade.
+// Self-contained: UIScene's tap and key handlers ask htpTap() / htpKey() first.
+// One-line hooks elsewhere are marked "how to play".
+// Art: make_art.py (how to play section) writes keys.png, key_wide.png, icon_home.png.
+// ═════════════════════════════════════════════════════════════════════════════
+const HTP_SAVE = 'uppah.pumpkinpatch.rounds'; // rounds started, ever
+const HTP_AUTO = 3;                            // the card opens by itself until this many rounds
+// the Uppah home page; a page that hosts the game on its own sets window.UPPAH_HOME = null
+// (no home to go to), which hides the HOME buttons
+const HTP_HOME = window.UPPAH_HOME === undefined ? '../../' : window.UPPAH_HOME;
+const HTP_COL = { cream: '#fff6e0', gold: '#ffd35a', orange: '#ff9a3a', red: '#ff6a4a', ink: 0x1b130d };
+// Windows onto the patch for the illustrations (world px): close up for the tower
+// panels, wider for the afternoon (it shows the sun).
+const HTP_NEAR = { x: 630, y: 1560, w: 660, h: 600 };
+const HTP_WIDE = { x: 1040, y: 1360, w: 880, h: 800 };
+
+function htpRounds() {
+    try { return parseInt(localStorage.getItem(HTP_SAVE), 10) || 0; } catch (e) { return 0; }
+}
+function htpTxt(size, color, stroke) {
+    return { fontFamily: FONT, fontSize: size + 'px', color, stroke: INK, strokeThickness: stroke };
+}
+// His standing frame for menus and the how-to (never the toss / holding frame there).
+function htpHero() { return ANSEL_POSES.hero || ANSEL_POSES.stand; }
+
+// Rows: { p, c } a paragraph (c: colour name); { ic, t } an icon and its text.
+// touch / desk rows only show for that kind of player. Icons: { img, f, s, tint, n }
+// a sprite (n copies); { keys: [...] } keycaps ('left' 'right' 'up' 'down', 'SPACE',
+// or a letter); { bubble: text } a speech bubble.
+const HTP_PAGES = [
+    { title: "STACK 'EM UP", art: 'htpArtStack', rows: [
+        { p: 'PICK UP PUMPKINS AND STACK THEM ON THE HAY BALE, AS TALL AS YOU DARE.' },
+        { ic: { img: 'target', s: 0.7 }, t: 'THE RING MARKS THE LANDING.' },
+        { ic: { img: 'pumpkin_deep_xl', s: 0.6 }, t: 'HEAVY ONES MAKE A STEADY BASE.' },
+        { touch: true, ic: { img: 'hand' }, t: 'TAP A PUMPKIN TO PICK IT UP.' },
+        { touch: true, ic: { img: 'hand' }, t: 'TAP AGAIN TO DROP IT.' },
+        { desk: true, ic: { keys: ['left', 'right'] }, t: 'WALK (A, D)' },
+        { desk: true, ic: { keys: ['down'] }, t: 'PICK UP (S)' },
+        { desk: true, ic: { keys: ['SPACE'] }, t: 'LIFT, DROP (↑, W)' },
+    ] },
+    { title: "DON'T LET IT FALL", art: 'htpArtFall', rows: [
+        { p: 'A PUMPKIN THAT ROLLS OR FALLS OFF THE TOWER COSTS A PUMPKIN LIFE.' },
+        { ic: { img: 'windsock', f: 6, s: 0.3 }, t: 'GUSTS PUSH THE PUMPKIN AND TIP CROOKED TOWERS.' },
+        { p: 'START WITH 3. EARN UP TO 5:', c: 'gold' },
+        { ic: { img: 'sparkle', n: 3 }, t: '3 PERFECT DROPS IN A ROW' },
+        { ic: { img: 'haybale', s: 0.5 }, t: 'BOOM A TALL TOWER' },
+        { ic: { img: 'egg_cloud_2', s: 0.6 }, t: 'REACH NEW HEIGHTS' },
+        { ic: { img: 'pumpkin_golden', s: 0.6 }, t: 'GOLDEN PUMPKINS' },
+    ] },
+    { title: 'BOOM!', art: 'htpArtBoom', rows: [
+        { p: 'ONCE THE TOWER IS 3 TALL, A BOOM SIGN SHOWS UP AT THE FOOT OF THE BALE.' },
+        { p: "BOOM BANKS THE TOWER'S POINTS AND KNOCKS IT DOWN. TALLER TOWER, BIGGER BONUS." },
+        { p: 'IF IT FALLS FIRST, THOSE POINTS ARE LOST.', c: 'orange' },
+        { p: 'ONE MORE, OR CASH IN NOW?', c: 'gold' },
+        { touch: true, ic: { img: 'hand' }, t: 'TAP THE BALE TO BOOM.' },
+        { desk: true, ic: { keys: ['B'] }, t: 'HOLD B TO BOOM, OR CLICK THE BALE.' },
+    ] },
+    { title: 'BEAT THE SUNSET', art: 'htpArtDay', rows: [
+        { p: 'A ROUND IS ONE AFTERNOON: GOLD, THEN DUSK.' },
+        { p: "AT SUNSET, OR WHEN YOUR LIVES RUN OUT, ANSEL BOOMS WHAT'S STILL STANDING.", c: 'gold' },
+        { ic: { img: 'pumpkin_unripe', s: 0.75 }, t: 'PUMPKINS GROW IN THE VINES. TAP A GREEN ONE TO WATER IT.' },
+        { ic: { img: 'leafpile_a', s: 0.55 }, t: 'LEAF PILES HIDE SOME. NOTHING LEFT? TAP: MORE!' },
+        { ic: { img: 'sparkle', n: 2 }, t: 'TAP THE SCENERY, TOO.' },
+        { desk: true, ic: { keys: ['P', 'M'] }, t: 'PAUSE, MUTE' },
+    ] },
+];
+
+// ── loading (PatchScene) ─────────────────────────────────────────────────────
+const PatchHtp = {
+    htpPreload() {
+        this.load.spritesheet('keys', ART + 'keys.png', { frameWidth: 52, frameHeight: 52 });
+        this.load.image('key_wide', ART + 'key_wide.png');
+        this.load.image('icon_home', ART + 'icon_home.png');
+    },
+};
+
+// ── the card, the title extras, the pause menu's buttons (UIScene) ───────────
+const UIHtp = {
+    htpCreate() {
+        const H = this.htp = { open: false, mode: null, page: 0, pass: false, leaving: false,
+            timers: [], plain: [], down: null, desk: DESKTOP, openedAt: -1e9 };
+        H.shade = this.add.rectangle(0, 0, 10, 10, HTP_COL.ink, 0.7).setOrigin(0).setDepth(140).setVisible(false);
+        H.root = this.add.container(0, 0).setDepth(150).setVisible(false);
+        H.panel = this.add.nineslice(0, 0, 'panel', null, 100, 100, 20, 20, 20, 20);
+        H.wood = this.add.tileSprite(0, 0, 80, 80, 'panel', 'planks');
+        H.title = this.add.text(0, 0, '', htpTxt(36, HTP_COL.orange, 10)).setOrigin(0.5);
+        H.pageC = this.add.container(0, 0);
+        H.skip = this.htpButton('SKIP', 20, 156, 68);
+        H.back = this.htpButton('BACK', 20, 156, 68);
+        H.next = this.htpButton('NEXT', 24, 184, 68, HTP_COL.gold);
+        H.dots = HTP_PAGES.map(() => this.add.image(0, 0, 'icon_pumpkin'));
+        // darker wood so the buttons read as buttons on the sign; NEXT in warm orange
+        H.skip.bg.setTint(0xb88a64); H.back.bg.setTint(0xb88a64); H.next.bg.setTint(0xffb070);
+        H.root.add([H.panel, H.wood, H.title, H.pageC, H.skip, H.back, H.next, ...H.dots]);
+        H.maskG = this.make.graphics({ add: false });
+        H.mask = H.maskG.createGeometryMask();
+        this.htpTitleCreate();
+        this.htpPauseCreate();
+
+        this.input.on('pointerup', p => this.htpPointerUp(p));
+        this.scale.on('resize', size => this.htpLayout(size.width, size.height));
+        this.events.on('update', () => this.htpTitleSync());
+        this.htpLayout(this.scale.width, this.scale.height);
+    },
+
+    // A wooden button: container with a hit size (bw x bh) and a label.
+    htpButton(label, size, w, h, color) {
+        const c = this.add.container(0, 0);
+        c.bg = this.add.nineslice(0, 0, 'panel', null, w, h, 20, 20, 20, 20);
+        c.label = this.add.text(0, 2, label, htpTxt(size, color || HTP_COL.cream, 6)).setOrigin(0.5);
+        c.add([c.bg, c.label]);
+        c.bw = w; c.bh = h;
+        return c;
+    },
+
+    // ...with the little red barn: back to the Uppah home page
+    htpHomeButton() {
+        const b = this.htpButton('HOME', 20, 188, 84);
+        b.label.setX(26);
+        b.add(this.add.image(-52, -2, 'icon_home'));
+        if (!HTP_HOME) { b.setVisible(false); b.setVisible = function () { return this; }; }
+        return b;
+    },
+
+    htpHit(btn, p) {
+        if (!btn || !btn.visible) return false;
+        for (let o = btn; o; o = o.parentContainer) if (!o.visible) return false;
+        const m = btn.getWorldTransformMatrix();
+        return Math.abs(p.x - m.tx) < btn.bw / 2 && Math.abs(p.y - m.ty) < btn.bh / 2;
+    },
+
+    // ── title extras ─────────────────────────────────────────────────────────
+    htpTitleCreate() {
+        const H = this.htp, T = this.t;
+        H.bands = this.add.graphics();
+        this.title.addAt(H.bands, 0);
+        if (T.shade) T.shade.setVisible(false);
+        H.best = this.add.text(0, 0, '', htpTxt(20, HTP_COL.gold, 6)).setOrigin(0.5);
+        H.help = this.htpButton('?', 36, 84, 84, HTP_COL.gold);
+        H.help.label.setPosition(2, 4);
+        H.home = this.htpHomeButton();
+        this.title.add([H.best, H.help, H.home]);
+        // the sound button stays visible (and in reach) over the title
+        if (this.soundBtn) this.soundBtn.setDepth(101);
+        if (this.soundIcon) this.soundIcon.setDepth(101);
+        this.tweens.add({ targets: H.help, scale: 1.08, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    },
+
+    // Keeps the extras lined up with the title (whatever size it is), redraws the stepped
+    // bands when the title's layout changes, and keeps the in-round HUD off the title.
+    htpTitleSync() {
+        const H = this.htp, T = this.t;
+        if (!H) return;
+        this.htpHud(!this.patch.started);
+        if (!this.title.visible) return;
+        const w = this.scale.width, h = this.scale.height;
+        const b = this.patch.best || {};
+        const line = b.score ? 'BEST ' + Number(b.score).toLocaleString('en-US') + (b.count ? ' · TALLEST ' + b.count : '') : '';
+        if (H.best.text !== line) H.best.setText(line);
+        const t2 = T.t2.getBounds(), howB = T.how ? T.how.getBounds() : { top: h * 0.8 };
+        H.best.setPosition(w / 2, t2.bottom + 30);
+        const top = Math.round((line ? t2.bottom + 60 : t2.bottom + 30) / 8) * 8;
+        const bot = Math.round((howB.top - 30) / 8) * 8;
+        const key = [w, h, top, bot].join();
+        if (key === H.bandKey) return;
+        H.bandKey = key;
+        // a see-through veil over the live patch, darker in steps behind the title and the hints
+        const g = H.bands.clear(), steps = 8, veil = 0.42, dark = 0.84;
+        g.fillStyle(0x2b1810, veil).fillRect(0, top, w, bot - top);
+        for (let i = 0; i < steps; i++) {
+            const a = dark - (dark - veil) * i / steps;
+            g.fillStyle(0x2b1810, a).fillRect(0, Math.round(top * i / steps), w, Math.ceil(top / steps));
+            const y0 = bot + Math.round((h - bot) * i / steps), b2 = veil + (dark - veil) * (i + 1) / steps;
+            g.fillStyle(0x2b1810, b2).fillRect(0, y0, w, Math.ceil((h - bot) / steps));
+        }
+    },
+
+    // The round's HUD (count panel, score, lives) means nothing on the title, and the patch's
+    // own Ansel would stand behind the title's: hide them from their cameras there (their
+    // visibility and alpha stay their own business).
+    htpHud(hide) {
+        const H = this.htp, cam = this.cameras.main;
+        if (hide === !!H.hudHidden) return;
+        H.hudHidden = hide;
+        const P = this.patch, pc = P.cameras.main, a = P.ansel;
+        if (a) [a.img, a.shadow].forEach(o => { if (o) o.cameraFilter = hide ? o.cameraFilter | pc.id : o.cameraFilter & ~pc.id; });
+        if (hide) {
+            const r = this.panel.getBounds();
+            H.hud = this.children.list.filter(o => o !== this.title && o.depth < 50 && o.x >= r.left - 4 &&
+                o.x <= r.right + 4 && o.y >= r.top - 4 && o.y <= r.bottom + 4);
+            H.hud.forEach(o => { o.cameraFilter |= cam.id; });
+        } else {
+            (H.hud || []).forEach(o => { o.cameraFilter &= ~cam.id; });
+        }
+    },
+
+    // ── pause menu: HOW TO PLAY and HOME under PAUSED ────────────────────────
+    htpPauseCreate() {
+        const H = this.htp, P = this.pauseUi;
+        if (!P || !P.root) return;
+        H.pHelp = this.htpButton('HOW TO PLAY', 20, 300, 84, HTP_COL.gold);
+        H.pHome = this.htpHomeButton();
+        P.root.add([H.pHelp, H.pHome]);
+    },
+
+    // ── showing and hiding ───────────────────────────────────────────────────
+    // mode: 'auto' (after the title tap; ends by starting the round), 'title' (the "?"
+    // button: CLOSE goes back to the title, PLAY! starts) or 'pause' (back to the pause menu).
+    showHowTo(mode = 'title', onClose = null) {
+        const H = this.htp;
+        if (!H || H.open) return;
+        Sfx.init(); // a tap or a key got us here, so the music may start
+        Object.assign(H, { open: true, mode, onClose, openedAt: this.time.now, down: null });
+        if (mode !== 'pause') {
+            this.tweens.killTweensOf(this.title);
+            this.tweens.add({ targets: this.title, alpha: 0, duration: 200 });
+        }
+        H.shade.setVisible(true).setAlpha(0);
+        H.root.setVisible(true).setAlpha(0);
+        this.tweens.add({ targets: [H.shade, H.root], alpha: 1, duration: 220 });
+        H.page = 0;
+        this.htpBuildPage();
+    },
+
+    hideHowTo() {
+        const H = this.htp;
+        if (!H.open) return;
+        H.open = false;
+        H.down = null;
+        this.tweens.add({ targets: [H.shade, H.root], alpha: 0, duration: 180, onComplete: () => {
+            if (H.open) return;
+            H.shade.setVisible(false);
+            H.root.setVisible(false);
+            this.htpClear();
+        } });
+    },
+
+    // Called from startGame(): true when the card takes over (it starts the game when done).
+    htpGate() {
+        const H = this.htp;
+        if (!H) return false;
+        if (H.leaving || H.open) return true;
+        if (H.pass || htpRounds() >= HTP_AUTO) return false;
+        this.showHowTo('auto');
+        return true;
+    },
+
+    htpRoundStarted() {
+        try { localStorage.setItem(HTP_SAVE, String(htpRounds() + 1)); } catch (e) {}
+    },
+
+    htpGo(i) {
+        const H = this.htp;
+        i = Phaser.Math.Clamp(i, 0, HTP_PAGES.length - 1);
+        if (i === H.page) return;
+        H.page = i;
+        Sfx.pop();
+        this.htpBuildPage();
+    },
+
+    htpNext() {
+        const H = this.htp;
+        if (H.page < HTP_PAGES.length - 1) this.htpGo(H.page + 1);
+        else this.htpFinish('done');
+    },
+
+    // done: the last page's PLAY! / DONE. skip: SKIP / CLOSE.
+    htpFinish(kind) {
+        const H = this.htp, mode = H.mode;
+        this.hideHowTo();
+        if (mode === 'pause') { if (H.onClose) H.onClose(); return; }
+        if (mode === 'title' && kind === 'skip') {
+            this.tweens.killTweensOf(this.title);
+            this.tweens.add({ targets: this.title, alpha: 1, duration: 250 });
+            return;
+        }
+        H.pass = true;
+        Sfx.pickup();
+        this.startGame();
+    },
+
+    htpLeave() {
+        const H = this.htp;
+        H.leaving = true;
+        Sfx.pop();
+        this.cameras.main.fadeOut(250, 27, 19, 13);
+        this.time.delayedCall(260, () => { window.location.href = HTP_HOME; });
+    },
+
+    // ── input ────────────────────────────────────────────────────────────────
+    // UIScene's tap handler asks this first: true means the tap was ours.
+    htpTap(p) {
+        const H = this.htp;
+        if (!H) return false;
+        if (H.leaving) return true;
+        if (!H.open) {
+            if (this.paused) {
+                if (this.htpHit(H.pHelp, p)) { Sfx.pop(); this.showHowTo('pause'); return true; }
+                if (this.htpHit(H.pHome, p)) { this.htpLeave(); return true; }
+                return false;
+            }
+            if (this.patch.started || !this.title.visible || this.title.alpha < 0.6) return false;
+            if (this.htpHit(H.help, p)) { Sfx.init(); Sfx.pop(); this.showHowTo('title'); return true; }
+            if (this.htpHit(H.home, p)) { this.htpLeave(); return true; }
+            return false;
+        }
+        H.down = null;
+        if (this.hitButton(p)) return false; // the sound button still works
+        if (this.time.now - H.openedAt < 150) return true;
+        if (this.htpHit(H.skip, p)) { this.htpFinish('skip'); return true; }
+        if (this.htpHit(H.back, p)) { this.htpGo(H.page - 1); return true; }
+        if (this.htpHit(H.next, p)) { this.htpNext(); return true; }
+        const dot = H.dots.findIndex(d => Math.abs(p.x - H.root.x - d.x) < 24 && Math.abs(p.y - H.root.y - d.y) < 28);
+        if (dot >= 0) { this.htpGo(dot); return true; }
+        H.down = { x: p.x, y: p.y };
+        return true;
+    },
+
+    // A swipe turns the page; a plain tap on the card goes on (not past the last page).
+    htpPointerUp(p) {
+        const H = this.htp;
+        if (!H.open || !H.down) return;
+        const dx = p.x - H.down.x, dy = p.y - H.down.y;
+        H.down = null;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) { this.htpGo(H.page + (dx < 0 ? 1 : -1)); return; }
+        const inCard = Math.abs(p.x - H.root.x) < H.cw / 2 && Math.abs(p.y - H.root.y) < H.ch / 2;
+        if (inCard && Math.abs(dx) < 24 && Math.abs(dy) < 24 && H.page < HTP_PAGES.length - 1) this.htpNext();
+    },
+
+    // UIScene's key handler asks this first: true means the key was ours. (M still mutes.)
+    htpKey(e) {
+        const H = this.htp, code = e.code;
+        if (!H || H.leaving) return !!H;
+        const help = e.key === '?' || code === 'KeyH';
+        if (!H.open) {
+            if (help && (this.paused || (!this.patch.started && this.title.visible))) {
+                this.showHowTo(this.paused ? 'pause' : 'title');
+                return true;
+            }
+            return false;
+        }
+        if (code === 'KeyM') return false;
+        if (this.time.now - H.openedAt < 150) return true; // the key that opened it
+        if (['ArrowRight', 'KeyD', 'Space', 'Enter', 'ArrowUp', 'KeyW'].includes(code)) this.htpNext();
+        else if (code === 'ArrowLeft' || code === 'KeyA') this.htpGo(H.page - 1);
+        else if (code === 'Escape' || code === 'Backspace' || help) this.htpFinish('skip');
+        else if (/^Digit[1-9]$/.test(code)) this.htpGo(Number(code.slice(5)) - 1);
+        return true;
+    },
+
+    // ── layout ───────────────────────────────────────────────────────────────
+    htpLayout(w, h) {
+        const H = this.htp, portrait = h > w;
+        H.portrait = portrait;
+        H.shade.setSize(w, h);
+        H.cw = portrait ? Math.min(w - 28, 692) : Math.min(w - 56, 1184);
+        H.ch = portrait ? Math.min(h - 200, 1340) : h - 32;
+        H.root.setPosition(Math.round(w / 2), Math.round(h / 2));
+        H.panel.setSize(H.cw, H.ch);
+        H.wood.setSize(H.cw - 24, H.ch - 24);
+        H.title.setPosition(0, -H.ch / 2 + 58);
+        const fy = H.ch / 2 - 58, pad = portrait ? 34 : 44;
+        H.skip.setPosition(-H.cw / 2 + pad + 78, fy);
+        H.next.setPosition(H.cw / 2 - pad - 92, fy);
+        H.back.setPosition(H.next.x - 184 / 2 - 18 - 78, fy);
+        const dotY = portrait ? fy - 76 : fy, dotX = portrait ? 0 : (H.skip.x + 78 + H.back.x - 78) / 2;
+        H.dots.forEach((d, i) => d.setPosition(dotX + (i - (H.dots.length - 1) / 2) * 44, dotY));
+        // title: HOME top left; "?" where the pause button goes in a round (it's hidden here)
+        H.home.setPosition(20 + 94, 62);
+        H.help.setPosition(w - 170, 62);
+        H.bandKey = null;
+        // pause menu: the two buttons under PAUSED / TAP TO PLAY
+        if (H.pHelp) {
+            const y = h / 2 + 170;
+            H.pHelp.setPosition(w / 2 - 104, y);
+            H.pHome.setPosition(w / 2 + 160, y);
+        }
+        if (H.open) this.htpBuildPage();
+    },
+
+    // Clears the page: its timers, its tweens, its objects.
+    htpClear() {
+        const H = this.htp;
+        H.timers.forEach(t => t.remove(false));
+        H.timers = [];
+        (H.plain || []).forEach(o => this.tweens.killTweensOf(o)); // tweened plain objects (sway, day)
+        H.plain = [];
+        const kill = o => { this.tweens.killTweensOf(o); if (o.list) o.list.forEach(kill); };
+        kill(H.pageC);
+        H.pageC.removeAll(true);
+    },
+
+    // The scenes' sound effects play through their first run only, not on every loop.
+    htpSfx(name, ...args) {
+        if (this.time.now - this.htp.builtAt < 6000 && Sfx[name]) Sfx[name](...args);
+    },
+
+    htpLater(ms, fn) {
+        const H = this.htp;
+        H.timers = H.timers.filter(t => t.loop || !t.hasDispatched);
+        const ev = this.time.delayedCall(ms, fn);
+        H.timers.push(ev);
+        return ev;
+    },
+
+    // Runs fn now and every ms after (the illustrations' loops).
+    htpLoop(ms, fn) {
+        const ev = this.time.addEvent({ delay: ms, loop: true, callback: fn });
+        this.htp.timers.push(ev);
+        fn();
+    },
+
+    htpBuildPage() {
+        const H = this.htp, pg = HTP_PAGES[H.page], last = H.page === HTP_PAGES.length - 1;
+        this.htpClear();
+        H.builtAt = this.time.now;
+        H.title.setText(pg.title);
+        H.skip.label.setText(H.mode === 'auto' ? 'SKIP' : 'CLOSE');
+        H.next.label.setText(last ? (H.mode === 'pause' ? 'DONE' : 'PLAY!') : 'NEXT');
+        H.back.setVisible(H.page > 0);
+        H.dots.forEach((d, i) => d.setScale(i === H.page ? 0.62 : 0.46).setAlpha(i === H.page ? 1 : 0.4));
+        this.tweens.killTweensOf(H.next);
+        H.next.setScale(1);
+        if (last) this.tweens.add({ targets: H.next, scale: 1.08, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+
+        // text rows for this kind of player
+        const rows = pg.rows.filter(r => !(r.touch && H.desk) && !(r.desk && !H.desk)).map(r => this.htpRow(r));
+        H.iconW = Math.max(72, ...rows.map(r => r.icon ? r.icon.iw + 22 : 0));
+        const innerW = H.cw - 2 * (H.portrait ? 30 : 40);
+        const top = -H.ch / 2 + 106, bottom = H.ch / 2 - (H.portrait ? 160 : 104);
+        const avail = bottom - top, gap = 16;
+        const measure = tw => rows.reduce((s, r) => s + this.htpRowFit(r, tw) + gap, -gap);
+        let artW, artH, tw, th;
+        if (H.portrait) {
+            tw = innerW;
+            th = measure(tw);
+            artW = innerW;
+            artH = Math.max(220, Math.min(Math.round(artW / 1.1), avail - th - 30));
+            artW = Math.min(artW, Math.round(artH * 1.1));
+            const used = artH + 30 + th, y0 = top + Math.max(0, (avail - used) / 2);
+            this.htpArtBox(pg.art, -artW / 2, y0, artW, artH);
+            this.htpPlaceRows(rows, -tw / 2, y0 + artH + 30, gap);
+        } else {
+            // give the picture as much room as the text allows
+            for (let f = 0.46; f >= 0.28; f -= 0.02) {
+                artW = Math.round(innerW * f);
+                th = measure(innerW - artW - 32);
+                if (th <= avail) break;
+            }
+            artH = Math.min(avail, Math.round(artW / 1.1));
+            artW = Math.round(artH * 1.1);
+            th = measure(innerW - artW - 32);
+            const x0 = -innerW / 2;
+            this.htpArtBox(pg.art, x0, top + (avail - artH) / 2, artW, artH);
+            this.htpPlaceRows(rows, x0 + artW + 32, top + Math.max(0, (avail - th) / 2), gap);
+        }
+    },
+
+    // ── text rows ────────────────────────────────────────────────────────────
+    htpRow(r) {
+        const color = HTP_COL[r.c] || HTP_COL.cream;
+        const text = this.add.text(0, 0, r.p || r.t, Object.assign(htpTxt(20, color, 6), { lineSpacing: 10 }));
+        const icon = r.ic ? this.htpIcon(r.ic) : null;
+        this.htp.pageC.add(icon ? [icon, text] : [text]);
+        return { text, icon };
+    },
+
+    // Wraps the row to width tw and returns its height.
+    htpRowFit(row, tw) {
+        row.text.setWordWrapWidth(row.icon ? tw - this.htp.iconW : tw);
+        row.h = Math.max(row.text.height, row.icon ? row.icon.ih : 0);
+        return row.h;
+    },
+
+    htpPlaceRows(rows, x, y, gap) {
+        for (const r of rows) {
+            if (r.icon) {
+                const iw = this.htp.iconW;
+                r.icon.setPosition(x + (iw - 14) / 2, y + r.h / 2);
+                r.text.setPosition(x + iw, y + (r.h - r.text.height) / 2);
+            } else {
+                r.text.setPosition(x, y);
+            }
+            y += r.h + gap;
+        }
+    },
+
+    htpIcon(ic) {
+        const c = this.add.container(0, 0);
+        c.ih = 44;
+        if (ic.keys) {
+            const parts = ic.keys.map(k => {
+                if (k === 'SPACE') {
+                    const kc = this.add.container(0, 0, [this.add.image(0, 0, 'key_wide'),
+                        this.add.text(0, -4, 'SPACE', htpTxt(20, '#2b1810', 0)).setOrigin(0.5)]);
+                    kc.kw = 132;
+                    return kc;
+                }
+                const arrow = ['left', 'right', 'up', 'down'].indexOf(k);
+                const kc = this.add.container(0, 0, [this.add.image(0, 0, 'keys', arrow + 1)]);
+                if (arrow < 0) kc.add(this.add.text(1, -3, k, htpTxt(20, '#2b1810', 0)).setOrigin(0.5));
+                kc.kw = 52;
+                return kc;
+            });
+            const total = parts.reduce((s, k) => s + k.kw, 0) + 6 * (parts.length - 1);
+            let x = -total / 2;
+            for (const k of parts) { k.setX(x + k.kw / 2); x += k.kw + 6; c.add(k); }
+            c.ih = 52;
+            c.iw = total;
+        } else if (ic.bubble) {
+            const t = this.add.text(0, -6, ic.bubble, htpTxt(20, '#2b1810', 0)).setOrigin(0.5);
+            const bw = t.width + 28;
+            c.add([this.add.nineslice(0, 18, 'bubble', null, bw, 52, 16, 16, 16, 16).setOrigin(0.5, 1),
+                this.add.image(-bw / 4, 16, 'bubble_tail').setOrigin(0.5, 0), t]);
+            c.ih = 56;
+            c.iw = bw;
+        } else {
+            const key = this.textures.exists(ic.img) ? ic.img : 'sparkle';
+            const n = ic.n || 1;
+            for (let i = 0; i < n; i++) {
+                const im = this.add.image((i - (n - 1) / 2) * 30, 0, key, ic.f).setScale(ic.s || 1);
+                if (ic.tint) im.setTint(ic.tint);
+                c.add(im);
+                c.ih = Math.max(c.ih, im.displayHeight);
+                c.iw = (n - 1) * 30 + im.displayWidth;
+            }
+            if (ic.img === 'sparkle') this.tweens.add({ targets: c.list, scale: 1.25, duration: 500, yoyo: true, repeat: -1,
+                delay: this.tweens.stagger(160), ease: 'Sine.InOut' });
+        }
+        return c;
+    },
+
+    // ── illustrations ────────────────────────────────────────────────────────
+    // A framed window at (x, y) on the card, artW x artH, onto a little scene built
+    // in world px (HTP_NEAR or HTP_WIDE), scaled to fit and clipped to the frame.
+    htpArtBox(name, x, y, artW, artH) {
+        const H = this.htp;
+        H.pageC.add(this.add.rectangle(x - 6, y - 6, artW + 12, artH + 12, 0x2b1810).setOrigin(0));
+        const box = name === 'htpArtDay' ? HTP_WIDE : HTP_NEAR;
+        const s = Math.min(artW / box.w, artH / box.h);
+        const c = this.add.container(x + (artW - box.w * s) / 2, y + (artH - box.h * s) / 2).setScale(s);
+        c.s = s;
+        c.box = box;
+        H.pageC.add(c);
+        H.maskG.clear().fillStyle(0xffffff).fillRect(H.root.x + x, H.root.y + y, artW, artH);
+        c.setMask(H.mask);
+        // the patch itself: background, the silo's pumpkin, the fence in front
+        const crop = key => this.add.image(-box.x, -box.y, key).setOrigin(0).setCrop(box.x, box.y, box.w, box.h);
+        c.add(crop('background'));
+        if (box === HTP_NEAR) c.add(this.add.image(SILO_X - box.x, SILO_TOP_Y + 8 - box.y, 'silo_pumpkin').setOrigin(0.5, 1));
+        c.add(crop('foreground'));
+        this[name](c);
+    },
+
+    // helpers in the scene's world px (relative to its box)
+    htpW(c, x, y) { return { x: x - c.box.x, y: y - c.box.y }; },
+
+    htpPumpkin(c, key, x, bottom) {
+        const spec = PUMPKIN_SPECS[key], bh = (spec.h + 1) * 4, imgH = (spec.h + 8) * 4;
+        const p = this.htpW(c, x, bottom - bh / 2);
+        const img = this.add.image(p.x, p.y, key).setOrigin(0.5, (24 + 2 * spec.h) / imgH);
+        img.bw = (spec.w + 1) * 4; img.bh = bh;
+        c.add(img);
+        return img;
+    },
+
+    // a tower on the bale, bottom first: returns its pumpkins and the y of its top
+    htpTower(c, keys, x = HAY_X) {
+        let top = HAY_TOP;
+        const items = keys.map(k => { const it = this.htpPumpkin(c, k, x, top); top -= it.bh; return it; });
+        return { items, top };
+    },
+
+    htpBale(c, x = HAY_X) {
+        const p = this.htpW(c, x, GROUND + 4);
+        c.add(this.add.image(p.x, p.y, 'shadow').setScale(1.35, 1));
+        const img = this.add.image(p.x, p.y, 'haybale').setOrigin(0.5, 1);
+        c.add(img);
+        return img;
+    },
+
+    // Ansel in his everyday clothes, feet at (x, GROUND); frame names as in ANSEL_POSES.
+    htpAnsel(c, frame, x, dir = 1) {
+        const AF = this.patch.anselData, p = this.htpW(c, x, GROUND);
+        c.add(this.add.image(p.x, p.y + 4, 'shadow'));
+        const img = this.add.image(p.x, p.y, this.patch.anselKey(frame, 'everyday')).setFlipX(dir < 0);
+        if (AF) img.setOrigin(AF.footX / AF.w, AF.footY / AF.h);
+        else img.setOrigin(0.5, 1);
+        c.add(img);
+        return img;
+    },
+
+    htpPose(img, frame) { img.setTexture(this.patch.anselKey(frame, 'everyday')); },
+
+    // text inside a scaled scene, sized in screen px so it stays readable
+    htpArtText(c, x, y, text, px, color) {
+        const t = this.add.text(x, y, text, htpTxt(Math.round(px / c.s), color, Math.round(7 / c.s))).setOrigin(0.5);
+        c.add(t);
+        return t;
+    },
+
+    htpPop(c, x, y, text, px, color) {
+        const t = this.htpArtText(c, x, y, text, px, color).setScale(0.3);
+        this.tweens.add({ targets: t, scale: 1, duration: 220, ease: 'Back.Out' });
+        this.tweens.add({ targets: t, y: y - 70, alpha: 0, delay: 900, duration: 500, onComplete: () => t.destroy() });
+        return t;
+    },
+
+    htpSparkles(c) {
+        const e = this.add.particles(0, 0, 'sparkle', {
+            lifespan: { min: 450, max: 800 }, speed: { min: 120, max: 320 }, angle: { min: 0, max: 360 },
+            scale: { start: 1.5, end: 0 }, rotate: { start: 0, end: 180 }, emitting: false,
+        });
+        c.add(e);
+        return e;
+    },
+
+    htpHand(c) {
+        const h = this.add.image(0, 0, 'hand').setOrigin(0.4, 0).setScale(1.3).setVisible(false);
+        c.add(h);
+        return h;
+    },
+
+    htpTapAt(hand, x, y) {
+        hand.setPosition(x, y).setVisible(true).setAlpha(1).setScale(1.3);
+        this.tweens.add({ targets: hand, y: y - 14, scale: 1.15, duration: 110, yoyo: true });
+        this.tweens.add({ targets: hand, alpha: 0, delay: 600, duration: 200 });
+    },
+
+    // 1. A pumpkin sways over the tower with its landing ring under it; a tap drops it
+    //    dead centre: PERFECT!
+    htpArtStack(c) {
+        this.htpBale(c);
+        const tower = this.htpTower(c, ['pumpkin_deep_xl', 'pumpkin_orange_l']);
+        this.htpPumpkin(c, 'pumpkin_white_m', 1200, GROUND);
+        this.htpAnsel(c, htpHero(), 790);
+        const top = this.htpW(c, HAY_X, tower.top);
+        const ring = this.add.image(top.x, top.y + 6, 'target').setAlpha(0.75);
+        c.add(ring);
+        const pk = this.htpPumpkin(c, 'pumpkin_orange_m', HAY_X, tower.top - 150);
+        ring.setScale(pk.bw / 128, 1);
+        const hoverY = pk.y, restY = top.y - pk.bh / 2;
+        const hand = this.htpHand(c), fx = this.htpSparkles(c);
+        const sway = { u: -1 };
+        this.htp.plain.push(sway);
+        const place = () => { pk.x = top.x + sway.u * 80; ring.setX(pk.x); };
+        this.htpLoop(3900, () => {
+            pk.setPosition(top.x - 80, hoverY).setAlpha(1).setScale(1).setAngle(0);
+            ring.setVisible(true);
+            sway.u = -1;
+            place();
+            const tw = this.tweens.add({ targets: sway, u: 1, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.InOut', onUpdate: place });
+            this.htpLater(1990, () => {
+                this.htpTapAt(hand, top.x + 46, hoverY + 30);
+                tw.stop();
+                sway.u = 0;
+                place();
+                this.htpLater(90, () => {
+                    ring.setVisible(false);
+                    this.tweens.add({ targets: pk, y: restY, duration: 180, ease: 'Quad.In', onComplete: () => {
+                        this.tweens.add({ targets: pk, scaleX: 1.12, scaleY: 0.88, duration: 70, yoyo: true });
+                        fx.explode(18, top.x, top.y);
+                        this.htpPop(c, top.x, top.y - 150, 'PERFECT!', 24, HTP_COL.gold);
+                        this.htpSfx('perfect', 1);
+                    } });
+                });
+            });
+            this.htpLater(3500, () => this.tweens.add({ targets: pk, alpha: 0, duration: 260 }));
+        });
+    },
+
+    // 2. A pumpkin lands too far off the edge, rolls off and falls: a life goes dark.
+    //    Then one flies back in (lives can be earned back).
+    htpArtFall(c) {
+        this.htpBale(c);
+        const tower = this.htpTower(c, ['pumpkin_deep_xl', 'pumpkin_orange_l']);
+        const top = this.htpW(c, HAY_X, tower.top);
+        // the life row, like the HUD's
+        const row = this.add.container(30, 28);
+        row.add(this.add.nineslice(0, 0, 'panel', null, 3 * 84 + 40, 116, 20, 20, 20, 20).setOrigin(0));
+        const lives = [0, 1, 2].map(i => { const im = this.add.image(62 + i * 84, 58, 'icon_pumpkin').setScale(1.25); row.add(im); return im; });
+        c.add(row);
+        const pk = this.htpPumpkin(c, 'pumpkin_white_m', HAY_X + 60, tower.top - 160);
+        const hoverY = pk.y, restY = top.y - pk.bh / 2, groundY = GROUND - c.box.y - pk.bh / 2;
+        const fx = this.htpSparkles(c);
+        const flash = this.add.rectangle(0, 0, c.box.w, c.box.h, 0xff3020, 0).setOrigin(0);
+        c.add(flash);
+        this.htpLoop(5600, () => {
+            pk.setPosition(top.x + 60, hoverY).setAngle(0).setAlpha(1);
+            lives.forEach(l => l.setAlpha(1).clearTint().setScale(1.25));
+            this.tweens.add({ targets: pk, y: restY, delay: 500, duration: 200, ease: 'Quad.In', onComplete: () => {
+                this.htpSfx('thunk', 20, 3);
+                this.tweens.add({ targets: pk, angle: 16, x: pk.x + 14, duration: 320, ease: 'Sine.In', onComplete: () => {
+                    this.htpSfx('uhoh');
+                    this.tweens.add({ targets: pk, x: pk.x + 170, angle: 220, duration: 700, ease: 'Linear' });
+                    this.tweens.add({ targets: pk, y: groundY, duration: 700, ease: 'Quad.In', onComplete: () => {
+                        this.tweens.add({ targets: pk, y: groundY - 26, duration: 140, yoyo: true, ease: 'Quad.Out' });
+                        this.htpPop(c, pk.x, groundY - 90, '-1', 28, HTP_COL.red);
+                        lives[2].setAlpha(0.3).setTint(0x5a4a3a);
+                        this.tweens.add({ targets: lives[2], scale: 1.0, duration: 90, yoyo: true, repeat: 2 });
+                        flash.setFillStyle(0xff3020, 0.3);
+                        this.tweens.add({ targets: flash, fillAlpha: 0, duration: 300 });
+                    } });
+                } });
+            } });
+            // ...and a life flies back in
+            this.htpLater(3400, () => {
+                const fly = this.add.image(top.x, top.y - 40, 'icon_pumpkin').setScale(1.6);
+                c.add(fly);
+                const tx = row.x + lives[2].x, ty = row.y + lives[2].y;
+                this.htpSfx('pickup');
+                this.tweens.add({ targets: fly, x: tx, duration: 750, ease: 'Sine.InOut' });
+                this.tweens.add({ targets: fly, y: { value: ty, ease: 'Back.In' }, angle: 360, scale: 1.25, duration: 750, onComplete: () => {
+                    fly.destroy();
+                    lives[2].setAlpha(1).clearTint();
+                    this.tweens.add({ targets: lives[2], scale: 1.6, duration: 140, yoyo: true });
+                    fx.explode(12, tx, ty);
+                    this.htpPop(c, tx + 120, ty + 30, '+1', 26, HTP_COL.gold);
+                    this.htpSfx('bonus');
+                } });
+            });
+            this.htpLater(5200, () => this.tweens.add({ targets: pk, alpha: 0, duration: 250 }));
+        });
+    },
+
+    // 3. A four-pumpkin tower with the BOOM sign on its bale; a tap sends Ansel to shove
+    //    it, it goes flying, and its points are banked.
+    htpArtBoom(c) {
+        this.htpBale(c);
+        const keys = ['pumpkin_deep_xl', 'pumpkin_orange_l', 'pumpkin_green_m', 'pumpkin_orange_s'];
+        const tower = this.htpTower(c, keys);
+        const homes = tower.items.map(it => ({ x: it.x, y: it.y }));
+        const top = this.htpW(c, HAY_X, tower.top);
+        const sp = this.htpW(c, HAY_X, GROUND - 24);  // its top edge, at the bale's foot
+        const sign = this.add.container(sp.x, sp.y);
+        const st = this.htpArtText(c, 0, 0, 'BOOM!', 22, HTP_COL.orange);
+        const sv = this.htpArtText(c, 0, 0, '+1,260', 20, HTP_COL.gold);
+        const sw = Math.max(st.width, sv.width) + 40, sh = st.height + sv.height + 18;
+        st.setY(12 + st.height / 2);
+        sv.setY(sh - 12 - sv.height / 2);
+        sign.add([this.add.nineslice(0, sh / 2, 'panel', null, sw, sh, 20, 20, 20, 20), st, sv]);
+        c.add(sign);
+        const walk = (ANSEL_CYCLES.walk && ANSEL_CYCLES.walk.everyday) || [htpHero()];
+        const ansel = this.htpAnsel(c, htpHero(), 690);
+        const startX = ansel.x, shoveX = HAY_X - 150 - c.box.x;
+        const hand = this.htpHand(c), fx = this.htpSparkles(c);
+        const burst = this.add.particles(0, 0, 'leaves', {
+            frame: [0, 1, 2, 3, 4, 5, 6, 7], lifespan: { min: 900, max: 1600 },
+            speedX: { min: -320, max: 320 }, speedY: { min: -620, max: -240 }, gravityY: 620,
+            rotate: { start: 0, end: 720 }, scale: { min: 1, max: 1.4 }, emitting: false,
+        });
+        c.add(burst);
+        this.htpLoop(5600, () => {
+            tower.items.forEach((it, i) => it.setPosition(homes[i].x, homes[i].y).setAngle(0).setAlpha(1));
+            sign.setVisible(true).setScale(1).setAngle(0);
+            this.tweens.add({ targets: sign, angle: { from: -4, to: 4 }, duration: 90, yoyo: true, repeat: 2, delay: 300,
+                onComplete: () => sign.setAngle(0) });
+            ansel.setX(startX);
+            this.htpPose(ansel, htpHero());
+            this.htpLater(800, () => this.htpTapAt(hand, sp.x + 30, sp.y + 30));
+            this.htpLater(1000, () => {
+                let f = 0;
+                const run = this.time.addEvent({ delay: 80, repeat: 5, callback: () => this.htpPose(ansel, walk[++f % walk.length]) });
+                this.htp.timers.push(run);
+                this.tweens.add({ targets: ansel, x: shoveX, duration: 480 });
+            });
+            this.htpLater(1500, () => this.htpPose(ansel, ANSEL_POSES.shove || htpHero()));
+            this.htpLater(1700, () => {
+                this.htpSfx('boom');
+                sign.setVisible(false);
+                fx.explode(30, top.x, top.y + 60);
+                burst.explode(24, top.x, top.y + 100);
+                this.tweens.add({ targets: c, x: c.x + 8, duration: 50, yoyo: true, repeat: 3 });
+                tower.items.forEach((it, i) => {
+                    const dx = (i % 2 ? -1 : 1) * (60 + 70 * i) + 120, up = 160 + 60 * i;
+                    this.tweens.add({ targets: it, x: it.x + dx, angle: (i % 2 ? -1 : 1) * (220 + 90 * i), duration: 1000 });
+                    this.tweens.add({ targets: it, y: it.y - up, duration: 380, ease: 'Quad.Out', onComplete: () =>
+                        this.tweens.add({ targets: it, y: GROUND - c.box.y - it.bh / 2, duration: 520, ease: 'Quad.In' }) });
+                });
+                this.htpPop(c, top.x, top.y - 10, '+1,260', 30, HTP_COL.gold);
+                this.htpLater(250, () => this.htpSfx('fanfare'));
+                this.htpLater(500, () => this.htpPose(ansel, htpHero()));
+            });
+            this.htpLater(5100, () => this.tweens.add({ targets: tower.items, alpha: 0, duration: 300 }));
+        });
+    },
+
+    // 4. The afternoon passes over the patch (the same light as the round's clock), while
+    //    gusts flap the windsock, blow leaves through and sway a little tower.
+    htpArtDay(c) {
+        const bale = this.htpBale(c, 1520);
+        const sway = this.add.container(bale.x, bale.y - 4 - HAY_H);
+        c.add(sway);
+        let topY = 0;
+        for (const k of ['pumpkin_orange_l', 'pumpkin_orange_m', 'pumpkin_gold_s']) {
+            const spec = PUMPKIN_SPECS[k], bh = (spec.h + 1) * 4;
+            sway.add(this.add.image(0, topY - bh / 2, k).setOrigin(0.5, (24 + 2 * spec.h) / ((spec.h + 8) * 4)));
+            topY -= bh;
+        }
+        const sockP = this.htpW(c, 1250, WINDSOCK_Y);
+        const sock = this.add.sprite(sockP.x, sockP.y, 'windsock', 0).setOrigin(WINDSOCK_POLE, 1);
+        c.add(sock);
+        const leaves = this.add.particles(0, 0, 'leaves', {
+            frame: [0, 1, 2, 3, 4, 5, 6, 7], x: -40, y: { min: 40, max: c.box.h - 160 },
+            speedX: { min: 520, max: 900 }, speedY: { min: -60, max: 80 }, lifespan: 1900,
+            rotate: { start: 0, end: 720 }, scale: { min: 1.1, max: 1.6 }, frequency: 70, emitting: false,
+        });
+        c.add(leaves);
+        // dusk: the same multiply the round uses (UIScene.setDusk), over this window only
+        const dusk = this.add.rectangle(0, 0, c.box.w, c.box.h, 0xffffff).setOrigin(0)
+            .setBlendMode(Phaser.BlendModes.MULTIPLY);
+        c.add(dusk);
+        const label = this.add.container(28, 26);
+        const lt = this.htpArtText(c, 0, 0, '', 20, HTP_COL.cream).setOrigin(0, 0.5);
+        const lb = this.add.nineslice(0, 0, 'panel', null, 100, lt.height + 30, 20, 20, 20, 20).setOrigin(0, 0.5);
+        label.add([lb, lt]);
+        c.add(label);
+        const stops = [[0, 0xffffff], [0.5, 0xfff2dc], [0.8, 0xffc898], [1, 0x9c88c4]];
+        const day = { d: 0 };
+        this.htp.plain.push(day);
+        const C = Phaser.Display.Color;
+        const paint = () => {
+            const d = day.d;
+            let i = 0;
+            while (i < stops.length - 2 && d > stops[i + 1][0]) i++;
+            const [a0, c0] = stops[i], [a1, c1] = stops[i + 1];
+            const t = Phaser.Math.Clamp((d - a0) / (a1 - a0), 0, 1) * 100;
+            const m = C.Interpolate.ColorWithColor(C.ValueToColor(c0), C.ValueToColor(c1), 100, t);
+            dusk.setFillStyle(C.GetColor(m.r, m.g, m.b));
+            const name = d < 0.45 ? 'AFTERNOON' : d < 0.78 ? 'GOLDEN HOUR' : d < 0.98 ? 'DUSK' : 'SUNSET!';
+            if (lt.text !== name) {
+                lt.setText(name).setX(36).setColor(name === 'SUNSET!' ? HTP_COL.gold : HTP_COL.cream);
+                lb.setSize(lt.width + 72, lt.height + 30);
+            }
+        };
+        this.htpLoop(8200, () => {
+            day.d = 0;
+            paint();
+            this.tweens.add({ targets: day, d: 1, delay: 600, duration: 6000, ease: 'Linear', onUpdate: paint, onComplete: paint });
+        });
+        // gusts: calm, a warning flutter, then a gust that streams leaves and sways the tower
+        let lvl = 0;
+        const flap = this.time.addEvent({ delay: 130, loop: true, callback: () => {
+            sock.setFrame(lvl * 2 + (sock.frame.name % 2 ? 0 : 1));
+        } });
+        this.htp.timers.push(flap);
+        this.htpLoop(5200, () => {
+            lvl = 0;
+            this.htpLater(1500, () => { lvl = 1; leaves.setFrequency(260); leaves.start(); });
+            this.htpLater(2300, () => {
+                lvl = 3;
+                leaves.setFrequency(60);
+                this.htpSfx('wind', 0.4, 2);
+                this.tweens.add({ targets: sway, angle: { from: 0, to: 3.2 }, duration: 500, yoyo: true, repeat: 1, ease: 'Sine.InOut' });
+            });
+            this.htpLater(4400, () => { lvl = 1; leaves.stop(); });
+        });
+    },
+};
+
+Object.assign(PatchScene.prototype, PatchHtp);
+Object.assign(UIScene.prototype, UIHtp);
+// ══════════════════════════════════════════════════════════ end HOW TO PLAY ══
 
 // Wait (briefly) for the pixel font so text isn't drawn in a fallback face.
 const fontReady = document.fonts && document.fonts.load

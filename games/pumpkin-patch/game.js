@@ -931,22 +931,22 @@ class PatchScene extends Phaser.Scene {
         this.hayBody = this.matter.add.rectangle(HAY_X, GROUND - HAY_H / 2, HAY_W, HAY_H,
             { ...solid, label: 'hay' });
         this.hayImg = this.add.image(HAY_X, GROUND + 4, 'haybale').setOrigin(0.5, 1).setDepth(8);
-        // BOOM lives on the bale: a little wooden sign hangs on its front when there's a tower to
-        // bank; tap the bale (or the tower) and Ansel gives it a big shove
-        // (the sign hangs from its top edge so it can grow when the camera pulls back)
-        this.baleSign = this.add.container(HAY_X, HAY_TOP + 34).setDepth(21.5).setVisible(false);
+        // BOOM lives at the bale: when there's a tower to bank, a little wooden plank is propped
+        // against the bale's foot, down on the path, so the whole bale stays in view. It hangs from
+        // its top edge, so when the camera pulls back it grows down into the dirt, never over the bale.
+        this.baleSign = this.add.container(HAY_X, GROUND - 2).setDepth(21.5).setVisible(false);
         this.baleSignInner = this.add.container(0, 0);
-        const SIGN_W = 164, SIGN_H = 76; // narrower than the bale, hung low so its top shows
+        const SIGN_W = 150, SIGN_H = 60;
         const signBoard = this.add.nineslice(0, SIGN_H / 2, 'panel', null, SIGN_W, SIGN_H, 20, 20, 20, 20);
-        this.baleSignTitle = this.add.text(0, SIGN_H / 2 - 13, 'BOOM!', {
-            fontFamily: FONT, fontSize: '24px', color: '#ff9a3a', stroke: INK, strokeThickness: 7,
+        this.baleSignTitle = this.add.text(0, SIGN_H / 2 - 12, 'BOOM!', {
+            fontFamily: FONT, fontSize: '22px', color: '#ff9a3a', stroke: INK, strokeThickness: 7,
         }).setOrigin(0.5);
-        this.baleSignValue = this.add.text(0, SIGN_H / 2 + 14, '', {
-            fontFamily: FONT, fontSize: '20px', color: '#ffd35a', stroke: INK, strokeThickness: 6,
+        this.baleSignValue = this.add.text(0, SIGN_H / 2 + 13, '', {
+            fontFamily: FONT, fontSize: '18px', color: '#ffd35a', stroke: INK, strokeThickness: 6,
         }).setOrigin(0.5);
         // fills while B is held
-        this.boomFillBg = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 9, SIGN_W - 32, 8, 0x2b1810).setOrigin(0, 0.5).setVisible(false);
-        this.boomFill = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 9, SIGN_W - 32, 8, 0xff9a3a).setOrigin(0, 0.5).setVisible(false);
+        this.boomFillBg = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 7, SIGN_W - 32, 6, 0x2b1810).setOrigin(0, 0.5).setVisible(false);
+        this.boomFill = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 7, SIGN_W - 32, 6, 0xff9a3a).setOrigin(0, 0.5).setVisible(false);
         this.baleSignInner.add([signBoard, this.baleSignTitle, this.baleSignValue, this.boomFillBg, this.boomFill]);
         this.baleSign.add(this.baleSignInner);
         this.signSize = { w: SIGN_W, h: SIGN_H };
@@ -2361,9 +2361,9 @@ class PatchScene extends Phaser.Scene {
         const v = value ? '+' + value : '';
         if (v !== this.baleSignValue.text) this.baleSignValue.setText(v);
         const H = this.signSize.h;
-        this.baleSignTitle.setY(v ? H / 2 - 13 : H / 2);
+        this.baleSignTitle.setY(v ? H / 2 - 12 : H / 2);
         // keep the words readable when the camera pulls back for a tall tower
-        this.baleSignInner.setScale(Phaser.Math.Clamp(0.9 / (this.camZoom || 1), 1, 1.5));
+        this.baleSignInner.setScale(Phaser.Math.Clamp(0.9 / (this.camZoom || 1), 1, 1.3));
         if (avail !== this.baleSignOn) {
             this.baleSignOn = avail;
             this.tweens.killTweensOf(sign);
@@ -2379,7 +2379,7 @@ class PatchScene extends Phaser.Scene {
         this.baleSwayT = (this.baleSwayT ?? 2) - dt * (1 + (danger || 0));
         if (this.baleSwayT <= 0) {
             this.baleSwayT = 6;
-            this.tweens.add({ targets: sign, angle: { from: -2, to: 2 }, duration: 600, yoyo: true, ease: 'Sine.InOut',
+            this.tweens.add({ targets: sign, angle: { from: -1.5, to: 1.5 }, duration: 700, yoyo: true, ease: 'Sine.InOut',
                 onComplete: () => sign.setAngle(0) });
         }
     }

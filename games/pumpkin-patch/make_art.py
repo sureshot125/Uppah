@@ -86,6 +86,8 @@ PUMPKIN_PALETTES = {
     "white":  ["#7f7a70", "#ada79a", "#ddd6c6", "#f3eee2", "#ffffff"],
     "green":  ["#1f3a1a", "#335a26", "#4c7a38", "#6f9c4c", "#acd07d"],
     "gold":   ["#7c4d0c", "#bb7712", "#e9a128", "#fac255", "#fff0a6"],
+    "golden": ["#8a5f08", "#c99212", "#f2c230", "#ffe066", "#fffbe0"],
+    "unripe": ["#2a4a1c", "#3f6a26", "#5f8f34", "#86b24a", "#c2dc8a"],
 }
 STEM = ["#3d3214", "#5f4f20", "#86733a"]
 
@@ -995,7 +997,87 @@ def target_ring(w=30, h=8):
     return outline(img, 0.85)
 
 
+# ── growing patch props ─────────────────────────────────────────────────────
+def sprout():
+    """Seedling with two leaves and a curly tendril (first growth stage)."""
+    rows = [
+        "..........",
+        ".gg....gg.",
+        "gGGg..gGGg",
+        "gGGGgcgGGg",
+        ".gGGgsgGg.",
+        "..gg.s.gg.",
+        ".....s..c.",
+        "....ss.c..",
+        "...dsssd..",
+    ]
+    return outline(from_rows(rows, {"g": hx("#4e7a2f"), "G": hx("#86b24a"), "s": hx("#3f6a27"),
+                                    "c": hx("#6c9a3a"), "d": hx("#5e3b22")}), 0.6)
+
+
+def golden_pumpkin():
+    img = pumpkin(22, 16, "golden", 5, seed=99, curl=True)
+    p = img.load()
+    # a few bright glints so it reads as special
+    for (x, y) in [(7, 11), (8, 10), (17, 13), (6, 16)]:
+        if p[x, y][3]:
+            p[x, y] = hx("#ffffff")
+    return img
+
+
+def watering_can():
+    rows = [
+        "....kkkk..........",
+        "...k....k.........",
+        "..k......k........",
+        ".kkkkkkkkkk.....kk",
+        ".kLLLLLLLMk....kRk",
+        ".kLLLLLLMMkk..kRRk",
+        ".kLLLLLMMMDkkkRk..",
+        ".kLLLLLMMMDDkkk...",
+        ".kLLLLMMMMDk......",
+        ".kMMMMMMMDDk......",
+        ".kkkkkkkkkkk......",
+    ]
+    return from_rows(rows, {"k": INK + (255,), "L": hx("#b7ccd0"), "M": hx("#8fa6ab"),
+                            "D": hx("#6a8086"), "R": hx("#5d8a9a")})
+
+
+def water_drop():
+    rows = [".w.", "wbw", "bBb", ".b."]
+    return from_rows(rows, {"w": hx("#d8f2ff"), "b": hx("#6fbfe8"), "B": hx("#3d8fc4")})
+
+
+def straw_hat():
+    rows = [
+        "........kkkkkkk.........",
+        "......kkYYYYYYYkk.......",
+        ".....kYYYYYYYYYYYk......",
+        ".....kYYYYYYYYYYMk......",
+        ".....kRRRRRRRRRRRk......",
+        "..kkkkYYYYYYYYYYMkkkkk..",
+        ".kYYYYYYYYYYYYYYYYYYYMk.",
+        "kYYYYYYYYYYYYYYYYYYYMMMk",
+        ".kkMMMMMMMMMMMMMMMMMMkk.",
+        "...kkkkkkkkkkkkkkkkkk...",
+    ]
+    img = from_rows(rows, {"k": INK + (255,), "Y": hx("#ecc96e"), "M": hx("#c19a45"), "R": hx("#b8322a")})
+    # straw weave texture
+    p = img.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            if p[x, y][:3] == hx("#ecc96e")[:3] and (x + y * 2) % 5 == 0:
+                p[x, y] = hx("#d8b25a")
+    return img
+
+
 def main():
+    save(sprout(), "sprout.png")
+    save(pumpkin(13, 10, "unripe", 3, seed=5, curl=True), "pumpkin_unripe.png")
+    save(golden_pumpkin(), "pumpkin_golden.png")
+    save(watering_can(), "watering_can.png")
+    save(water_drop(), "drop.png")
+    save(straw_hat(), "straw_hat.png")
     save(hand(), "hand.png")
     save(target_ring(), "target.png")
     save(sparkle(), "sparkle.png")

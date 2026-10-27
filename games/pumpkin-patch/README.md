@@ -4,11 +4,11 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
 
 ## How to play
 
-- **Tap a pumpkin.** Ansel says "down", picks it up, carries it on his head and lifts it over the stack ("uppah!").
-- **Tap again** to drop it. The ring shows where it will land: gold = perfect (snaps to the centre), white = steady, orange = wobbly, flashing red = it will fall.
-- **Stack honestly.** A pumpkin lands where you drop it. If its centre is past the edge of the one below, it rolls off. A moderate miss wobbles and sometimes goes over. The whole stack tips if its weight leans past the joint below. Only the first two pumpkins of a round get help.
+- **Tap a pumpkin.** Ansel picks it up, carries it on his head and lifts it over the stack ("uppah!").
+- **Tap again** to drop it. A plain ring on the stack shows where it will land (wind drift included). It doesn't tell you whether it will stay: that's for you to judge from weight, order and lean.
+- **Stack honestly.** A pumpkin lands where you drop it. A drop very near the centre is a perfect drop: it snaps most of the way in but keeps a quarter of its miss, so even a run of perfects slowly leans. If its centre is past the edge of the one below, it rolls off. A moderate miss wobbles and sometimes goes over. The whole stack tips if its weight leans past the joint below. Only a player's very first round gets help with the first two pumpkins (and the pointing hand shows the very first one); after that it's all on you.
 - **Weight and order matter.** A big, heavy pumpkin is a wide, steady base. A heavy one dropped on a small one rocks hard and often topples. A little one on a big one is easy. Build big at the bottom and small on top. Landing on something at least as heavy scores a bonus.
-- **Wind is scenery.** Autumn gusts are announced by the windsock beside the bale and by streaming leaves. In a gust the tower sways a little, and the hovering pumpkin leans, bobs and sways along with the top of the tower. Wind never moves where a pumpkin lands and never knocks anything over: what lines up on screen is what lands.
+- **Wind.** Watch the windsock beside the bale and the leaves; they start streaming a second before a gust. A gust pushes the hovering pumpkin and drifts it as it falls (aim upwind; the ring shows where it will really land), sways the tower a little more and leans the hovering pumpkin, and adds a sideways load that can tip a crooked tower (a crooked tower catches more of it). Gusts get stronger as the tower grows and toward sunset.
 - **BOOM!** Once the tower is 3 tall, a wooden BOOM sign on the hay bale shows how many points it will bank. Tapping the bale sends Ansel to shove it: that banks the tower's points × (1 + 0.2 per pumpkin) and knocks it down. If the tower falls first, the points on the fallen pumpkins are lost. Stack one more, or cash in now?
 - **Pumpkin lives.** You start with 3. Each pumpkin that falls off the tower costs one. You can earn lives back, up to 5:
   - 3 perfect drops in a row: +1.
@@ -28,10 +28,12 @@ Keyboard: arrows or A/D to walk; Down or S to pick up, dive, or BOOM beside the 
 |---|---|
 | Two taps per pumpkin, tap-then-tap, no dragging | Stack's one-tap drop; works the same with a mouse or a finger |
 | Every tap reacts instantly; busy taps are queued | Toca Boca, Sago Mini, Pok Pok |
-| Rules are shown in the world, not in UI: the ring colour, the windsock, streaming leaves, wobble, creaks, the dusk | Owner feedback ("calm screen") |
+| Rules are shown in the world, not in UI: the landing ring, the windsock, streaming leaves, wobble, creaks, the dusk | Owner feedback ("calm screen") |
+| No outcome hints: the ring shows where it lands, not whether it stays; help is for a player's first round only | UX review ("tap when the ring is gold") |
+| Ansel speaks up only for big moments (UPPAH!, MORE!, BOOM, golden, milestones, falls, surprises) | UX review; the players aren't toddlers |
 | Honest stacking: centre of weight over the joint or it goes; weight and size change how a drop behaves | Owner feedback; Jenga / Mount Your Friends physical stakes |
 | Push your luck: points ride on the tower until BOOM banks them | Can't Stop / "press your luck" games |
-| Wind is mood, not a hazard: telegraphed by the windsock and leaves, it sways things but never changes a landing | Owner feedback ("shouldn't cause loss") |
+| Wind is telegraphed (~1.4 s of leaves and whoosh), alternates sides, and is present but not dominant | Paper Toss; owner feedback |
 | Achievements earn lives back, each with a pumpkin flying into the life row | Owner feedback; arcade extra lives |
 | Perfect drops sparkle and climb in pitch | Stack (Ketchapp) |
 | One finger at a time, 120 ms double-hit guard | Stops accidental double taps and stray touches on phones |
@@ -46,24 +48,26 @@ Keyboard: arrows or A/D to walk; Down or S to pick up, dive, or BOOM beside the 
 ## Tuning
 
 - The rules live in the `<rules>` block near the top of `game.js`:
-  - `RULES`: lives and how to earn them, landing help, flat-top widths, wobble, sway (and the wind's cosmetic sway), BOOM, points, the 3-minute day.
+  - `RULES`: lives and how to earn them, first-round help, the perfect-drop snap, flat-top widths, wobble, wind, sway, BOOM, points, the 3-minute day.
   - `HEFT`: how heavy each variety is.
-  - `STAGES`: CALM, BREEZY, WINDY, GUSTY, STORMY and WILD WIND, by tower height, each with sway width and speed, perfect zone, and how hard the (cosmetic) gusts blow.
+  - `STAGES`: CALM, BREEZY, WINDY, GUSTY, STORMY and WILD WIND, by tower height, each with sway width and speed, perfect zone and gust strength.
 - Per-tower state lives in a `Stack` object (one per hay bale), so more bales are a small change.
 - Items may carry `it.golden` (scores ×3) and `it.heft` (overrides the variety's weight).
 - `PatchScene.earnLife(n, x, y)` awards lives from anywhere, with the fly-in.
+- `PatchScene.say()` filters what Ansel says: lines in `SAY_LINES`, or calls that pass `important`.
+- One-time help is remembered per device in `localStorage` (`uppah.pumpkinpatch.played`, `.hinted`).
 
-Measured with `sim.js` (2000 rounds each, 3-minute day), pumpkins stacked per round (p10 / median / p90). Gusts on or off make no difference: the sim checks that the same rounds come out identical, and nothing ever topples between landings.
+Measured with `sim.js` (2000 rounds each, 3-minute day, a returning player with no first-round help), pumpkins stacked per round (p10 / median / p90). Timing players aim the landing ring at the centre with the given timing error.
 
 | Player | Never BOOM | Reach sunset |
 |---|---|---|
-| Random tapper | 4 / 7 / 10 | 0% |
-| Timing error 150 ms (casual) | 4 / 8 / 16 | 0% (9% if they BOOM at 8) |
-| Timing error 70 ms (good) | 10 / 20 / 33 | 5% |
-| Taps anywhere in the white/gold ring zone | 11 / 26 / 41 | 38% (80–97% if they BOOM at 6–10) |
-| Timing error 45 ms (expert) | 16 / 28 / 41 | 18% (89–97% if they BOOM at 10–14) |
+| Random tapper | 3 / 6 / 10 | 0% |
+| Casual (150 ms) | 4 / 8 / 15 | 0% |
+| Good (70 ms) | 11 / 19 / 30 | 1% (93% if they BOOM at 8) |
+| Expert (45 ms) | 16 / 26 / 37 | 8% (90% if they BOOM at 14) |
+| Near-perfect (25 ms) | 25 / 37 / 43 | 33% |
 
-Lives earned back per round: random tapper 1.6, casual 2.3, good 4.2, expert 3.7. Under the old rule (only 5 perfects in a row) it was 0.01–0.33. A good-zone player who presses BOOM at height 10 banks a median of about 21,000 points; at 15, about 32,000.
+Wind is present but not dominant. Players stack 8 vs 8 with gusts on and off (casual), 19 vs 20 (good) and 26 vs 31 (expert). Gusts topple a tower 0.09 (casual) to 0.46 (expert) times per round, always one that was already leaning. Pressing BOOM at 8–14 banks a median of about 22,000–23,000 for a good player; an expert pushing to 18 banks about 48,000.
 
 The game picks its resolution from the screen's shape (720 on the short side) and re-fits when a phone rotates, so it fills both landscape and portrait screens.
 

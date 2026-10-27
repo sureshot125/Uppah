@@ -421,6 +421,16 @@ const MUTE_KEY = 'uppah.pumpkinpatch.muted';
 const BOOM_HOLD = 0.5; // seconds B must be held: a stray key press never sets off a BOOM
 const LIFE_SCALE = 0.72; // the pumpkin-life icons in the HUD
 
+// Calm: the patch should feel peaceful. Every burst of sparkles, leaves or dust is a fraction of
+// what the effect asks for, nothing shakes or flashes the screen, and text fades in instead of
+// bouncing.
+const FX_SCALE = 0.3;
+function calmFx(em) {
+    const explode = em.explode.bind(em);
+    em.explode = (n, x, y) => explode(Math.max(1, Math.round((n || 1) * FX_SCALE)), x, y);
+    return em;
+}
+
 // A broad touch (a resting palm, the side of a hand) is not a tap.
 function isPalm(p) {
     const ev = p && p.event;
@@ -942,7 +952,6 @@ class PatchScene extends Phaser.Scene {
         this.signSize = { w: SIGN_W, h: SIGN_H };
         this.boomHold = 0; this.boomLatch = false;
         this.baleSignOn = false;
-        this.baleShimmyT = 0;
         this.add.image(HAY_X, GROUND + 4, 'shadow').setScale(1.35, 1).setDepth(7);
 
         // Leaf piles (each hides one pumpkin the first time Ansel dives in)
@@ -1007,34 +1016,34 @@ class PatchScene extends Phaser.Scene {
             rotate: { start: 0, end: 540 }, scale: { min: 0.7, max: 1.1 },
             frequency: 260, quantity: 1,
         }).setDepth(30);
-        this.burst = this.add.particles(0, 0, 'leaves', {
+        this.burst = calmFx(this.add.particles(0, 0, 'leaves', {
             frame: [0, 1, 2, 3, 4, 5, 6, 7],
-            lifespan: { min: 1400, max: 2600 },
-            speedX: { min: -300, max: 300 }, speedY: { min: -620, max: -240 },
-            gravityY: 520, rotate: { start: 0, end: 720 }, scale: { min: 0.9, max: 1.3 },
+            lifespan: { min: 1400, max: 2400 },
+            speedX: { min: -150, max: 150 }, speedY: { min: -360, max: -160 },
+            gravityY: 360, rotate: { start: 0, end: 360 }, scale: { min: 0.9, max: 1.2 },
             emitting: false,
-        }).setDepth(31);
+        })).setDepth(31);
         // Leaves shaken loose from the tree line flutter down
-        this.treeLeaves = this.add.particles(0, 0, 'leaves', {
+        this.treeLeaves = calmFx(this.add.particles(0, 0, 'leaves', {
             frame: [0, 1, 2, 3, 4, 5, 6, 7],
             lifespan: { min: 2200, max: 3400 }, speedX: { min: -70, max: 70 }, speedY: { min: 30, max: 110 },
             gravityY: 40, rotate: { start: 0, end: 360 }, scale: { min: 0.9, max: 1.3 }, emitting: false,
-        }).setDepth(30);
+        })).setDepth(30);
         // Dust kicked up by landings and footsteps
-        this.dust = this.add.particles(0, 0, 'dust', {
-            lifespan: { min: 350, max: 600 }, speedX: { min: -140, max: 140 }, speedY: { min: -90, max: -10 },
-            gravityY: 120, scale: { start: 1.2, end: 0.2 }, alpha: { start: 1, end: 0 }, emitting: false,
-        }).setDepth(32);
-        // A little puff wherever a finger lands, so every tap does something
-        this.poof = this.add.particles(0, 0, 'dust', {
-            lifespan: 380, speed: { min: 70, max: 170 }, angle: { min: 0, max: 360 },
-            scale: { start: 1, end: 0 }, alpha: { start: 0.9, end: 0 }, emitting: false,
-        }).setDepth(65);
+        this.dust = calmFx(this.add.particles(0, 0, 'dust', {
+            lifespan: { min: 350, max: 600 }, speedX: { min: -90, max: 90 }, speedY: { min: -60, max: -10 },
+            gravityY: 120, scale: { start: 1.1, end: 0.2 }, alpha: { start: 0.8, end: 0 }, emitting: false,
+        })).setDepth(32);
+        // A soft little puff where a finger lands
+        this.poof = calmFx(this.add.particles(0, 0, 'dust', {
+            lifespan: 320, speed: { min: 25, max: 70 }, angle: { min: 0, max: 360 },
+            scale: { start: 0.8, end: 0 }, alpha: { start: 0.5, end: 0 }, emitting: false,
+        })).setDepth(65);
         // Sparkles for perfect drops and the bunny
-        this.sparkles = this.add.particles(0, 0, 'sparkle', {
-            lifespan: { min: 450, max: 800 }, speed: { min: 90, max: 280 }, angle: { min: 0, max: 360 },
-            scale: { start: 1.3, end: 0 }, rotate: { start: 0, end: 180 }, emitting: false,
-        }).setDepth(63);
+        this.sparkles = calmFx(this.add.particles(0, 0, 'sparkle', {
+            lifespan: { min: 500, max: 900 }, speed: { min: 40, max: 140 }, angle: { min: 0, max: 360 },
+            scale: { start: 1.1, end: 0 }, rotate: { start: 0, end: 90 }, emitting: false,
+        })).setDepth(63);
 
         // Gigi cameo actor
         // Gigi visits from the back of the patch, between the vine rows: small enough to be part of the
@@ -1681,7 +1690,7 @@ class PatchScene extends Phaser.Scene {
                 this.say('NNNGH!', 900);
                 this.holdPose(it, 'heave', 110);
                 this.time.delayedCall(130, lift);
-                this.cameras.main.shake(110, 0.003);
+                this.cameras.main.shake(90, 0.001);
             } else {
                 lift();
             }
@@ -1878,7 +1887,7 @@ class PatchScene extends Phaser.Scene {
                 this.dust.explode(Math.min(10, 3 + Math.round(rv)), c ? c.x : it.body.position.x,
                     c ? c.y : it.body.bounds.max.y);
                 this.tweens.add({ targets: it.img, scaleX: 1.12, scaleY: 0.88, duration: 70, yoyo: true });
-                if (it.heavy && rv > 6) this.cameras.main.shake(120, 0.004);
+                if (it.heavy && rv > 6 && !it.blown) this.cameras.main.shake(90, 0.0012); // a BOOM never shakes
             }
         }
     }
@@ -1955,7 +1964,7 @@ class PatchScene extends Phaser.Scene {
             a.carrying.img.x = p.x;
             a.carrying.img.y = p.y + idleBob - a.jumpY;
             a.carrying.img.angle = a.moving ? Math.sin(time / 120) * 2 : 0;
-            if (a.carrying.golden && Math.random() < 0.15) {
+            if (a.carrying.golden && Math.random() < 0.04) {
                 this.sparkles.explode(1, a.carrying.img.x + Phaser.Math.Between(-30, 30), a.carrying.img.y);
             }
         }
@@ -2006,6 +2015,7 @@ class PatchScene extends Phaser.Scene {
                 // things that fell (off the stack, out of a leaf pile, out of the sky) are loose again
                 if (it.state === 'falling') it.state = 'ground';
                 it.fromDrop = false;
+                it.blown = false;
             }
             if (it.settleT > 0.45 && it.state === 'ground' && it.body.bounds.max.y < HAY_TOP + 20 &&
                 Math.abs(it.body.position.x - HAY_X) < HAY_W / 2 + 10) {
@@ -2358,20 +2368,19 @@ class PatchScene extends Phaser.Scene {
             this.baleSignOn = avail;
             this.tweens.killTweensOf(sign);
             if (avail) {
-                sign.setVisible(true).setScale(0.2).setAngle(0);
-                this.tweens.add({ targets: sign, scale: 1, duration: 320, ease: 'Back.Out' });
-                this.baleShimmyT = 1.2;
+                sign.setVisible(true).setScale(1).setAngle(0).setAlpha(0);
+                this.tweens.add({ targets: sign, alpha: 1, duration: 400, ease: 'Sine.Out' });
+                this.baleSwayT = 2;
             } else {
                 sign.setVisible(false);
             }
         }
         if (!avail) return;
-        this.baleShimmyT -= dt * (1 + 2 * (danger || 0));
-        if (this.baleShimmyT <= 0) {
-            this.baleShimmyT = 3.2;
-            this.tweens.add({ targets: sign, angle: { from: -5, to: 5 }, duration: 90, yoyo: true, repeat: 2,
+        this.baleSwayT = (this.baleSwayT ?? 2) - dt * (1 + (danger || 0));
+        if (this.baleSwayT <= 0) {
+            this.baleSwayT = 6;
+            this.tweens.add({ targets: sign, angle: { from: -2, to: 2 }, duration: 600, yoyo: true, ease: 'Sine.InOut',
                 onComplete: () => sign.setAngle(0) });
-            this.tweens.add({ targets: this.hayImg, scaleX: 1.04, scaleY: 0.96, duration: 90, yoyo: true, repeat: 1 });
         }
     }
 
@@ -2421,7 +2430,6 @@ class PatchScene extends Phaser.Scene {
     // The tower goes flying (no lives lost: it was on purpose) and the pumpkins land in the patch.
     blowUp(stack) {
         Sfx.boom();
-        this.cameras.main.shake(380, 0.012);
         this.burst.explode(40, stack.x, stack.topY);
         const dirAway = this.ansel.x < stack.x ? 1 : -1;
         for (const it of stack.items) {
@@ -2432,6 +2440,7 @@ class PatchScene extends Phaser.Scene {
                                         y: -6 - Math.random() * 7 - k });
             MB().setAngularVelocity(it.body, (Math.random() - 0.5) * 0.3);
             it.state = 'falling';
+            it.blown = true;
             it.airT = 0;
             it.pts = 0;
             it.rock = null;
@@ -2601,7 +2610,7 @@ class PatchScene extends Phaser.Scene {
         if (sup) {
             const sq = Math.min(0.24, 0.05 * ratio);
             this.tweens.add({ targets: sup.img, scaleX: 1 + sq * 0.8, scaleY: 1 - sq, duration: 90 + 20 * Math.min(ratio, 4), yoyo: true, ease: 'Quad.Out' });
-            if (ratio > 1.5) this.cameras.main.shake(140, Math.min(0.008, 0.0025 * ratio));
+            if (ratio > 1.5) this.cameras.main.shake(100, Math.min(0.0025, 0.0008 * ratio));
         }
         const dir = res.x >= (sup ? sup.rx : stack.x) ? 1 : -1;
         const height = stack.balance ? stack.balance.height : 0;
@@ -2680,7 +2689,7 @@ class PatchScene extends Phaser.Scene {
             this.say('UH OH!', 900);
         } else {
             Sfx.creak(pieceOf(pieces[0]).m);
-            this.time.delayedCall(220, () => { Sfx.crash(); this.cameras.main.shake(380, 0.01); });
+            this.time.delayedCall(220, () => { Sfx.crash(); this.cameras.main.shake(160, 0.003); });
             this.burst.explode(16, G.px, G.py);
             this.say('OH NO!', 1100);
         }
@@ -2734,8 +2743,8 @@ class PatchScene extends Phaser.Scene {
     popText(x, y, text, color, size) {
         const t = this.add.text(x, y, text, {
             fontFamily: FONT, fontSize: size + 'px', color, stroke: INK, strokeThickness: 8,
-        }).setOrigin(0.5, 1).setDepth(62).setScale(0.4 * this.textScale);
-        this.tweens.add({ targets: t, scale: this.textScale, duration: 200, ease: 'Back.Out' });
+        }).setOrigin(0.5, 1).setDepth(62).setScale(0.9 * this.textScale).setAlpha(0);
+        this.tweens.add({ targets: t, scale: this.textScale, alpha: 1, duration: 260, ease: 'Sine.Out' });
         this.tweens.add({ targets: t, y: y - 80 * this.textScale, alpha: 0, delay: 650, duration: 650, onComplete: () => t.destroy() });
     }
     // ── end CHALLENGE ROUND ──────────────────────────────────────────────────
@@ -3138,9 +3147,9 @@ class UIScene extends Phaser.Scene {
     }
 
     showBanner(text) {
-        this.bannerText.setText(text).setAlpha(1).setScale(0.3);
+        this.bannerText.setText(text).setAlpha(0).setScale(0.94);
         this.tweens.killTweensOf(this.bannerText);
-        this.tweens.add({ targets: this.bannerText, scale: 1, duration: 380, ease: 'Back.Out' });
+        this.tweens.add({ targets: this.bannerText, alpha: 1, scale: 1, duration: 420, ease: 'Sine.Out' });
         this.tweens.add({ targets: this.bannerText, alpha: 0, duration: 500, delay: 2200 });
     }
 
@@ -3179,11 +3188,11 @@ class UIScene extends Phaser.Scene {
         E.tower = this.add.container(0, 0); // the round's tallest tower, on a little hay bale
         E.root.add([E.shade, E.panel, E.wood, E.title, E.tower, E.hero, E.rows, E.best, E.go]);
         this.tweens.add({ targets: E.go, alpha: 0.35, duration: 600, yoyo: true, repeat: -1 });
-        this.tweens.add({ targets: E.best, scale: 1.12, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-        this.endSparkles = this.add.particles(0, 0, 'sparkle', {
-            lifespan: { min: 500, max: 900 }, speed: { min: 120, max: 320 }, angle: { min: 0, max: 360 },
-            scale: { start: 1.6, end: 0 }, rotate: { start: 0, end: 180 }, emitting: false,
-        }).setDepth(125);
+        this.tweens.add({ targets: E.best, scale: 1.05, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        this.endSparkles = calmFx(this.add.particles(0, 0, 'sparkle', {
+            lifespan: { min: 600, max: 1000 }, speed: { min: 50, max: 160 }, angle: { min: 0, max: 360 },
+            scale: { start: 1.3, end: 0 }, rotate: { start: 0, end: 90 }, emitting: false,
+        })).setDepth(125);
         this.endShown = false;
         this.endReady = false;
 
@@ -3265,8 +3274,9 @@ class UIScene extends Phaser.Scene {
             ic.setVisible(i < Math.max(RULES.lives, n));
             ic.setAlpha(on ? 1 : 0.3).setTint(on ? 0xffffff : 0x5a4a3a);
             if (lost && i === n) {
-                this.tweens.add({ targets: ic, scale: LIFE_SCALE * 1.4, duration: 90, yoyo: true, repeat: 2 });
-                this.cameras.main.flash(120, 120, 20, 10);
+                this.tweens.add({ targets: ic, scale: LIFE_SCALE * 1.25, duration: 160, yoyo: true, ease: 'Sine.InOut' });
+                const tint = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0xb03018, 0.14).setOrigin(0).setDepth(80);
+                this.tweens.add({ targets: tint, alpha: 0, duration: 380, ease: 'Sine.Out', onComplete: () => tint.destroy() });
             } else if (!lost && on && i === n - 1) {
                 this.tweens.add({ targets: ic, scale: LIFE_SCALE * 1.35, duration: 140, yoyo: true });
             }
@@ -3763,10 +3773,10 @@ const PatchEggs = {
             s.homeY = L.y;
             return s;
         });
-        this.eggSeeds = this.add.particles(0, 0, 'egg_seed', {
-            lifespan: { min: 700, max: 1200 }, speedX: { min: -340, max: 340 }, speedY: { min: -300, max: 20 },
-            gravityY: 760, rotate: { start: 0, end: 360 }, scale: { min: 0.7, max: 0.95 }, emitting: false,
-        }).setDepth(1.2);
+        this.eggSeeds = calmFx(this.add.particles(0, 0, 'egg_seed', {
+            lifespan: { min: 700, max: 1200 }, speedX: { min: -220, max: 220 }, speedY: { min: -220, max: 20 },
+            gravityY: 700, rotate: { start: 0, end: 360 }, scale: { min: 0.7, max: 0.95 }, emitting: false,
+        })).setDepth(1.2);
 
         // Sky: faces for the sun and moon, the clouds (copies, shown only while they puff), a rainbow
         this.eggRays = this.add.sprite(J.sun[0], J.sun[1], 'egg_sun_rays', 0).setDepth(0.11).setAlpha(0);
@@ -4743,10 +4753,10 @@ const UIEggs = {
             fontFamily: FONT, fontSize: '18px', color: '#ffe3a6', stroke: INK, strokeThickness: 5,
         }).setOrigin(0, 0.5);
         badge.add([bb, star, count]);
-        const fx = this.add.particles(0, 0, 'sparkle', {
-            lifespan: 500, speed: { min: 60, max: 170 }, angle: { min: 0, max: 360 },
+        const fx = calmFx(this.add.particles(0, 0, 'sparkle', {
+            lifespan: 600, speed: { min: 40, max: 120 }, angle: { min: 0, max: 360 },
             scale: { start: 1, end: 0 }, emitting: false,
-        }).setDepth(96);
+        })).setDepth(96);
         this.eggUi = { J, N, tray, bg, slots, badge, star, count, fx, shown: false, sc: 1, trayY: 14, trayH: 64, tw: 120 };
         this.eggUiCount();
         this.eggUiLayout(this.scale.width, this.scale.height);

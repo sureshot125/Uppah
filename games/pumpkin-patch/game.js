@@ -5095,12 +5095,15 @@ const UIHtp = {
         }
     },
 
-    // The round's HUD (count panel, score, lives) means nothing on the title: hide it from
-    // the camera there (visibility and alpha stay the HUD's own business).
+    // The round's HUD (count panel, score, lives) means nothing on the title, and the patch's
+    // own Ansel would stand behind the title's: hide them from their cameras there (their
+    // visibility and alpha stay their own business).
     htpHud(hide) {
         const H = this.htp, cam = this.cameras.main;
         if (hide === !!H.hudHidden) return;
         H.hudHidden = hide;
+        const P = this.patch, pc = P.cameras.main, a = P.ansel;
+        if (a) [a.img, a.shadow].forEach(o => { if (o) o.cameraFilter = hide ? o.cameraFilter | pc.id : o.cameraFilter & ~pc.id; });
         if (hide) {
             const r = this.panel.getBounds();
             H.hud = this.children.list.filter(o => o !== this.title && o.depth < 50 && o.x >= r.left - 4 &&
@@ -5307,6 +5310,11 @@ const UIHtp = {
         H.pageC.removeAll(true);
     },
 
+    // The scenes' sound effects play through their first run only, not on every loop.
+    htpSfx(name, ...args) {
+        if (this.time.now - this.htp.builtAt < 6000 && Sfx[name]) Sfx[name](...args);
+    },
+
     htpLater(ms, fn) {
         const H = this.htp;
         H.timers = H.timers.filter(t => t.loop || !t.hasDispatched);
@@ -5325,6 +5333,7 @@ const UIHtp = {
     htpBuildPage() {
         const H = this.htp, pg = HTP_PAGES[H.page], last = H.page === HTP_PAGES.length - 1;
         this.htpClear();
+        H.builtAt = this.time.now;
         H.title.setText(pg.title);
         H.skip.label.setText(H.mode === 'auto' ? 'SKIP' : 'CLOSE');
         H.next.label.setText(last ? (H.mode === 'pause' ? 'DONE' : 'PLAY!') : 'NEXT');
@@ -5572,7 +5581,7 @@ const UIHtp = {
                         this.tweens.add({ targets: pk, scaleX: 1.12, scaleY: 0.88, duration: 70, yoyo: true });
                         fx.explode(18, top.x, top.y);
                         this.htpPop(c, top.x, top.y - 150, 'PERFECT!', 24, HTP_COL.gold);
-                        Sfx.perfect(1);
+                        this.htpSfx('perfect', 1);
                     } });
                 });
             });
@@ -5600,9 +5609,9 @@ const UIHtp = {
             pk.setPosition(top.x + 60, hoverY).setAngle(0).setAlpha(1);
             lives.forEach(l => l.setAlpha(1).clearTint().setScale(1.25));
             this.tweens.add({ targets: pk, y: restY, delay: 500, duration: 200, ease: 'Quad.In', onComplete: () => {
-                Sfx.thunk(20, 3);
+                this.htpSfx('thunk', 20, 3);
                 this.tweens.add({ targets: pk, angle: 16, x: pk.x + 14, duration: 320, ease: 'Sine.In', onComplete: () => {
-                    Sfx.uhoh();
+                    this.htpSfx('uhoh');
                     this.tweens.add({ targets: pk, x: pk.x + 170, angle: 220, duration: 700, ease: 'Linear' });
                     this.tweens.add({ targets: pk, y: groundY, duration: 700, ease: 'Quad.In', onComplete: () => {
                         this.tweens.add({ targets: pk, y: groundY - 26, duration: 140, yoyo: true, ease: 'Quad.Out' });
@@ -5619,7 +5628,7 @@ const UIHtp = {
                 const fly = this.add.image(top.x, top.y - 40, 'icon_pumpkin').setScale(1.6);
                 c.add(fly);
                 const tx = row.x + lives[2].x, ty = row.y + lives[2].y;
-                Sfx.pickup();
+                this.htpSfx('pickup');
                 this.tweens.add({ targets: fly, x: tx, duration: 750, ease: 'Sine.InOut' });
                 this.tweens.add({ targets: fly, y: { value: ty, ease: 'Back.In' }, angle: 360, scale: 1.25, duration: 750, onComplete: () => {
                     fly.destroy();
@@ -5627,7 +5636,7 @@ const UIHtp = {
                     this.tweens.add({ targets: lives[2], scale: 1.6, duration: 140, yoyo: true });
                     fx.explode(12, tx, ty);
                     this.htpPop(c, tx + 120, ty + 30, '+1', 26, HTP_COL.gold);
-                    Sfx.bonus();
+                    this.htpSfx('bonus');
                 } });
             });
             this.htpLater(5200, () => this.tweens.add({ targets: pk, alpha: 0, duration: 250 }));
@@ -5677,7 +5686,7 @@ const UIHtp = {
             });
             this.htpLater(1500, () => this.htpPose(ansel, ANSEL_POSES.shove || htpHero()));
             this.htpLater(1700, () => {
-                Sfx.boom();
+                this.htpSfx('boom');
                 sign.setVisible(false);
                 fx.explode(30, top.x, top.y + 60);
                 burst.explode(24, top.x, top.y + 100);
@@ -5689,7 +5698,7 @@ const UIHtp = {
                         this.tweens.add({ targets: it, y: GROUND - c.box.y - it.bh / 2, duration: 520, ease: 'Quad.In' }) });
                 });
                 this.htpPop(c, top.x, top.y - 10, '+1,260', 30, HTP_COL.gold);
-                this.htpLater(250, () => Sfx.fanfare());
+                this.htpLater(250, () => this.htpSfx('fanfare'));
                 this.htpLater(500, () => this.htpPose(ansel, htpHero()));
             });
             this.htpLater(5100, () => this.tweens.add({ targets: tower.items, alpha: 0, duration: 300 }));
@@ -5761,7 +5770,7 @@ const UIHtp = {
             this.htpLater(2300, () => {
                 lvl = 3;
                 leaves.setFrequency(60);
-                Sfx.wind(0.4, 2);
+                this.htpSfx('wind', 0.4, 2);
                 this.tweens.add({ targets: sway, angle: { from: 0, to: 3.2 }, duration: 500, yoyo: true, repeat: 1, ease: 'Sine.InOut' });
             });
             this.htpLater(4400, () => { lvl = 1; leaves.stop(); });

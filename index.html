@@ -145,7 +145,7 @@
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 0 12px;
+            gap: 0 18px;
         }
         .stats .none { color: var(--dim); }
         .stats img { width: 18px; height: 18px; vertical-align: -3px; image-rendering: auto; }
@@ -294,14 +294,13 @@
         const ppParts = [];
         if (pp.score) ppParts.push('<span>BEST ' + num(pp.score) + '</span>');
         if (pp.count) ppParts.push('<span>TALLEST ' + num(pp.count) + '</span>');
-        stat(ppStats, ppParts.join('<span>·</span>'));
+        stat(ppStats, ppParts.join(''));
         if (found.length) {
             fetch('games/pumpkin-patch/art/surprises.json').then(r => r.json()).then(j => {
                 const n = (j.stickers || []).length;
                 const s = document.createElement('span');
                 s.textContent = 'SURPRISES ' + found.length + (n ? '/' + n : '');
                 if (!ppParts.length) ppStats.innerHTML = '';
-                else ppStats.insertAdjacentHTML('beforeend', '<span>·</span>');
                 ppStats.appendChild(s);
             }).catch(() => {});
         }

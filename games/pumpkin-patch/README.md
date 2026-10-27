@@ -99,3 +99,13 @@ Nearly everything above the fence does something when tapped, Humongous-style. T
 Finding them needs no words. Owl eyes blink in the dark hayloft, the rooster pecks, the barn doors rattle, and a small glint now and then marks something not found yet. After a long idle spell the pointing hand sometimes shows one. Each first find pops a sticker that flies to the badge under the sound button. Tap the badge to see the sticker tray: found stickers in colour, the rest as silhouettes. Found stickers are saved in `localStorage` (`uppah.pumpkinpatch.surprises`).
 
 All of it lives in the SURPRISES section near the end of `game.js` (one-line hooks elsewhere are marked `surprises`) and the surprises section of `make_art.py`, which writes the `egg_*.png` sprites and `art/surprises.json`. The json says where the overlays line up with the background. Clouds, sun, moon, barn doors, letters and fence posts are copied pixel-for-pixel out of the rendered background, so they move without repainting the scene.
+
+## How to play card, title and pause extras
+
+After the first tap on the title, a four-panel how-to-play card explains the game before the round starts: STACK 'EM UP (the goal, the landing ring, heavy pumpkins at the bottom, the controls), DON'T LET IT FALL (pumpkin lives, gusts, the ways to earn lives back), BOOM! (banking the tower, what's lost if it falls first) and BEAT THE SUNSET (the afternoon is the clock, the last BOOM at the end of a round, vines, leaf piles, MORE! and the scenery). Each panel has a small looping scene built from the game's own sprites. Touch screens see taps; a mouse and keyboard (`DESKTOP`) see keycaps.
+
+- It opens by itself until the player has started 3 rounds (`HTP_AUTO`, counted in `localStorage` as `uppah.pumpkinpatch.rounds`). After that it's on the title's "?" button (or ? / H), and on the pause menu's HOW TO PLAY button.
+- NEXT / BACK / SKIP, a swipe, a tap on the card, the page pumpkins, or keys: → Space Enter next, ← back, 1-4 a page, Esc skip. M still mutes.
+- The title shows the live patch through stepped bands instead of a flat shade, keeps the round's HUD and the patch's own Ansel out of the way, and adds the best score, "?" and HOME (back to the Uppah home page, `../../`). The pause menu gets HOW TO PLAY and HOME.
+
+All of it lives in the HOW TO PLAY section near the end of `game.js` (one-line hooks elsewhere are marked `how to play`; UIScene's tap and key handlers ask `htpTap()` / `htpKey()` first) and the how-to-play section of `make_art.py` (`keys.png`, `key_wide.png`, `icon_home.png`).

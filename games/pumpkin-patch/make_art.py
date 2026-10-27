@@ -856,6 +856,829 @@ def background(W=480, H=540, seed=5):
     return img, front
 
 
+# ═══════════════════════════════════════════════ surprises (click points) ══
+# Humongous-style surprises: critters that pop out when the scenery is tapped,
+# overlays copied pixel-for-pixel out of the background (so a cloud, the sun,
+# the moon, a barn door or a fence post can move without repainting the scene),
+# and the die-cut sticker sheet for the "surprises found" tray. Everything the
+# game needs to line the overlays up is written to art/surprises.json.
+
+def sym(half):
+    """Mirror a left half into a symmetric sprite (rows of equal length)."""
+    return [r + r[::-1] for r in half]
+
+
+def pad(img, n=1):
+    """Clear margin so outline() has room on every side."""
+    out = Image.new("RGBA", (img.width + 2 * n, img.height + 2 * n), (0, 0, 0, 0))
+    out.alpha_composite(img, (n, n))
+    return out
+
+
+def rows_sprite(rows, colours, strength=0.6):
+    return outline(pad(from_rows(rows, colours)), strength)
+
+
+def extract(img, box, keep=None):
+    """Copy a box (x0, y0, x1, y1; art px, end exclusive) out of a rendered layer.
+    With `keep`, only pixels of those RGB colours survive (the rest go clear)."""
+    c = img.crop(box).convert("RGBA")
+    if keep:
+        p = c.load()
+        for y in range(c.height):
+            for x in range(c.width):
+                if p[x, y][:3] not in keep:
+                    p[x, y] = (0, 0, 0, 0)
+    return c
+
+
+def strip(frames):
+    """Lay equal-sized frames side by side (pads to the largest frame)."""
+    w = max(f.width for f in frames)
+    h = max(f.height for f in frames)
+    sheet = Image.new("RGBA", (w * len(frames), h), (0, 0, 0, 0))
+    for i, f in enumerate(frames):
+        sheet.alpha_composite(f, (i * w + (w - f.width) // 2, h - f.height))
+    return sheet
+
+
+def keyset(*cols):
+    return {hx(c)[:3] for c in cols}
+
+
+# ── critters ──
+COW = {"w": hx("#f6f1e7"), "s": hx("#d8cfc0"), "k": hx("#2e2624"), "p": hx("#f0a6a0"),
+       "q": hx("#d98a84"), "n": hx("#8a4440"), "h": hx("#efe2b8"), "H": hx("#b89c62"),
+       "e": INK + (255,), "m": hx("#5a1e1a"), "t": hx("#e8848a"), "u": hx("#f4b0b8")}
+
+
+def cow_head(moo=False):
+    """Front-on cow head that pops up in the barn doorway (frame 1: MOO)."""
+    rows = sym([
+        "..hH....",
+        "...hH...",
+        "....wwww",
+        "kk.wwwww",
+        "kpkwwwww",
+        ".kkwwwww",
+        "...wweww",
+        "...wwwww",
+        "...wwwww",
+        "..pppppp",
+        "..pnpppp",
+        "..pppppp",
+        "...ppppp",
+        "....qqqq",
+    ])
+    rows = [list(r) for r in rows]
+    for (x, y) in [(5, 2), (6, 2), (7, 2), (5, 3), (6, 3), (7, 3), (8, 3), (6, 4), (7, 4)]:
+        rows[y][x] = "k"                      # a patch over one eye
+    for y in range(2, 9):
+        for x in range(11, 13):
+            if rows[y][x] == "w":
+                rows[y][x] = "s"              # stepped shade on the far cheek
+    if moo:
+        for x in range(6, 10):
+            rows[11][x] = "m"
+            rows[12][x] = "m"
+        rows[12][7] = rows[12][8] = "t"
+        rows[13][6] = rows[13][9] = "q"
+    return rows_sprite(["".join(r) for r in rows], COW)
+
+
+def cow_jump():
+    """Side-on cow in mid-leap, for jumping over the moon."""
+    rows = [
+        "..................h.h.",
+        "t................kwwwk",
+        ".t.wwkkkwwwwwwwwwwwew.",
+        "..wwkkkkkwwwwkkwwwwwwp",
+        "..wwwkkkwwwwkkkkwwwppp",
+        "..swwwwwwwwwwkkwwwwpnp",
+        "..sswwwwwwwwwwwwwss.pp",
+        "...ssswwwwuwwwwwss....",
+        "...ss.....u......ss...",
+        "..ss..............ss..",
+        ".ss................ss.",
+        "kk..................kk",
+    ]
+    return rows_sprite(rows, COW)
+
+
+HEN = {"w": hx("#fbf6ea"), "s": hx("#d9cdb6"), "d": hx("#b9a98a"), "r": hx("#d0362a"),
+       "b": hx("#f2a93b"), "e": INK + (255,), "l": hx("#e08a2a"), "y": hx("#ffd84a"),
+       "Y": hx("#e0a92a")}
+
+
+def hen(frame=0):
+    """White hen facing right (frame 1: BAWK! with the wings up)."""
+    if frame == 0:
+        rows = [
+            "......r.r...",
+            "......rrr...",
+            ".....wwwwb..",
+            ".....wwewbb.",
+            "s....wwwwr..",
+            "ss...swwwr..",
+            "sws.swwww...",
+            ".swwwwwwww..",
+            ".swwddddwww.",
+            "..swwdddww..",
+            "...sswwws...",
+            ".....l.l....",
+        ]
+    else:
+        rows = [
+            "......r.r...",
+            "......rrr.b.",
+            ".....wwwwbb.",
+            ".....wwew...",
+            "s.dd.wwwwbb.",
+            "ssddd.wwwr..",
+            "swsddswww...",
+            ".swwwwwwww..",
+            ".swwwwwwwww.",
+            "..swwwwwww..",
+            "...sswwws...",
+            ".....l.l....",
+        ]
+    return rows_sprite(rows, HEN)
+
+
+def chick(frame=0):
+    rows = [
+        "..yy..",
+        ".yyeyb",
+        "yyyyy.",
+        "Yyyyy.",
+        ".YYy..",
+        "..l.l.",
+    ] if frame == 0 else [
+        "......",
+        "..yy..",
+        ".yyeyb",
+        "Yyyyyy",
+        ".YYyy.",
+        "..ll..",
+    ]
+    return rows_sprite(rows, HEN)
+
+
+OWL = {"t": hx("#5e381b"), "b": hx("#8a5a2c"), "L": hx("#c99456"), "y": hx("#ffd35a"),
+       "k": INK + (255,), "o": hx("#e0a040")}
+
+
+def owl(frame=0):
+    """Owl head that pops up in the hayloft window: 0 look, 1 blink, 2 look aside.
+    It fills the window exactly, flat along the bottom where the sill cuts it."""
+    eyes = {0: ["byyybyyyb", "bykybykyb", "byyyoyyyb"],
+            1: ["bbbbbbbbb", "bkkkbkkkb", "bbbbobbbb"],
+            2: ["byyybyyyb", "byykbyykb", "byyyoyyyb"]}[frame]
+    rows = ["t.......t", "tbbbbbbbt"] + eyes + ["bbbbobbbb", "bLbbbbbLb"]
+    img = rows_sprite(rows, OWL, 0.65)
+    return img.crop((0, 0, img.width, img.height - 1))   # the sill hides the bottom edge
+
+
+def owl_eyes():
+    """Two eyes glinting in the dark hayloft (an idle invitation)."""
+    return from_rows(["yy..yy"], {"y": hx("#ffd35a")})
+
+
+ROOSTER = {"c": hx("#e0402a"), "b": hx("#f2a93b"), "e": INK + (255,), "g": hx("#e9a128"),
+           "G": hx("#bb7712"), "r": hx("#a8301f"), "R": hx("#6e1c14"), "t": hx("#2f4a3a"),
+           "T": hx("#4f7a5a"), "w": hx("#d0362a"), "l": hx("#e08a2a")}
+
+
+def rooster(frame=0):
+    """Rooster perched on the barn roof, facing right: 0 stand, 1 peck, 2 crow, 3 flap."""
+    legs = [".....l..l....", ".....l..l....", "....ll.ll...."]
+    if frame == 1:     # head ducked down in front to peck
+        rows = [
+            ".............",
+            ".............",
+            ".............",
+            ".............",
+            "t............",
+            "tt.......cc..",
+            "Ttt....gcccc.",
+            ".Tttrrrggggg.",
+            "..trrRRrrgegb",
+            "...rrRRRrrwbb",
+            "....rrrrr.w..",
+        ]
+    elif frame == 2:   # head thrown back, beak wide open: COCK-A-DOODLE-DOO
+        rows = [
+            ".......cc.b..",
+            "......cccb...",
+            "......ggeg...",
+            "......gggbb..",
+            "t.....ggw....",
+            "tt....gggw...",
+            "Ttt...ggGg...",
+            ".Tttrrrrgg...",
+            "..trrRRrrr...",
+            "...rrRRRrr...",
+            "....rrrrr....",
+        ]
+    else:              # standing (frame 3: wings up)
+        rows = [
+            ".........cc..",
+            "........ccc..",
+            "........gggb.",
+            "........gegbb",
+            "t.......ggw..",
+            "tt.....gggw..",
+            "Ttt...ggGg...",
+            ".Tttrrrrgg...",
+            "..trrRRrrr...",
+            "...rrRRRrr...",
+            "....rrrrr....",
+        ]
+        if frame == 3:
+            rows[6] = "TttRR.ggGg..."
+            rows[7] = ".TtRRRrrgg..."
+            rows[8] = "..trRRrrrr..."
+    return rows_sprite(rows + legs, ROOSTER)
+
+
+CROW = {"k": hx("#2a2630"), "h": hx("#4a4458"), "b": hx("#5f5866"), "e": hx("#fff6d8"),
+        "l": hx("#5f5866")}
+
+
+def crow(frame=0):
+    """Crow facing right: 0 perched, 1 CAW, 2 wings up, 3 wings down."""
+    rows = {
+        0: ["......kkk..", ".....kkekk.", "......kkkbb", "kk..kkkkk..",
+            ".kkkkhhkk..", "..kkkkkkk..", "....kkkk...", ".....l.l..."],
+        1: [".......kkb.", "......kek.b", "......kkkb.", "kk..kkkkk..",
+            ".kkkkhhkk..", "..kkkkkkk..", "....kkkk...", ".....l.l..."],
+        2: ["...kk......", "....kkk.kk.", ".....hkkekk", "kk..kkhkkbb",
+            ".kkkkkkk...", "...kkkk....", "...........", "..........."],
+        3: ["...........", "........kk.", "........kekk", "kk..kkkkkbb",
+            ".kkkkkhkk..", "...khkkk...", "...kk......", "..k........"],
+    }[frame]
+    return rows_sprite(rows, CROW, 0.5)
+
+
+BIRD = {"b": hx("#7a5230"), "o": hx("#e0703a"), "c": hx("#f2dcc0"), "k": hx("#3a2a20"),
+        "e": INK + (255,), "l": hx("#c99456"), "t": hx("#5e381b")}
+
+
+def songbird(frame=0):
+    """Little robin for the fence posts, facing right: 0 sit, 1 peck, 2/3 flying."""
+    rows = {
+        0: ["....bb..", "...bbek.", "tbbboo..", ".tbooc..", "...cc...", "...l.l.."],
+        1: ["........", "....bb..", "tbbbbbek", ".tbooc.k", "...cc...", "...l.l.."],
+        2: ["..b.....", "..bb.bb.", "tbbbbek.", ".tbooc..", "...cc...", "........"],
+        3: ["........", "....bb..", "tbbbbek.", ".tbbbc..", "..bb.c..", ".bb....."],
+    }[frame]
+    return rows_sprite(rows, BIRD, 0.55)
+
+
+def flock_bird(frame=0):
+    """Tiny far-away bird (a pixel 'v') for the flock that lifts off the hills."""
+    rows = [["k...k", ".k.k.", "..k.."], [".....", "kkkkk", "..k.."]][frame]
+    return from_rows(rows, {"k": hx("#3b3550")})
+
+
+SQUIRREL = {"f": hx("#c0602a"), "F": hx("#8a3c14"), "L": hx("#f0c890"), "e": INK + (255,),
+            "n": hx("#5a2a14"), "a": hx("#a5703c"), "A": hx("#5a3a1a")}
+
+
+def squirrel(frame=0):
+    """Squirrel sitting up with an acorn, facing right, big plume of a tail behind
+    (frame 1: tail flicked up, chittering). Built from round shapes, then shaded."""
+    W, H = 15, 14
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    p = img.load()
+    fur, dark, light = SQUIRREL["f"], SQUIRREL["F"], SQUIRREL["L"]
+    tail_c = [hx("#9a4418"), hx("#d27a3a"), hx("#eea060")]
+    flick = 1 if frame == 1 else 0
+    tail = [(3.0, 11.2, 2.3), (2.2, 8.3, 2.6), (2.4, 5.2, 2.7), (3.9 + flick * 0.3, 2.6 - flick * 0.8, 2.3),
+            (6.1 + flick * 0.5, 1.5 - flick * 0.5, 1.5)]
+
+    def inside(cx, cy, rx, ry, x, y, grow=0.0):
+        return ((x + 0.5 - cx) / (rx + grow)) ** 2 + ((y + 0.5 - cy) / (ry + grow)) ** 2 <= 1
+    for y in range(H):
+        for x in range(W):
+            if any(inside(cx, cy, r, r, x, y) for cx, cy, r in tail):
+                rim = not any(inside(cx, cy, r, r, x, y, -0.9) for cx, cy, r in tail)
+                p[x, y] = tail_c[0] if rim else (tail_c[2] if (x * 3 + y) % 7 == 0 else tail_c[1])
+
+    def body_at(x, y):
+        return (inside(8.8, 9.9, 2.6, 3.2, x, y) or inside(10.4, 5.0, 2.4, 2.2, x, y)
+                or inside(12.4, 5.7, 1.3, 1.0, x, y))
+    for y in range(H):
+        for x in range(W):
+            if body_at(x, y):
+                edge = x > 0 and not body_at(x - 1, y) and p[x - 1, y][3]
+                shade = (x - 9) * 0.35 + (y - 7) * 0.25
+                p[x, y] = mix(fur, INK + (255,), 0.55) if edge else (dark if shade > 1.5 else fur)
+            if inside(9.5, 10.2, 1.2, 2.2, x, y):
+                p[x, y] = light
+    p[9, 2] = fur; p[9, 1] = dark                                      # ear tuft
+    p[11, 4] = INK + (255,)                                            # eye
+    p[13, 5] = SQUIRREL["n"]                                           # nose
+    if frame == 1:
+        p[12, 6] = light                                               # chattering cheek
+    nut, cap = hx("#e0aa62"), hx("#6a4220")
+    for (x, y, c) in [(12, 7, cap), (11, 8, cap), (12, 8, cap), (13, 8, cap),
+                      (11, 9, nut), (12, 9, nut), (13, 9, mix(nut, INK + (255,), 0.3)),
+                      (12, 10, nut), (10, 9, light)]:
+        p[x, y] = c                                                    # paws hugging an acorn
+    for (x, y) in [(7, 13), (8, 13), (10, 13), (11, 13)]:
+        p[x, y] = dark
+    return outline(pad(img), 0.6)
+
+
+def acorn():
+    return rows_sprite([".A..", "AAAA", "AAAA", "aaaa", "aaaa", ".aa."], SQUIRREL)
+
+
+def seed():
+    return rows_sprite([".s.", "sss", "ssS", ".S."], {"s": hx("#f3e6c0"), "S": hx("#d6c08a")}, 0.5)
+
+
+def music_note():
+    """White eighth note; the game tints it a different colour for each post."""
+    rows = ["..nn.", "..n.n", "..n..", "..n..", "nnn..", "nnn.."]
+    return rows_sprite(rows, {"n": hx("#fffaf0")}, 1.0)
+
+
+def balloon(frame=0):
+    """Pumpkin-striped hot-air balloon with a tiny rider (frame 1: burner on, waving)."""
+    W, H = 22, 33
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    p = img.load()
+    cx, cy, rx, ry = 10.5, 10.5, 10.5, 10.5
+    orange = [hx("#a03a0b"), hx("#cf5612"), hx("#e4701a"), hx("#f79a3a")]
+    cream = [hx("#ada79a"), hx("#ddd6c6"), hx("#f3eee2"), hx("#ffffff")]
+    for y in range(0, 26):
+        for x in range(W):
+            nx, ny = (x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry
+            if ny <= 0.3:
+                half = math.sqrt(max(0.0, 1 - ny * ny))
+            else:
+                half = 0.954 - (ny - 0.3) * 0.58
+            if half <= 0 or abs(nx) > half or ny > 1.45:
+                continue
+            u = math.asin(max(-1.0, min(1.0, nx / half))) / (math.pi / 2)   # -1..1 across the gores
+            gore = int((u + 1) / 2 * 6 - 1e-6)
+            lam = -0.55 * nx - 0.45 * ny + 0.35 + (bayer(x, y) - 0.5) * 0.25
+            t = 3 if lam > 0.75 else 2 if lam > 0.25 else 1 if lam > -0.2 else 0
+            pal = orange if gore % 2 == 0 else cream
+            p[x, y] = pal[t]
+            if ny > 1.3:
+                p[x, y] = hx("#6e3b1c")                           # skirt band
+    rope = hx("#5e381b")
+    for y in range(24, 28):
+        p[8, y] = rope
+        p[13, y] = rope
+    # rider peeking over the basket rim
+    skin, hair, shirt = hx("#f2c29b"), hx("#5a3418"), hx("#c0392b")
+    p[10, 25] = hair; p[11, 25] = hair
+    p[10, 26] = skin; p[11, 26] = skin
+    p[10, 27] = shirt; p[11, 27] = shirt
+    if frame == 1:
+        p[12, 26] = skin; p[13, 25] = skin                        # waving arm
+        for (x, y, c) in [(10, 22, "#ffd35a"), (11, 22, "#ffd35a"), (10, 23, "#f28c32"),
+                          (11, 23, "#fff3c4"), (11, 21, "#f28c32")]:
+            p[x, y] = hx(c)                                        # burner flame
+    wick = [hx("#7d4f26"), hx("#a5703c"), hx("#c99456")]
+    for y in range(28, 32):
+        for x in range(7, 15):
+            p[x, y] = wick[2] if y == 28 else wick[(x + y) % 2]
+    return outline(pad(img), 0.6)
+
+
+def rainbow():
+    """Rainbow that arcs out from under a cloud: six 2-px bands, ends dithered away."""
+    W, H = 61, 31
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    p = img.load()
+    bands = ["#e0573d", "#f28c32", "#f6d360", "#86b24a", "#5277b4", "#8a6ab4"]
+    for y in range(H):
+        for x in range(W):
+            d = math.hypot(x - 30, y - 30)
+            i = int((30.5 - d) / 2)
+            if 0 <= i < len(bands) and d <= 30.5:
+                if y > 20 and (y - 20) / 11 > bayer(x, y):         # ends fade into the sky
+                    continue
+                p[x, y] = hx(bands[i])
+    return img
+
+
+def shooting_star():
+    W, H = 18, 5
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    p = img.load()
+    for x in range(13):
+        t = x / 12
+        if t < bayer(x, 2) * 0.9:
+            continue
+        p[x, 2] = mix(hx("#a9b8ff"), hx("#fff3c4"), t)
+        if x > 8:
+            p[x, 1] = p[x, 3] = mix(hx("#a9b8ff"), hx("#ffd35a"), t * 0.7)
+    for (x, y, c) in [(15, 0, "y"), (15, 1, "y"), (13, 2, "y"), (14, 2, "w"), (15, 2, "w"),
+                      (16, 2, "w"), (17, 2, "y"), (15, 3, "y"), (15, 4, "y"), (14, 1, "y"), (16, 3, "y")]:
+        p[x, y] = hx("#ffd35a") if c == "y" else hx("#fffbe0")
+    return img
+
+
+def sun_rays(frame=0):
+    """Ring of chunky rays around the low sun (frame 1 is turned half a step). None point
+    down into the hills, so it reads as a sun sitting just above them."""
+    N = 71
+    img = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    p = img.load()
+    c = N // 2
+    step = math.pi / 6                                    # 12 tapered rays
+    for y in range(N):
+        for x in range(N):
+            dx, dy = x - c, y - c
+            r = math.hypot(dx, dy)
+            if not 24.5 <= r <= 34:
+                continue
+            if dy > 0 and abs(dx) < dy * 1.1:
+                continue                                       # nothing pointing into the hills
+            a = math.atan2(dy, dx) - frame * step / 2
+            off = abs((a + step / 2) % step - step / 2) * r   # px from the ray's centre line
+            half_w = 2.4 - (r - 24.5) * 0.2
+            if off <= half_w:
+                p[x, y] = hx("#ffd35a") if r < 29 else hx("#f79a3a")
+    return img
+
+
+SUN_BOX = (388, 338, 433, 383)       # art px; the sun disc is centred on (410, 360)
+MOON_BOX = (344, 32, 377, 65)        # centred on (360, 48)
+
+
+def sun_faces(bg):
+    base = extract(bg, SUN_BOX, keyset("#fbe6ad", "#f6d494"))
+    brown, cheek, mouth = hx("#9a5a1c"), hx("#f6a77a"), hx("#b8482a")
+    c = 22
+    ey = c + 3   # eyes sit a little low, so the face still reads when only the
+                 # bottom half of the sun is on screen (landscape, short tower)
+
+    def face(kind):
+        img = base.copy()
+        p = img.load()
+
+        def put(x, y, col):
+            if p[x, y][3]:
+                p[x, y] = col
+        for (x0, y0) in [(c - 12, ey + 4), (c + 10, ey + 4)]:
+            for dx in range(3):
+                for dy in range(2):
+                    put(x0 + dx, y0 + dy, cheek)
+        for i, ex in enumerate((c - 7, c + 6)):
+            closed = kind == "yawn" or (kind == "wink" and i == 0)
+            if closed:
+                for dx, dy in [(-1, 0), (0, 1), (1, 1), (2, 0)]:
+                    put(ex + dx, ey + dy, brown)
+            else:
+                for dx in range(2):
+                    for dy in range(3):
+                        put(ex + dx, ey - 1 + dy, brown)
+        if kind == "yawn":
+            for y in range(ey + 5, ey + 13):
+                for x in range(c - 4, c + 5):
+                    d1 = ((x - c) / 3.4) ** 2 + ((y - ey - 8.5) / 3.4) ** 2
+                    if d1 <= 1:
+                        put(x, y, brown if ((x - c) / 2.3) ** 2 + ((y - ey - 8.5) / 2.3) ** 2 > 1 else mouth)
+        else:
+            for x in range(c - 6, c + 7):
+                y = ey + 8 - round(((x - c) / 6.0) ** 2 * 2)
+                put(x, y, brown)
+                if kind == "wink" and abs(x - c) < 5:
+                    put(x, y - 1, mouth)
+        return img
+    return base, face("happy"), face("wink"), face("yawn")
+
+
+def shades():
+    """Sunglasses that drop onto the sun's face."""
+    W, H = 26, 6
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    p = img.load()
+    k, g = hx("#1e1a22"), hx("#5b6280")
+    for x in range(W):
+        p[x, 0] = k
+    for x0 in (2, 15):
+        for y in range(1, 5):
+            for x in range(x0, x0 + 9):
+                if y == 4 and x in (x0, x0 + 8):
+                    continue
+                p[x, y] = k
+        p[x0 + 2, 1] = g; p[x0 + 3, 2] = g; p[x0 + 3, 1] = g
+    return outline(pad(img), 0.3)
+
+
+def moon_faces(bg):
+    base = extract(bg, MOON_BOX, keyset("#f4ecc8", "#d5c99a", "#cbbd8a"))
+    ink, cheek = hx("#7a6a3a"), hx("#f0b8a0")
+    c = 16
+
+    def face(wink):
+        img = base.copy()
+        p = img.load()
+        for (x0, y0) in [(c - 9, c + 2), (c + 7, c + 2)]:
+            p[x0, y0] = p[x0 + 1, y0] = cheek
+        for i, ex in enumerate((c - 6, c + 4)):
+            if wink and i == 1:
+                for dx in range(2):
+                    for dy in range(2):
+                        p[ex + dx, c - 2 + dy] = ink
+            else:
+                for dx, dy in [(-1, 0), (0, -1), (1, -1), (2, 0)]:
+                    p[ex + dx, c - 1 + dy] = ink
+        for x in range(c - 4, c + 5):
+            p[x, c + 5 - round(((x - c) / 4.0) ** 2 * 1.5)] = ink
+        return img
+    return base, face(False), face(True)
+
+
+def barn_bits(bg):
+    """Door leaves, the dark inside of the barn, and where things sit."""
+    l = extract(bg, (117, 412, 132, 440))
+    r = extract(bg, (131, 412, 146, 440))
+    W, H = 27, 27
+    dark = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    p = dark.load()
+    shades_ = [hx("#1c0d08"), hx("#26120c"), hx("#311a11"), hx("#3d2216")]
+    for y in range(H):
+        for x in range(W):
+            t = min(3, y * 4 // H)
+            if x % 6 == 0 and y < H - 5:
+                t = max(0, t - 1)                                  # back-wall boards
+            p[x, y] = shades_[t]
+    rnd = random.Random(23)
+    for _ in range(40):                                            # loose hay on the floor
+        x, y = rnd.randrange(W), rnd.randrange(H - 5, H)
+        p[x, y] = hx(rnd.choice(["#b8902e", "#dcb44a", "#8a6a1e"]))
+    return l, r, dark
+
+
+SIGN_LETTERS = [("A", 171, 3), ("N", 175, 4), ("S", 180, 3), ("E", 184, 3), ("L", 188, 3), ("S", 194, 3)]
+
+
+def sign_letters(bg):
+    """The ANSEL'S letters on the silo, each its own sprite so it can hop."""
+    return [extract(bg, (x, 402, x + w, 407), {INK}) for (_, x, w) in SIGN_LETTERS]
+
+
+def find_clouds(bg):
+    """Every cloud in the sky, found by its colours (so the overlays match exactly)."""
+    cols = keyset("#ffffff", "#c9d8f0", "#eef3fb", "#dbe5f5")
+    p = bg.load()
+    seen, found = set(), []
+    for y in range(380):
+        for x in range(bg.width):
+            if (x, y) in seen or p[x, y][:3] not in cols:
+                continue
+            stack, comp = [(x, y)], []
+            seen.add((x, y))
+            while stack:
+                cx, cy = stack.pop()
+                comp.append((cx, cy))
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        nx, ny = cx + dx, cy + dy
+                        if 0 <= nx < bg.width and 0 <= ny < 380 and (nx, ny) not in seen \
+                                and p[nx, ny][:3] in cols:
+                            seen.add((nx, ny))
+                            stack.append((nx, ny))
+            if len(comp) < 30:
+                continue
+            xs = [c[0] for c in comp]
+            ys = [c[1] for c in comp]
+            box = (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
+            found.append((box, extract(bg, box, cols)))
+    found.sort(key=lambda b: (b[0][0], b[0][1]))
+    return found
+
+
+FENCE_X0 = [x0 for x0 in range(4, 480, 22)]     # left column of every post (see background())
+
+
+def fence_post(front):
+    return extract(front, (FENCE_X0[1] - 1, 446, FENCE_X0[1] + 4, 470))
+
+
+# Rooster perch: standing on the barn roof's left eave
+ROOSTER_FEET = (94, 382)
+
+
+# ── sticker sheet ──
+def small_sun():
+    img = Image.new("RGBA", (17, 17), (0, 0, 0, 0))
+    p = img.load()
+    for y in range(17):
+        for x in range(17):
+            d = math.hypot(x - 8, y - 8)
+            ang = math.degrees(math.atan2(y - 8, x - 8)) % 45
+            if d <= 5.4:
+                p[x, y] = hx("#ffd35a") if d < 4.3 else hx("#f79a3a")
+            elif 6.4 <= d <= 8.4 and (ang < 9 or ang > 36):
+                p[x, y] = hx("#f79a3a")
+    for (x, y) in [(6, 7), (10, 7), (6, 10), (7, 11), (8, 11), (9, 11), (10, 10)]:
+        p[x, y] = hx("#9a5a1c")
+    return outline(img, 0.5)
+
+
+def small_moon():
+    img = Image.new("RGBA", (13, 13), (0, 0, 0, 0))
+    p = img.load()
+    for y in range(13):
+        for x in range(13):
+            d = math.hypot(x - 6, y - 6)
+            if d <= 6.2:
+                p[x, y] = hx("#f4ecc8") if (x + y) < 13 or d < 4 else hx("#d5c99a")
+    for (x, y) in [(3, 5), (4, 4), (5, 5), (7, 5), (8, 4), (9, 5), (5, 8), (6, 9), (7, 8)]:
+        p[x, y] = hx("#7a6a3a")
+    return outline(pad(img), 0.45)
+
+
+def small_cloud():
+    rows = ["....ww......", "..wwwww.ww..", ".wwwwwwwwww.", "wwwwwwwwwwww", ".sssssssss.."]
+    return rows_sprite(rows, {"w": hx("#ffffff"), "s": hx("#c9d8f0")}, 0.5)
+
+
+def sign_icon():
+    rows = ["bbbbbbbbb", "bccccccc b".replace(" ", ""), "bccckcccb", "bcckckccb", "bcckkkccb",
+            "bcckckccb", "bcckckccb", "bcccccccb", "bbbbbbbbb"]
+    return rows_sprite(rows, {"b": hx("#c9c1ad"), "c": hx("#f3eee2"), "k": hx("#e4701a")})
+
+
+def jack_icon():
+    img = pumpkin(13, 9, "orange", 4, seed=5, curl=False)
+    p = img.load()
+    for (x, y) in [(5, 9), (6, 9), (6, 10), (10, 9), (11, 9), (10, 10),
+                   (5, 12), (6, 13), (7, 13), (8, 12), (9, 13), (10, 13), (11, 12)]:
+        p[x, y] = hx("#3a1a0c")
+    return img
+
+
+def flock_icon():
+    img = Image.new("RGBA", (15, 10), (0, 0, 0, 0))
+    for (x, y, f) in [(0, 4, 0), (6, 0, 1), (10, 6, 0)]:
+        img.alpha_composite(flock_bird(f), (x, y))
+    return img
+
+
+def bunny_icon():
+    rows = [
+        "..ww.ww..",
+        "..wp.wp..",
+        "..wp.wp..",
+        "..ww.ww..",
+        ".wwwwwww.",
+        ".wwewwew.",
+        ".wwwpwww.",
+        "..wwwww..",
+        ".swwwwws.",
+        ".swwwwws.",
+        "..ss.ss..",
+    ]
+    return rows_sprite(rows, {"w": hx("#f3eee2"), "s": hx("#c9c1ad"), "p": hx("#f0a6a0"),
+                              "e": INK + (255,)})
+
+
+def giraffe_icon():
+    f = giraffe_frame(0)
+    return f.crop((38, 3, 56, 21))
+
+
+def half(img):
+    """Nearest-neighbour shrink by 2 (for big sprites on the sticker sheet)."""
+    return img.resize((max(1, img.width // 2), max(1, img.height // 2)), Image.NEAREST)
+
+
+STICKER_CELL = 22
+
+
+def die_cut(icon, ghost=False):
+    """Die-cut sticker: the icon with a cream border and an ink edge. The ghost
+    version is just the shape in a dim brown, so missing stickers hint at what
+    is still out there."""
+    cell = STICKER_CELL
+    while icon.width > cell - 4 or icon.height > cell - 4:
+        icon = half(icon)
+    img = Image.new("RGBA", (cell, cell), (0, 0, 0, 0))
+    ox, oy = (cell - icon.width) // 2, (cell - icon.height) // 2
+    img.alpha_composite(icon, (ox, oy))
+    a = img.load()
+    border = Image.new("RGBA", (cell, cell), (0, 0, 0, 0))
+    b = border.load()
+    for y in range(cell):
+        for x in range(cell):
+            if a[x, y][3]:
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        if 0 <= x + dx < cell and 0 <= y + dy < cell:
+                            b[x + dx, y + dy] = hx("#fffaf0")
+    if ghost:
+        g = Image.new("RGBA", (cell, cell), (0, 0, 0, 0))
+        gp = g.load()
+        for y in range(cell):
+            for x in range(cell):
+                if b[x, y][3]:
+                    gp[x, y] = (58, 40, 28, 150) if not a[x, y][3] else (40, 26, 18, 170)
+        return g
+    border.alpha_composite(img)
+    return outline(border, 0.85)
+
+
+def surprises(bg, front):
+    """Write every surprise sprite plus art/surprises.json (where things line up)."""
+    import json
+    info = {"frames": {}}
+
+    def sheet(name, frames):
+        """Save a strip of frames; the game reads each frame's size from the json."""
+        s = strip(frames)
+        save(s, name + ".png")
+        info["frames"][name] = [s.width // len(frames) * S, s.height * S]
+
+    sheet("egg_cow", [cow_head(False), cow_head(True)])
+    sheet("egg_hen", [hen(0), hen(1)])
+    sheet("egg_chick", [chick(0), chick(1)])
+    sheet("egg_owl", [owl(0), owl(1), owl(2)])
+    sheet("egg_rooster", [rooster(i) for i in range(4)])
+    sheet("egg_crow", [crow(i) for i in range(4)])
+    sheet("egg_bird", [songbird(i) for i in range(4)])
+    sheet("egg_flock", [flock_bird(0), flock_bird(1)])
+    sheet("egg_squirrel", [squirrel(0), squirrel(1)])
+    sheet("egg_balloon", [balloon(0), balloon(1)])
+    sheet("egg_sun_rays", [sun_rays(0), sun_rays(1)])
+    save(owl_eyes(), "egg_owl_eyes.png")
+    save(acorn(), "egg_acorn.png")
+    save(seed(), "egg_seed.png")
+    save(music_note(), "egg_note.png")
+    save(cow_jump(), "egg_cow_jump.png")
+    save(rainbow(), "egg_rainbow.png")
+    save(shooting_star(), "egg_shooting_star.png")
+    save(shades(), "egg_shades.png")
+
+    def centre(box):
+        return [(box[0] + box[2]) / 2 * S, (box[1] + box[3]) / 2 * S]
+
+    sun_base, happy, wink, yawn = sun_faces(bg)
+    sheet("egg_sun", [sun_base, happy, wink, yawn])
+    moon_base, m_happy, m_wink = moon_faces(bg)
+    sheet("egg_moon", [moon_base, m_happy, m_wink])
+    info["sun"] = centre(SUN_BOX)
+    info["shades"] = [info["sun"][0], (SUN_BOX[1] + 25.5) * S]   # centred on the eyes
+    info["moon"] = centre(MOON_BOX)
+
+    l, r, dark = barn_bits(bg)
+    save(l, "egg_door_l.png")
+    save(r, "egg_door_r.png")
+    save(dark, "egg_barn_dark.png")
+    info["barn"] = {"doorL": [117 * S, 412 * S], "doorR": [146 * S, 412 * S], "dark": [118 * S, 413 * S],
+                    "floor": [131.5 * S, 440 * S], "loft": [131.5 * S, 405 * S]}
+
+    letters = sign_letters(bg)
+    sheet("egg_letters", letters)
+    fw = max(im.width for im in letters)      # strip() centres narrower glyphs in the frame
+    info["letters"] = [{"ch": ch, "x": (x - (fw - w) // 2 + fw / 2) * S, "y": 404.5 * S}
+                       for (ch, x, w) in SIGN_LETTERS]
+
+    info["clouds"] = []
+    for i, (box, im) in enumerate(find_clouds(bg)):
+        save(im, f"egg_cloud_{i}.png")
+        info["clouds"].append({"key": f"egg_cloud_{i}", "x": centre(box)[0], "y": centre(box)[1],
+                               "w": im.width * S, "h": im.height * S})
+
+    save(fence_post(front), "egg_post.png")
+    info["posts"] = {"xs": [(x0 + 1.5) * S for x0 in FENCE_X0], "bottom": 470 * S, "top": 447 * S}
+    info["rooster"] = [ROOSTER_FEET[0] * S, ROOSTER_FEET[1] * S]
+
+    icons = {
+        "cow": cow_head(False), "hen": hen(0), "owl": owl(0), "rooster": rooster(0),
+        "sign": sign_icon(), "jack": jack_icon(), "crow": crow(0), "sun": small_sun(),
+        "moon": small_moon(), "stars": from_rows([
+            "...y...", "...y...", "..ywy..", "yywwwyy", "..ywy..", "...y...", "...y..."],
+            {"y": hx("#ffd35a"), "w": hx("#fffbe0")}),
+        "cloud": small_cloud(), "flock": flock_icon(), "fence": music_note(), "bird": songbird(0),
+        "squirrel": squirrel(0), "balloon": half(balloon(0)), "giraffe": giraffe_icon(),
+        "hoppah": bunny_icon(),
+    }
+    order = list(icons)
+    cell = STICKER_CELL
+    stickers = Image.new("RGBA", (cell * len(order), cell * 2), (0, 0, 0, 0))
+    for i, k in enumerate(order):
+        stickers.alpha_composite(die_cut(icons[k]), (i * cell, 0))
+        stickers.alpha_composite(die_cut(icons[k], ghost=True), (i * cell, cell))
+    save(stickers, "egg_stickers.png", scale=2)
+    info["stickers"] = order
+    info["stickerPx"] = cell * 2
+
+    with open(os.path.join(OUT, "surprises.json"), "w") as f:
+        json.dump(info, f, indent=1)
+    print("wrote surprises.json")
+
+
 def leaves_sheet():
     """All leaf sprites in one strip of 7x7 cells (for particle emitters)."""
     sheet = Image.new("RGBA", (7 * 8, 7), (0, 0, 0, 0))
@@ -1020,6 +1843,7 @@ def main():
     bg, front = background()
     save(bg, "background.png")
     save(front, "foreground.png")
+    surprises(bg, front)   # click points and easter eggs (see the surprises section)
     save(silo_pumpkin(False), "silo_pumpkin.png")
     save(silo_pumpkin(True), "silo_pumpkin_wink.png")
     frames = [giraffe_frame(i * math.pi / 2) for i in range(4)]

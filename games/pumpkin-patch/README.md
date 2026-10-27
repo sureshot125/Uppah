@@ -35,3 +35,28 @@ Keyboard: arrows or A/D to walk, Down or S to pick up, dive or knock down, Up, W
 Tuning lives at the top of `game.js`: walk speed, the `TIMING` table (perfect zone, sway width and speed, how much help a drop gets, adaptive difficulty), milestones, and the MORE! batch size.
 
 The game picks its resolution from the screen's shape (720 on the short side) and re-fits when a phone rotates, so it fills both landscape and portrait screens.
+
+## Surprises (click points and easter eggs)
+
+Nearly everything above the fence does something when tapped, Humongous-style. The third tap in a row on the same thing often does something bigger.
+
+| Tap | What happens |
+|---|---|
+| Barn doors | They creak open on a cow (MOO) or a hen (BAWK). Third tap: a chick parade along the fence. |
+| Hayloft window | An owl pops up, hoots and blinks. Third tap: it turns its head right round. |
+| Rooster on the roof | Cock-a-doodle-doo. Third tap: a flappy jump first. |
+| Silo sign | A-N-S-E-L hop out one letter at a time, each with a note. |
+| Silo jack-o'-lantern | Winks and wobbles. Third tap: ah... ah... CHOO, and seeds fly ("BLESS YOU!"). |
+| Sun | Sunglasses drop on; then it giggles; then it yawns. |
+| Clouds | Puff up and drizzle leaves. Third tap: a rainbow. |
+| Starry sky | Twinkle Twinkle, one note per tap, with a shooting star at the end of each line. |
+| Moon | Smiles and winks. Third tap: the cow jumps over the moon. |
+| Hills | Ansel shouts hello, the hills echo, a flock lifts off. |
+| Fence posts | A xylophone, low on the left, high on the right. |
+| Trees | Leaves flutter down. Third tap: a squirrel leaps out with acorns. |
+| Hoppah | Boings. Second tap in a row (or one tap in three): Ansel scoops him up for a cuddle until he wriggles free. |
+| Visitors | Robins land on the fence (Ansel running past scares them), a crow sits on the silo pumpkin, a hot-air balloon drifts over. All can be tapped. |
+
+Finding them needs no words. Owl eyes blink in the dark hayloft, the rooster pecks, the barn doors rattle, and a small glint now and then marks something not found yet. After a long idle spell the pointing hand sometimes shows one. Each first find pops a sticker that flies to the badge under the sound button. Tap the badge to see the sticker tray: found stickers in colour, the rest as silhouettes. Found stickers are saved in `localStorage` (`uppah.pumpkinpatch.surprises`).
+
+All of it lives in the SURPRISES section near the end of `game.js` (one-line hooks elsewhere are marked `surprises`) and the surprises section of `make_art.py`, which writes the `egg_*.png` sprites and `art/surprises.json`. The json says where the overlays line up with the background. Clouds, sun, moon, barn doors, letters and fence posts are copied pixel-for-pixel out of the rendered background, so they move without repainting the scene.

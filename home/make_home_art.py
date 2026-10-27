@@ -36,7 +36,9 @@ def shared(name):
     return Image.open(os.path.join(ROOT, "assets", name)).convert("RGBA")
 
 
-def save(img, name):
+def save(img, name, colors=0):
+    if colors:  # the resampled zoo has thousands of near-duplicate colours; 256 look the same
+        img = img.convert("RGB").quantize(colors=colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
     img.save(os.path.join(OUT, name), optimize=True)
     print("wrote", name, img.size)
 
@@ -197,7 +199,7 @@ def ansel_run():
 
 
 def main():
-    save(card_runner(), "card_runner.png")
+    save(card_runner(), "card_runner.png", colors=256)
     save(card_pumpkin(), "card_pumpkin.png")
     save(card_lumber(), "card_lumber.png")
     save(card_leaves(), "card_leaves.png")

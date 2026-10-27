@@ -1,0 +1,315 @@
+{
+ "footX": 129,
+ "footY": 285,
+ "frames": {
+  "everyday/carry_1": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 60,
+    "w": 84,
+    "x": 3.0,
+    "y": 216.0
+   },
+   "top": 234
+  },
+  "everyday/carry_2": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 60,
+    "w": 84,
+    "x": 3.0,
+    "y": 216.0
+   },
+   "top": 234
+  },
+  "everyday/carry_3": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 60,
+    "w": 84,
+    "x": 3.0,
+    "y": 216.0
+   },
+   "top": 234
+  },
+  "everyday/carry_4": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 63,
+    "w": 84,
+    "x": 3.0,
+    "y": 213.0
+   },
+   "top": 234
+  },
+  "everyday/carry_6": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 60,
+    "w": 87,
+    "x": 1.5,
+    "y": 216.0
+   },
+   "top": 234
+  },
+  "everyday/dizzy": {
+   "top": 276
+  },
+  "everyday/heave": {
+   "hold": {
+    "anchor": "center",
+    "h": 54,
+    "w": 63,
+    "x": 49.5,
+    "y": 144.0
+   },
+   "top": 252
+  },
+  "everyday/heavy_1": {
+   "hold": {
+    "anchor": "center",
+    "h": 63,
+    "w": 84,
+    "x": 48.0,
+    "y": 106.5
+   },
+   "top": 249
+  },
+  "everyday/heavy_2": {
+   "hold": {
+    "anchor": "center",
+    "h": 66,
+    "w": 78,
+    "x": 42.0,
+    "y": 105.0
+   },
+   "top": 252
+  },
+  "everyday/pick_1": {
+   "top": 258
+  },
+  "everyday/pick_2": {
+   "top": 231
+  },
+  "everyday/pick_3": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 54,
+    "w": 66,
+    "x": 69.0,
+    "y": 6.0
+   },
+   "top": 210
+  },
+  "everyday/toss": {
+   "top": 258
+  },
+  "everyday/tug_1": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 54,
+    "w": 66,
+    "x": 54.0,
+    "y": 6.0
+   },
+   "top": 228
+  },
+  "everyday/tug_2": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 54,
+    "w": 63,
+    "x": 55.5,
+    "y": 15.0
+   },
+   "top": 246
+  },
+  "everyday/walk_1": {
+   "top": 258
+  },
+  "everyday/walk_2": {
+   "top": 258
+  },
+  "everyday/walk_3": {
+   "top": 255
+  },
+  "everyday/walk_4": {
+   "top": 255
+  },
+  "everyday/walk_5": {
+   "top": 258
+  },
+  "everyday/walk_6": {
+   "top": 255
+  },
+  "farmer/carry_1": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 63,
+    "w": 87,
+    "x": 10.5,
+    "y": 222.0
+   },
+   "top": 273
+  },
+  "farmer/carry_2": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 63,
+    "w": 84,
+    "x": 3.0,
+    "y": 219.0
+   },
+   "top": 246
+  },
+  "farmer/carry_3": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 60,
+    "w": 87,
+    "x": 1.5,
+    "y": 225.0
+   },
+   "top": 249
+  },
+  "farmer/carry_6": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 63,
+    "w": 87,
+    "x": 1.5,
+    "y": 222.0
+   },
+   "top": 243
+  },
+  "farmer/dizzy": {
+   "top": 276
+  },
+  "farmer/heave": {
+   "hold": {
+    "anchor": "center",
+    "h": 57,
+    "w": 63,
+    "x": 49.5,
+    "y": 166.5
+   },
+   "top": 255
+  },
+  "farmer/heavy_1": {
+   "hold": {
+    "anchor": "center",
+    "h": 63,
+    "w": 81,
+    "x": 43.5,
+    "y": 112.5
+   },
+   "top": 261
+  },
+  "farmer/heavy_2": {
+   "hold": {
+    "anchor": "center",
+    "h": 60,
+    "w": 78,
+    "x": 42.0,
+    "y": 111.0
+   },
+   "top": 261
+  },
+  "farmer/pick_1": {
+   "top": 258
+  },
+  "farmer/pick_2": {
+   "top": 234
+  },
+  "farmer/pick_3": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 51,
+    "w": 66,
+    "x": 72.0,
+    "y": 6.0
+   },
+   "top": 216
+  },
+  "farmer/toss": {
+   "top": 258
+  },
+  "farmer/tug_1": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 51,
+    "w": 51,
+    "x": 67.5,
+    "y": 51.0
+   },
+   "top": 246
+  },
+  "farmer/tug_2": {
+   "hold": {
+    "anchor": "bottom",
+    "h": 54,
+    "w": 57,
+    "x": 55.5,
+    "y": 57.0
+   },
+   "top": 252
+  },
+  "farmer/walk_1": {
+   "top": 261
+  },
+  "farmer/walk_2": {
+   "top": 258
+  },
+  "farmer/walk_3": {
+   "top": 261
+  },
+  "farmer/walk_4": {
+   "top": 261
+  },
+  "farmer/walk_5": {
+   "top": 264
+  },
+  "farmer/walk_6": {
+   "top": 261
+  },
+  "farmer/water_1": {
+   "top": 258
+  },
+  "farmer/water_10": {
+   "top": 261
+  },
+  "farmer/water_11": {
+   "top": 261
+  },
+  "farmer/water_12": {
+   "top": 261
+  },
+  "farmer/water_2": {
+   "top": 258
+  },
+  "farmer/water_3": {
+   "top": 255
+  },
+  "farmer/water_4": {
+   "top": 255
+  },
+  "farmer/water_5": {
+   "top": 255
+  },
+  "farmer/water_6": {
+   "top": 255
+  },
+  "farmer/water_7": {
+   "top": 261
+  },
+  "farmer/water_8": {
+   "top": 258
+  },
+  "farmer/water_9": {
+   "top": 258
+  }
+ },
+ "h": 288,
+ "scale": 3,
+ "w": 258
+}

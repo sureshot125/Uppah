@@ -26,7 +26,7 @@
             justify-content: center;
         }
         canvas {
-            image-rendering: auto;
+            image-rendering: pixelated; /* crisp pixel art when the canvas is scaled */
         }
     </style>
 </head>
@@ -37,6 +37,6 @@
         window.UPPAH_SHARED = window.UPPAH_SHARED || '../../assets/';
     </script>
     <script src="../lib/phaser-3.90.0.min.js"></script>
-    <script src="game.js?v=18"></script>
+    <script src="game.js?v=23"></script>
 </body>
 </html>

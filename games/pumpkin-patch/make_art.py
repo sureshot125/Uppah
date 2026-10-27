@@ -1071,68 +1071,7 @@ def straw_hat():
     return img
 
 
-# ──────────────────────────────────── challenge HUD: BOOM button, windsock ──
-def boom_button():
-    """Big red push button on a hazard-striped steel base. Two frames side by side:
-    up, and pressed (dome squashed down into its collar)."""
-    W, H = 30, 27
-    red = [hx("#5e0c0c"), hx("#9a1616"), hx("#d42a22"), hx("#f45a3c"), hx("#ffc2a8")]
-    steel = [hx("#2c2c36"), hx("#454552"), hx("#62626f"), hx("#8a8a96"), hx("#b4b4c0")]
-    yellow, black = hx("#f2c230"), hx("#2b1810")
-    sheet = Image.new("RGBA", (W * 2, H), (0, 0, 0, 0))
-    for f in range(2):
-        img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        p = img.load()
-        press = 3 if f else 0
-        bx0, bx1, by0, by1 = 1, W - 2, 16, H - 2
-        # base: steel box with a hazard-stripe band
-        for y in range(by0, by1 + 1):
-            for x in range(bx0, bx1 + 1):
-                if x in (bx0, bx1) and y in (by0, by1):
-                    continue
-                if y == by0:
-                    c = steel[4]
-                elif y == by1:
-                    c = steel[0]
-                elif by0 + 3 <= y <= by0 + 6:
-                    c = yellow if ((x + y) // 3) % 2 == 0 else black
-                elif x == bx0:
-                    c = steel[3]
-                elif x == bx1:
-                    c = steel[1]
-                else:
-                    c = steel[2]
-                p[x, y] = c
-        # dark collar the dome sits in
-        cx = W / 2
-        for y in range(by0 - 2, by0 + 1):
-            for x in range(3, W - 3):
-                nx, ny = (x + 0.5 - cx) / 12.0, (y + 0.5 - by0) / 2.6
-                if nx * nx + ny * ny <= 1:
-                    p[x, y] = steel[0] if y == by0 else steel[1]
-        # dome, lit from the top left
-        rx, ry = 10.5, 11 - press
-        cy = by0 - 1
-        for y in range(0, by0):
-            for x in range(W):
-                nx, ny = (x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry
-                if nx * nx + ny * ny > 1 or y > cy:
-                    continue
-                d = nx * 0.55 + ny * 0.85
-                lvl = 3 if d < -0.55 else 2 if d < 0.05 else 1 if d < 0.5 else 0
-                if y >= cy - 1:
-                    lvl = min(lvl, 1)
-                p[x, y] = red[lvl]
-        # glint
-        gy = int(cy - ry * 0.62)
-        for (x, y) in [(int(cx) - 5, gy), (int(cx) - 4, gy), (int(cx) - 6, gy + 1), (int(cx) - 5, gy + 1)]:
-            if 0 <= y < H and p[x, y][3]:
-                p[x, y] = red[4]
-        img = outline(img, 0.75)
-        sheet.alpha_composite(img, (W * f, 0))
-    return sheet
-
-
+# ─────────────────────────────────────────────────────────── windsock ──
 def windsock():
     """Orange-and-white striped windsock on a tall wooden pole, planted in the field by the
     hay bale. Eight frames side by side: four wind strengths (limp, light, strong, full) x two
@@ -1219,7 +1158,6 @@ def main():
     for i, f in enumerate(frames):
         sheet.alpha_composite(f, (i * f.width, 0))
     save(sheet, "giraffe.png")
-    save(boom_button(), "boom_button.png")
     save(windsock(), "windsock.png")
 
 

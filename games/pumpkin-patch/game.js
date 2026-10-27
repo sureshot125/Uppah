@@ -757,8 +757,7 @@ class PatchScene extends Phaser.Scene {
         art.forEach(k => this.load.image(k, ART + k + '.png'));
         this.load.spritesheet('leaves', ART + 'leaves.png', { frameWidth: 28, frameHeight: 28 });
         this.load.spritesheet('giraffe', ART + 'giraffe.png', { frameWidth: 224, frameHeight: 352 });
-        // challenge HUD art (make_art.py: boom_button, windsock)
-        this.load.spritesheet('boom_button', ART + 'boom_button.png', { frameWidth: 120, frameHeight: 108 });
+        // windsock art (make_art.py)
         this.load.spritesheet('windsock', ART + 'windsock.png', { frameWidth: 136, frameHeight: 288 });
     }
 
@@ -801,7 +800,20 @@ class PatchScene extends Phaser.Scene {
         this.matter.add.rectangle(PLAY_R + 40, GROUND - 1500, 80, 4000, solid);
         this.hayBody = this.matter.add.rectangle(HAY_X, GROUND - HAY_H / 2, HAY_W, HAY_H,
             { ...solid, label: 'hay' });
-        this.add.image(HAY_X, GROUND + 4, 'haybale').setOrigin(0.5, 1).setDepth(8);
+        this.hayImg = this.add.image(HAY_X, GROUND + 4, 'haybale').setOrigin(0.5, 1).setDepth(8);
+        // BOOM lives on the bale: a little wooden sign hangs on its front when there's a tower to
+        // bank; tap the bale (or the tower) and Ansel gives it a big shove
+        this.baleSign = this.add.container(HAY_X, HAY_TOP + 42).setDepth(9.5).setVisible(false);
+        const signBoard = this.add.nineslice(0, 0, 'panel', null, 150, 64, 20, 20, 20, 20);
+        this.baleSignTitle = this.add.text(0, -12, 'BOOM!', {
+            fontFamily: FONT, fontSize: '18px', color: '#ff9a3a', stroke: INK, strokeThickness: 6,
+        }).setOrigin(0.5);
+        this.baleSignValue = this.add.text(0, 13, '', {
+            fontFamily: FONT, fontSize: '14px', color: '#ffd35a', stroke: INK, strokeThickness: 5,
+        }).setOrigin(0.5);
+        this.baleSign.add([signBoard, this.baleSignTitle, this.baleSignValue]);
+        this.baleSignOn = false;
+        this.baleShimmyT = 0;
         this.add.image(HAY_X, GROUND + 4, 'shadow').setScale(1.35, 1).setDepth(7);
 
         // Leaf piles (each hides one pumpkin the first time Ansel dives in)
@@ -1211,7 +1223,7 @@ class PatchScene extends Phaser.Scene {
 
     onTap(p) {
         if (!this.started || this.roundOver || this.time.now < (this.tapGuard || 0)) return;
-        if (this.ui.hitButton(p) || this.ui.hitBoom(p)) return;
+        if (this.ui.hitButton(p)) return;
         // toddler palm guard: ignore a second tap that lands almost instantly
         if (this.time.now - this.lastTapAt < 120) return;
         this.lastTapAt = this.time.now;
@@ -1269,6 +1281,8 @@ class PatchScene extends Phaser.Scene {
                 this.dive(pile); return;
             }
         }
+        // the hay bale or its BOOM sign: Ansel runs over and shoves the tower down
+        if (this.hitBale(wx, wy)) { this.knockDown(); return; }
         // tapping Ansel: "MORE!" when the patch is empty, otherwise a happy jump
         if (Math.abs(wx - a.x) < 70 && wy > GROUND - HEAD_TOP - 20 && wy < GROUND + 10) {
             if (!this.anyLoose()) this.more(); else this.anselJump();
@@ -2065,7 +2079,40 @@ class PatchScene extends Phaser.Scene {
         return true;
     }
 
-    // The HUD's BOOM button: Ansel cheers from wherever he is.
+    // The BOOM sign on the hay bale: pops up when a tower can be banked, shows what it would bank,
+    // and the bale gives a little shimmy now and then (faster when the tower is in danger).
+    updateBaleSign(dt, avail, danger, value) {
+        const sign = this.baleSign;
+        const v = value ? '+' + value : '';
+        if (v !== this.baleSignValue.text) this.baleSignValue.setText(v);
+        this.baleSignTitle.setY(v ? -12 : 0);
+        if (avail !== this.baleSignOn) {
+            this.baleSignOn = avail;
+            this.tweens.killTweensOf(sign);
+            if (avail) {
+                sign.setVisible(true).setScale(0.2).setAngle(0);
+                this.tweens.add({ targets: sign, scale: 1, duration: 320, ease: 'Back.Out' });
+                this.baleShimmyT = 1.2;
+            } else {
+                sign.setVisible(false);
+            }
+        }
+        if (!avail) return;
+        this.baleShimmyT -= dt * (1 + 2 * (danger || 0));
+        if (this.baleShimmyT <= 0) {
+            this.baleShimmyT = 3.2;
+            this.tweens.add({ targets: sign, angle: { from: -5, to: 5 }, duration: 90, yoyo: true, repeat: 2,
+                onComplete: () => sign.setAngle(0) });
+            this.tweens.add({ targets: this.hayImg, scaleX: 1.04, scaleY: 0.96, duration: 90, yoyo: true, repeat: 1 });
+        }
+    }
+
+    // Tapping the bale or its sign: Ansel runs over and shoves it (BOOM).
+    hitBale(wx, wy) {
+        return this.baleSignOn && Math.abs(wx - HAY_X) < HAY_W / 2 + 30 && wy > HAY_TOP - 20 && wy < GROUND + 20;
+    }
+
+    // Keyboard B: Ansel cheers BOOM from wherever he is.
     boomPress() {
         if (!this.boom()) return;
         const a = this.ansel;
@@ -2161,7 +2208,7 @@ class PatchScene extends Phaser.Scene {
         this.updateWindsock();
         if (this.ui && this.ui.ready) {
             const st = this.stack;
-            this.ui.setBoom(this.canBoom(st), st.danger, this.toddler ? 0 : Math.round(st.unbanked * Rules.boomMult(st.items.length)));
+            this.updateBaleSign(dt, this.canBoom(st), st.danger, this.toddler ? 0 : Math.round(st.unbanked * Rules.boomMult(st.items.length)));
             this.ui.setDusk(this.toddler ? 0 : Math.min(1, this.dayT / RULES.day));
         }
     }
@@ -2492,6 +2539,8 @@ class PatchScene extends Phaser.Scene {
                 target = { x: top.x, y: top.y + 8, timing: true };
             } else if (a.carrying) {
                 target = null; // he's already on his way to the stack
+            } else if (this.baleSignOn && this.tower.length >= 5 && this.idleT > HINT_IDLE * 2) {
+                target = { x: HAY_X, y: HAY_TOP + 42 }; // a tall tower and a pause: show where BOOM is
             } else if (!this.anyLoose()) {
                 target = { x: a.x, y: GROUND - HEAD_TOP * 0.6 };
             } else {
@@ -2634,7 +2683,6 @@ class UIScene extends Phaser.Scene {
             if (this.hitButton(p)) { this.toggleSound(); return; }
             if (this.todBtn.visible && this.hitToddler(p)) { this.toggleToddler(); return; }
             if (!this.patch.started) { this.startGame(); return; }
-            if (this.hitBoom(p)) { this.pressBoom(); return; }
             if (this.endShown) this.retry();
         });
         this.ready = true;
@@ -2739,13 +2787,6 @@ class UIScene extends Phaser.Scene {
         this.scoreText = this.add.text(112, 86, '', txt(16, '#ffd35a', 6)).setOrigin(0, 0.5);
         this.lifeIcons = [0, 1, 2].map(i => this.add.image(60 + i * 40, 128, 'icon_pumpkin').setScale(0.55));
 
-        // the BOOM button: banks the tower x the height bonus, then knocks it down
-        this.boomBtn = this.add.container(0, 0).setVisible(false);
-        this.boomImg = this.add.sprite(0, 0, 'boom_button', 0);
-        this.boomLabel = this.add.text(0, 50, 'BOOM!', txt(20, '#fff6e0', 7)).setOrigin(0.5, 0);
-        this.boomValue = this.add.text(0, 78, '', txt(16, '#ffd35a', 6)).setOrigin(0.5, 0); // what it would bank now
-        this.boomBtn.add([this.boomImg, this.boomLabel, this.boomValue]);
-        this.boomOn = false;
 
         // end card
         const E = this.end = {};
@@ -2780,9 +2821,6 @@ class UIScene extends Phaser.Scene {
     }
 
     layoutChallenge(w, h, portrait) {
-        // BOOM sits under the sound button, clear of the patch where pumpkins lie
-        this.boomBtn.setPosition(w - 82, 186);
-        this.boomBase = { x: w - 82, y: 186 };
         this.sky.setSize(w, h);
         this.todBtn.setPosition(20, 20);
         // end card
@@ -2850,8 +2888,6 @@ class UIScene extends Phaser.Scene {
         this.setScore(0);
         this.setLives(RULES.lives, false);
         this.setStreak(0);
-        this.boomOn = false;
-        this.boomBtn.setVisible(false);
         this.todBtn.setVisible(false);
     }
 
@@ -2868,41 +2904,6 @@ class UIScene extends Phaser.Scene {
                 this.tweens.add({ targets: ic, scale: 0.8, duration: 140, yoyo: true });
             }
         });
-    }
-
-    // value: points it would bank right now (0 in toddler mode: it's just fun there)
-    setBoom(avail, danger, value) {
-        const v = value ? '+' + value : '';
-        if (v !== this.boomValue.text) this.boomValue.setText(v);
-        if (avail !== this.boomOn) {
-            this.boomOn = avail;
-            this.tweens.killTweensOf(this.boomBtn);
-            if (avail) {
-                this.boomBtn.setVisible(true).setScale(0.3);
-                this.tweens.add({ targets: this.boomBtn, scale: 1, duration: 320, ease: 'Back.Out' });
-            } else {
-                this.boomBtn.setVisible(false);
-            }
-        }
-        if (avail && danger > 0) {
-            const k = 1 + 0.08 * Math.sin(this.time.now / 70) * danger;
-            this.boomImg.setScale(k);
-        } else {
-            this.boomImg.setScale(1);
-        }
-    }
-
-    hitBoom(p) {
-        if (!this.boomBtn.visible || !this.boomBase) return false;
-        const b = this.boomBase;
-        return p.x > b.x - 70 && p.x < b.x + 70 && p.y > b.y - 60 && p.y < b.y + 105;
-    }
-
-    pressBoom() {
-        if (!this.boomBtn.visible) return;
-        this.boomImg.setFrame(1);
-        this.time.delayedCall(160, () => this.boomImg.setFrame(0));
-        this.patch.boomPress();
     }
 
     // Afternoon -> golden hour -> dusk: the round's clock is the light. sky stops: [at, colour]
@@ -2930,8 +2931,6 @@ class UIScene extends Phaser.Scene {
         this.tweens.add({ targets: E.root, alpha: 1, duration: 300 });
         this.endShown = true;
         this.endReady = false;
-        this.boomBtn.setVisible(false);
-        this.boomOn = false;
         this.setBest(this.bestCount);
         if (info.newBest) {
             this.time.delayedCall(350, () => {

@@ -4954,7 +4954,9 @@ Object.assign(UIScene.prototype, UIEggs);
 // ═════════════════════════════════════════════════════════════════════════════
 const HTP_SAVE = 'uppah.pumpkinpatch.rounds'; // rounds started, ever
 const HTP_AUTO = 3;                            // the card opens by itself until this many rounds
-const HTP_HOME = '../../';                     // the Uppah home page
+// the Uppah home page; a page that hosts the game on its own sets window.UPPAH_HOME = null
+// (no home to go to), which hides the HOME buttons
+const HTP_HOME = window.UPPAH_HOME === undefined ? '../../' : window.UPPAH_HOME;
 const HTP_COL = { cream: '#fff6e0', gold: '#ffd35a', orange: '#ff9a3a', red: '#ff6a4a', ink: 0x1b130d };
 // Windows onto the patch for the illustrations (world px): close up for the tower
 // panels, wider for the afternoon (it shows the sun).
@@ -5065,6 +5067,7 @@ const UIHtp = {
         const b = this.htpButton('HOME', 20, 188, 84);
         b.label.setX(26);
         b.add(this.add.image(-52, -2, 'icon_home'));
+        if (!HTP_HOME) { b.setVisible(false); b.setVisible = function () { return this; }; }
         return b;
     },
 

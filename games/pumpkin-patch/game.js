@@ -8,8 +8,11 @@
 // Hoppah the bunny boings), and a little hand shows what to tap — no reading.
 // Stacking is honest: where you drop is where it lands, and a pumpkin (or the whole
 // stack) goes over if its weight leans past the joint below. Heavy-on-light rocks hard,
-// autumn gusts sway the tower, and points ride on the tower until BOOM banks them.
-// Three dropped pumpkins or sunset ends the round. Pumpkins that fall can be picked up again.
+// and points ride on the tower until BOOM banks them. Autumn gusts are scenery: the tower
+// and the hovering pumpkin sway, but wind never changes a landing. Each pumpkin that falls
+// costs a pumpkin life (3 to start, up to 5); perfect streaks, tall BOOMs, big heights and
+// golden pumpkins win lives back. Out of lives, or sunset, ends the round. Pumpkins that
+// fall can be picked up again.
 // Leaf piles hide surprise pumpkins. When the patch runs out, tap and Ansel
 // shouts MORE! and a fresh batch tumbles in.
 //
@@ -125,13 +128,17 @@ const MILESTONES = [
 ];
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CHALLENGE RULES: pumpkin weights, tower balance, wind, stages and scoring.
+// CHALLENGE RULES: pumpkin weights, tower balance, lives, stages and scoring (wind is scenery).
 // Pure logic with no Phaser in it: `sim.js` loads this exact block to tune the
 // game headless (node games/pumpkin-patch/sim.js). Keep it self-contained.
 // <rules>
 const RULES = {
-    lives: 3,             // pumpkins you can lose (rolled off or knocked off) before the round ends
-    lifeEvery: 5,         // a perfect streak of this many wins a lost pumpkin back
+    lives: 3,             // pumpkin lives at the start: each pumpkin that falls off costs one
+    maxLives: 5,          // ...and you can earn up to this many:
+    lifeStreak: 3,        //   +1 for every this many perfect drops in a row
+    boomLives: [[14, 2], [8, 1]], // +2 / +1 for banking a tower at least this tall with BOOM
+    lifeHeights: [400, 620, 900, 1300, 1750], // +1 the first time a round's tower tops each height (px above ground)
+    goldenLife: 1,        //   +1 for harvesting a golden pumpkin
     assisted: 2,          // the first pumpkins of a round are pulled toward centre and can't fall
     assistKeep: 0.4,      // ...keeping this share of their miss
     topFlat: 0.9,         // share of a pumpkin's half-width it can land on (its centre past that rolls off)
@@ -142,11 +149,11 @@ const RULES = {
     kickSpread: 0.6,      // ...and varies +-this share from drop to drop (moderate misses only sometimes fall)
     kickPow: 0.75,        // ...weight ratio to this power
     kickBase: 0.25,       // ...plus this much even when centred
-    tipDelay: 0.3,        // seconds a stack teeters past its tipping point before it goes (gusts can pass)
-    windK: 0.05,          // wind leverage: balance shift per unit of wind per px of height
-    leverCap: 320,        // px: wind leverage stops growing above this height
-    hoverDrift: 32,       // px a full gust pushes a medium hovering pumpkin (light ones further)
-    warn: 1.4,            // seconds of leaves and whoosh before a gust hits
+    tipDelay: 0.3,        // seconds a stack teeters past its tipping point before it goes
+    // Wind is scenery only: it never moves where a pumpkin lands or tips anything over.
+    warn: 1.4,            // seconds of leaves and whoosh before a gust
+    windSway: h => 7 + Math.min(h, 1000) * 0.012, // px the top of the tower sways in a full gust
+    hoverLean: 7,         // degrees the hovering pumpkin leans in a full gust (it sways with the top)
     swayHz: 0.6,          // the tower's springy sway
     swayDamp: 0.2,
     swayPx: h => 12 + Math.min(h, 1400) * 0.03, // top sway (px) at full lean
@@ -156,10 +163,8 @@ const RULES = {
     goldenMult: 3,        // golden pumpkins (it.golden) score this many times more
     boomMin: 3,           // the BOOM button shows up once the tower is this tall
     boomPer: 0.2,         // BOOM banks the tower's points x (1 + this x pumpkins in it)
-    sail: 1,              // a crooked stack catches more wind: push x (1 + sail x its lean)
-    fallDrift: 24,        // px a full gust pushes a medium pumpkin while it falls (aim upwind!)
     day: 180,             // seconds from afternoon to sunset (the round's clock)
-    duskWind: 0.3,        // gusts get this much stronger by sunset, even on short towers
+    duskWind: 0.3,        // gusts get this much stronger by sunset (scenery)
 };
 // How heavy each variety is for its size (a medium orange pumpkin = 1). Weight = heft x size.
 const HEFT = {
@@ -169,9 +174,10 @@ const HEFT = {
 };
 // Difficulty stages, by how many pumpkins are on the tower now (BOOM starts you over at CALM).
 // amp/speed: hover sway half-width (px) and glide speed (px/s); perfect: snap-to-centre zone
-// (px); wind: gust strength (plus RULES.duskWind toward sunset); gap: calm seconds between gusts.
+// (px); wind: how hard gusts blow, for looks (plus RULES.duskWind toward sunset); gap: calm
+// seconds between gusts.
 const STAGES = [
-    { at: 0,  name: 'CALM',   amp: 34,  speed: 135, perfect: 22, wind: 0,    gap: [8, 11] },
+    { at: 0,  name: 'CALM',   amp: 34,  speed: 135, perfect: 22, wind: 0.25, gap: [6, 9] },
     { at: 4,  name: 'BREEZY', amp: 42,  speed: 150, perfect: 12, wind: 0.35, gap: [7, 10] },
     { at: 8,  name: 'WINDY',  amp: 56,  speed: 170, perfect: 10, wind: 0.5,  gap: [5, 8] },
     { at: 13, name: 'GUSTY',  amp: 72,  speed: 190, perfect: 9,  wind: 0.65, gap: [4, 7] },
@@ -188,15 +194,15 @@ const Rules = {
         return i;
     },
 
-    // A stack piece: body size in px, weight m and wind sail a (same units). heft overrides
-    // the variety's HEFT (1 = a medium orange pumpkin).
+    // A stack piece: body size in px, weight m and area a (same units). heft overrides the
+    // variety's HEFT (1 = a medium orange pumpkin).
     piece(key, w, h, x, heft) {
         heft = heft || HEFT[key] || 1;
         const a = w * h / 4000;
         return { key, x: x || 0, w, h, a, m: a * heft, heft };
     },
 
-    // Gusts for a tower at stage si, `dusk` (0..1) of the way to sunset.
+    // Gusts (for looks) for a tower at stage si, `dusk` (0..1) of the way to sunset.
     windStage(si, dusk) {
         const st = STAGES[si];
         return { wind: st.wind + RULES.duskWind * clampN(dusk || 0, 0, 1), gap: st.gap };
@@ -206,27 +212,19 @@ const Rules = {
 
     // Balance of every joint, bottom first. Joint i is piece i resting on the piece below (or
     // the hay): the weight of everything from i up has to sit over the patch where the two flat
-    // faces touch. Wind pushes sideways with leverage that grows with the height and sail of
-    // what's above, and weight resists it; a crooked stack catches more of it (RULES.sail).
-    // per[i].L: 0 = centred, +-1 = on the edge, beyond = tips.
-    analyze(P, base, wind) {
+    // faces touch. per[i].L: 0 = centred, +-1 = on the edge, beyond = tips.
+    analyze(P, base) {
         const n = P.length, per = new Array(n), yb = new Array(n);
         let y = 0;
         for (let i = 0; i < n; i++) { yb[i] = y; y += P[i].h; }
-        let M = 0, MX = 0, A = 0, AY = 0, lean = 0, at = -1;
+        let M = 0, MX = 0, lean = 0, at = -1;
         for (let i = n - 1; i >= 0; i--) {
             const p = P[i];
-            M += p.m; MX += p.m * p.x; A += p.a; AY += p.a * (yb[i] + p.h / 2);
+            M += p.m; MX += p.m * p.x;
             const sx = i ? P[i - 1].x : base.x, sh = this.supportHalf(i ? P[i - 1] : null, base);
             const bh = RULES.botFlat * p.w / 2;
             const lo = Math.max(p.x - bh, sx - sh), hi = Math.min(p.x + bh, sx + sh);
-            const push = (wind || 0) * RULES.windK * Math.min(AY / A - yb[i], RULES.leverCap) * A / M;
-            let L;
-            if (hi - lo < 1) L = p.x >= sx ? 9 : -9;
-            else {
-                const half = (hi - lo) / 2, still = (MX / M - (lo + hi) / 2) / half;
-                L = still + push / half * (1 + RULES.sail * Math.min(1.5, Math.abs(still)));
-            }
+            const L = hi - lo < 1 ? (p.x >= sx ? 9 : -9) : (MX / M - (lo + hi) / 2) / ((hi - lo) / 2);
             per[i] = { L, lo, hi, y: yb[i] };
             if (Math.abs(L) > Math.abs(lean)) { lean = L; at = i; }
         }
@@ -244,17 +242,18 @@ const Rules = {
     // Land pc at offset d from the centre of the top of stack P (does not change P).
     // opts: { roll, topple } say which falls are allowed; rand() in 0..1 varies the wobble.
     // fall: 'none' | 'roll' (only the new one goes) | 'topple' (joint `at` and everything above).
-    land(P, base, pc, d, wind, opts, rand) {
+    land(P, base, pc, d, opts, rand) {
         const sup = P[P.length - 1] || null;
         const q = Object.assign({}, pc, { x: (sup ? sup.x : base.x) + d });
-        const Q = P.concat([q]), r = this.analyze(Q, base, wind);
+        const Q = P.concat([q]), r = this.analyze(Q, base);
         const kick = opts.topple ? this.kick(sup, q, d, base) * (1 - RULES.kickSpread + 2 * RULES.kickSpread * rand()) : 0;
         // it rocks toward the side it landed on (a centred one sags the way the stack already leans)
         const dir = d > 0 ? 1 : d < 0 ? -1 : r.lean >= 0 ? 1 : -1;
         let peak = 0, at = -1, M = 0;
         for (let i = Q.length - 1; i >= 0; i--) {
             M += Q[i].m;
-            const L = r.per[i].L + dir * kick * q.m / M;   // lower joints rock by its share of the weight
+            const still = r.per[i].L, rock = still + dir * kick * q.m / M; // lower joints rock by its share of the weight
+            const L = Math.abs(rock) > Math.abs(still) ? rock : still;
             if (Math.abs(L) > Math.abs(peak)) { peak = L; at = i; }
         }
         const top = Q.length - 1;
@@ -265,14 +264,14 @@ const Rules = {
     },
 
     // Challenge-mode drop for a tap `off` px from the target: where it lands and how it grades.
-    aim(P, base, pc, off, stage, assisted, wind) {
+    aim(P, base, pc, off, stage, assisted) {
         const perfect = Math.abs(off) <= stage.perfect * (assisted ? 1.5 : 1);
         let d = perfect ? 0 : off;
         if (assisted && !perfect) {
             const sh = this.supportHalf(P[P.length - 1], base);
             d = clampN(off * RULES.assistKeep, -0.5 * sh, 0.5 * sh);
         }
-        const res = this.land(P, base, pc, d, wind, { roll: !assisted, topple: !assisted }, () => 0.5);
+        const res = this.land(P, base, pc, d, { roll: !assisted, topple: !assisted }, () => 0.5);
         const L = Math.abs(res.peak);
         // kind: how it scores if it stays on; grade: what the ring shows ('miss' = it will fall)
         const kind = perfect ? 'perfect' : L > 0.6 || res.fall !== 'none' ? 'ok' : 'good';
@@ -281,38 +280,41 @@ const Rules = {
 
     ordered(sup, pc) { return !sup || pc.m <= sup.m * 1.05; },
     boomMult(n) { return 1 + RULES.boomPer * n; },
+    boomLives(n) { for (const [h, k] of RULES.boomLives) if (n >= h) return k; return 0; },
     combo(streak) { for (const [n, x] of RULES.combos) if (streak >= n) return x; return 1; },
     score(grade, stageIdx, streak, ordered, golden) {
         const mult = (grade === 'perfect' ? this.combo(streak) : 1) * (golden ? RULES.goldenMult : 1);
         return Math.round((RULES.points[grade] + (ordered ? RULES.orderBonus : 0)) * (1 + 0.25 * stageIdx) * mult);
     },
 
-    // Hovering: light pumpkins glide faster and get blown further than heavy ones.
+    // Hovering: light pumpkins glide a little faster than heavy ones.
     hoverSpeed(stage, pc, streak) {
         return stage.speed * clampN(Math.pow(1.34 / pc.m, 0.1), 0.88, 1.12) * (1 + 0.03 * Math.min(streak, 10));
     },
-    hoverDrift(wind, pc) { return wind * RULES.hoverDrift * clampN(Math.sqrt(1.34 / pc.m), 0.55, 1.7); },
-    fallDrift(wind, pc) { return wind * RULES.fallDrift * clampN(Math.sqrt(1.34 / pc.m), 0.55, 1.7); },
     tri(u, amp) { const P = 4 * amp, v = ((u % P) + P) % P; return v < 2 * amp ? -amp + v : 3 * amp - v; },
 
-    // The tower's sway is a damped spring whose rest point follows its lean (and the wind).
+    // The tower's sway is a damped spring whose rest point follows its lean, plus a little
+    // give in the wind. It's only for looks: landings are judged against where the tower rests.
     swayStep(s, dt, target) {
         const w = 2 * Math.PI * RULES.swayHz;
         s.v += (-w * w * (s.x - target) - 2 * RULES.swayDamp * w * s.v) * dt;
         s.x += s.v * dt;
     },
-    swayTarget(lean, height) { return clampN(lean, -1.4, 1.4) * RULES.swayPx(height); },
+    swayTarget(lean, height, wind) {
+        return clampN(lean, -1.4, 1.4) * RULES.swayPx(height) + (wind || 0) * RULES.windSway(height);
+    },
     swayKick(s, dir, kick, height) { s.v += dir * kick * RULES.swayPx(height) * 2 * Math.PI * RULES.swayHz; },
 
-    // Past the tipping point for tipDelay seconds (a short gust can pass) and it goes.
+    // Past the tipping point for tipDelay seconds and it goes (a safety net: land() already
+    // drops anything that lands unbalanced).
     tipStep(st, lean, dt) {
         st.tipT = Math.abs(lean) > 1 ? st.tipT + dt : Math.max(0, st.tipT - 2 * dt);
         return st.tipT >= RULES.tipDelay;
     },
 };
 
-// Autumn gusts: calm, then ~1.4 s of warning (leaves, whoosh), then a gust that ramps up,
-// flutters and dies away. Gusts tend to alternate sides, so the tower rocks back and forth.
+// Autumn gusts (scenery): calm, then ~1.4 s of warning (leaves, whoosh), then a gust that ramps
+// up, flutters and dies away. Gusts tend to alternate sides, so the tower rocks back and forth.
 class Wind {
     constructor(rand) { this.rand = rand || Math.random; this.reset(); }
     reset() { this.phase = 'calm'; this.t = 0; this.wait = 2.5; this.dir = 1; this.v = 0; this.peak = 0; this.len = 0; }
@@ -1119,7 +1121,7 @@ class PatchScene extends Phaser.Scene {
         // pumpkins). updateDrop() then drops it there and landDrop()
         // decides whether it stays, wobbles or goes over.
         const top = this.towerTop();
-        const plan = this.planDrop(it, it.img.x - top.x);
+        const plan = this.planDrop(it, this.hoverOff !== undefined ? this.hoverOff : it.img.x - top.x);
         it.grade = plan.kind;
         it.state = 'dropping';
         this.dropping = { it, plan, stack: this.stack, x0: it.img.x, y0: it.img.y, a0: it.img.angle, vy: 0 };
@@ -1466,7 +1468,7 @@ class PatchScene extends Phaser.Scene {
                 a.carrying = it;
                 a.frame = 0;
                 this.setPose('run');
-                if (golden) { this.say('GOLDEN!', 1100); Sfx.perfect(3); }
+                if (golden) { this.say('GOLDEN!', 1100); Sfx.perfect(3); this.earnLife(RULES.goldenLife, it.img.x, it.img.y, 300); }
                 else if (it.heavy) this.say('HEAVY!', 1000);
                 else { Sfx.more(); this.say('MORE!', 900); }
                 this.leaveLane(it.heavy, () => {
@@ -1763,19 +1765,20 @@ class PatchScene extends Phaser.Scene {
             this.hoverT += dt;
             const it = this.hovering;
             const top = this.towerTop();
-            // steady glide back and forth (a triangle wave), readable like Stack's sliding block;
-            // gusts push it downwind (little ones further) while the stack top sways under it
+            // steady glide back and forth (a triangle wave), readable like Stack's sliding block.
+            // It sways along with the top of the tower, so what lines up on screen is what lands,
+            // and in a gust it leans and bobs with the wind (wind never changes where it lands).
             this.hoverU += this.hoverSpeed(it) * dt;
             const off = Rules.tri(this.hoverU, this.hoverAmp);
-            const drift = Rules.hoverDrift(this.windV, pieceOf(it));
-            this.hoverDrift = Phaser.Math.Linear(this.hoverDrift || 0, drift, 1 - Math.pow(0.05, dt));
-            const targetY = top.y - it.bh / 2 - 110;
-            it.img.x = this.hoverBaseX + off + this.hoverDrift;
+            const gust = this.windV;
+            const targetY = top.y - it.bh / 2 - 110 + Math.abs(gust) * Math.sin(this.hoverT * 11) * 4;
+            this.hoverOff = this.hoverBaseX + off - top.rx; // over the resting tower: this is what counts
+            it.img.x = top.x + this.hoverOff;              // ...drawn riding on the swaying top
             it.img.y = Phaser.Math.Linear(it.img.y, targetY + Math.sin(this.hoverT * 5) * 5, 0.15);
-            it.img.angle = Math.sin(this.hoverT * 3) * 4 + this.hoverDrift * 0.2;
+            it.img.angle = Math.sin(this.hoverT * 3) * 4 + gust * RULES.hoverLean;
             this.hoverBaseX = Phaser.Math.Linear(this.hoverBaseX, top.rx, 0.05);
             // landing ring on top of the stack shows what a tap now would do
-            const plan = this.planDrop(it, it.img.x - top.x);
+            const plan = this.planDrop(it, this.hoverOff);
             this.hoverGrade = plan.grade;
             this.showRing(it, top, plan, time);
         }
@@ -1896,11 +1899,11 @@ class PatchScene extends Phaser.Scene {
         it.grade = null;
 
         it.pts = pts;
-        // a run of perfect drops wins back a lost pumpkin
-        if (grade === 'perfect' && this.streak % RULES.lifeEvery === 0 && this.lives < RULES.lives) {
-            this.lives += 1;
-            this.ui.setLives(this.lives, false);
-            this.time.delayedCall(700, () => Sfx.bonus());
+        // a short run of perfect drops wins a pumpkin life
+        if (grade === 'perfect' && this.streak % RULES.lifeStreak === 0) this.earnLife(1, it.rx, it.topY, 500);
+        // so does topping each big height for the first time this round
+        for (const h of RULES.lifeHeights) {
+            if (height >= h && !this.lifeHeights.has(h)) { this.lifeHeights.add(h); this.earnLife(1, it.rx, it.topY, 900); }
         }
         if (stack.stageIdx > Rules.stageAt(n - 1)) this.onStage(stack.stageIdx);
 
@@ -1930,9 +1933,9 @@ class PatchScene extends Phaser.Scene {
         this.windDir = 1;
         this.tipGroups = [];
         this.dropping = null;
-        this.hoverDrift = 0;
         this.roundOver = false;
         this.placed = 0; this.score = 0; this.lives = RULES.lives; this.tallest = 0; this.dayT = 0;
+        this.lifeHeights = new Set();
         // leaves streaming across the view with the wind: they start ~1.4 s before a gust hits
         const view = () => this.cameras.main.worldView;
         this.windLeaves = this.add.particles(0, 0, 'leaves', {
@@ -1968,6 +1971,7 @@ class PatchScene extends Phaser.Scene {
         this.placed = 0; this.score = 0; this.lives = RULES.lives; this.tallest = 0; this.dayT = 0;
         this.streak = 0; this.gusts = 0; this.duskSaid = false;
         this.reached.clear();
+        this.lifeHeights = new Set();
         this.wind.reset();
         this.windV = 0;
         for (const st of this.stacks) {
@@ -2053,6 +2057,19 @@ class PatchScene extends Phaser.Scene {
         if (this.lives <= 0) this.endRound(n > 1 ? 'topple' : 'lives');
     }
 
+    // Earn pumpkin lives (up to RULES.maxLives): a little pumpkin flies from (wx, wy) in the world
+    // into the life row, with a chime. Earned for a short perfect streak, a tall BOOM, a big
+    // height the first time in a round, and harvesting a golden pumpkin.
+    earnLife(n, wx, wy, delay = 0) {
+        if (this.roundOver || !this.started) return;
+        const k = Math.max(0, Math.min(n, RULES.maxLives - this.lives));
+        if (!k) return;
+        this.lives += k;
+        const cam = this.cameras.main, v = cam.worldView;
+        const sx = (wx - v.x) * cam.zoom, sy = (wy - v.y) * cam.zoom;
+        for (let i = 0; i < k; i++) this.time.delayedCall(delay + i * 260, () => this.ui.flyLife(sx, sy));
+    }
+
     canBoom(stack) {
         stack = stack || this.stack;
         return this.started && !this.roundOver && stack.items.length >= RULES.boomMin;
@@ -2069,6 +2086,8 @@ class PatchScene extends Phaser.Scene {
         this.ui.banner('BOOM! +' + pts);
         this.popText(stack.x, stack.top().y - 30, '+' + pts, '#ffd35a', 44);
         this.sparkles.explode(40, stack.x, stack.top().y);
+        // banking a tall tower wins pumpkin lives
+        this.earnLife(Rules.boomLives(n), stack.x, stack.top().y, 600);
         this.time.delayedCall(250, () => Sfx.fanfare());
         this.blowUp(stack);
         return true;
@@ -2155,7 +2174,7 @@ class PatchScene extends Phaser.Scene {
 
     // Sway width when a pumpkin is tossed up (called from placeOnTower).
     hoverStart(it) {
-        this.hoverDrift = 0;
+        this.hoverOff = undefined;
         return STAGES[this.stack.stageIdx].amp;
     }
 
@@ -2164,11 +2183,9 @@ class PatchScene extends Phaser.Scene {
     }
 
     // What a drop now would do, for a pumpkin `off` px from the top's centre: { grade, kind, d }.
-    // It also drifts downwind as it falls, so you aim upwind.
     planDrop(it, off) {
-        const stack = this.stack, pc = pieceOf(it);
-        return Rules.aim(stack.pieces(), stack.base, pc, off + Rules.fallDrift(this.windV, pc),
-            STAGES[stack.stageIdx], this.placed < RULES.assisted, this.windV);
+        const stack = this.stack;
+        return Rules.aim(stack.pieces(), stack.base, pieceOf(it), off, STAGES[stack.stageIdx], this.placed < RULES.assisted);
     }
 
     // Landing ring: gold = perfect, white = steady, orange = wobbly, flashing red = it will fall.
@@ -2197,7 +2214,7 @@ class PatchScene extends Phaser.Scene {
         }
     }
 
-    // Afternoon to sunset: the round's clock. Gusts get stronger toward dusk.
+    // Afternoon to sunset: the round's clock. Gusts (scenery) get stronger toward dusk.
     updateClock(dt) {
         if (!this.started || this.roundOver) return;
         this.dayT += dt;
@@ -2240,7 +2257,7 @@ class PatchScene extends Phaser.Scene {
         }
     }
 
-    // The dropped pumpkin falls onto the top of the stack, sliding (and drifting) to where it lands.
+    // The dropped pumpkin falls onto the top of the stack, sliding to where it lands.
     updateDrop(dt) {
         const D = this.dropping;
         if (!D) return;
@@ -2263,7 +2280,7 @@ class PatchScene extends Phaser.Scene {
         if (this.roundOver) { this.looseDrop(it); return; }
         const safe = this.placed < RULES.assisted;
         const opts = safe ? { roll: false, topple: false } : { roll: true, topple: true };
-        const res = Rules.land(stack.pieces(), stack.base, pieceOf(it), plan.d, this.windV, opts, Math.random);
+        const res = Rules.land(stack.pieces(), stack.base, pieceOf(it), plan.d, opts, Math.random);
         this.placeStatic(stack, it, res.x, top.y);
         this.landFx(stack, it, sup, res);
         if (res.fall === 'none') { this.lockIntoTower(it, stack); return; }
@@ -2308,12 +2325,12 @@ class PatchScene extends Phaser.Scene {
         if (res.kick > 0.3 || Math.abs(res.peak) > 0.7) this.time.delayedCall(90, () => Sfx.creak(m));
     }
 
-    // Each frame: balance (with the wind), the springy sway, trembling when it's close,
-    // and tipping once it has been past its tipping point for a moment.
+    // Each frame: balance, the springy sway (a little more in a gust; only for looks),
+    // trembling when it's close, and tipping once it has been past its tipping point.
     updateTower(stack, dt) {
         const P = stack.pieces();
-        const r = stack.balance = Rules.analyze(P, stack.base, this.windV);
-        Rules.swayStep(stack.sway, dt, Rules.swayTarget(r.lean, r.height));
+        const r = stack.balance = Rules.analyze(P, stack.base);
+        Rules.swayStep(stack.sway, dt, Rules.swayTarget(r.lean, r.height, P.length ? this.windV : 0));
         const danger = !P.length || this.roundOver ? 0 : Phaser.Math.Clamp((Math.abs(r.lean) - 0.7) / 0.3, 0, 1);
         stack.danger = danger;
         const H = Math.max(1, r.height);
@@ -2761,9 +2778,10 @@ class UIScene extends Phaser.Scene {
         this.sky = this.add.rectangle(0, 0, 10, 10, 0xffffff).setOrigin(0).setDepth(-10)
             .setBlendMode(Phaser.BlendModes.MULTIPLY).setVisible(false);
 
-        // count panel extras (challenge mode): banked score and three pumpkin lives
+        // count panel extras: banked score and the pumpkin lives (3 to start, up to RULES.maxLives)
         this.scoreText = this.add.text(112, 86, '', txt(16, '#ffd35a', 6)).setOrigin(0, 0.5);
-        this.lifeIcons = [0, 1, 2].map(i => this.add.image(60 + i * 40, 128, 'icon_pumpkin').setScale(0.55));
+        this.lifeIcons = Array.from({ length: RULES.maxLives }, (_, i) => this.add.image(52 + i * 38, 128, 'icon_pumpkin').setScale(0.55));
+        this.lifeShown = RULES.lives;
 
 
         // end card
@@ -2822,7 +2840,6 @@ class UIScene extends Phaser.Scene {
     // The HUD: count, score and three pumpkin lives; streaks show as sparkles and pitch.
     applyHud() {
         this.scoreText.setVisible(true);
-        this.lifeIcons.forEach(ic => ic.setVisible(true));
         this.bestText.setVisible(false);
         this.stars.forEach(st => st.setVisible(false));
         this.streakText.setVisible(false);
@@ -2837,15 +2854,19 @@ class UIScene extends Phaser.Scene {
         this.hideEnd();
         this.countText.setText('0');
         this.setScore(0);
+        this.lifeFlying = 0;
         this.setLives(RULES.lives, false);
         this.setStreak(0);
     }
 
     setScore(n) { this.scoreText.setText('SCORE ' + n); }
 
+    // Shows max(3, lives) slots: filled for each life, dim for lost ones.
     setLives(n, lost) {
+        this.lifeShown = n;
         this.lifeIcons.forEach((ic, i) => {
             const on = i < n;
+            ic.setVisible(i < Math.max(RULES.lives, n));
             ic.setAlpha(on ? 1 : 0.3).setTint(on ? 0xffffff : 0x5a4a3a);
             if (lost && i === n) {
                 this.tweens.add({ targets: ic, scale: 0.85, duration: 90, yoyo: true, repeat: 2 });
@@ -2853,6 +2874,30 @@ class UIScene extends Phaser.Scene {
             } else if (!lost && on && i === n - 1) {
                 this.tweens.add({ targets: ic, scale: 0.8, duration: 140, yoyo: true });
             }
+        });
+    }
+
+    // An earned life: a pumpkin flies from (sx, sy) on screen into the next life slot and pops in.
+    flyLife(sx, sy) {
+        this.lifeFlying = (this.lifeFlying || 0) + 1;
+        const slot = this.lifeIcons[Math.min(this.lifeShown + this.lifeFlying - 1, this.lifeIcons.length - 1)];
+        const ic = this.add.image(sx, sy, 'icon_pumpkin').setScale(1.1).setDepth(95);
+        const tx = slot.x, ty = slot.y, cx = (sx + tx) / 2, cy = Math.min(sy, ty) - 140;
+        Sfx.pickup();
+        this.tweens.addCounter({
+            from: 0, to: 1, duration: 750, ease: 'Sine.InOut',
+            onUpdate: tw => {
+                const t = tw.getValue(), u = 1 - t;
+                ic.setPosition(u * u * sx + 2 * u * t * cx + t * t * tx, u * u * sy + 2 * u * t * cy + t * t * ty)
+                    .setScale(1.1 - 0.55 * t).setAngle(360 * t);
+            },
+            onComplete: () => {
+                ic.destroy();
+                this.lifeFlying = Math.max(0, this.lifeFlying - 1);
+                this.setLives(Math.min(this.patch.lives, this.lifeShown + 1), false);
+                this.endSparkles.explode(10, tx, ty);
+                Sfx.bonus();
+            },
         });
     }
 

@@ -5056,7 +5056,7 @@ const HTP_PAGES = [
     { title: 'BEAT THE SUNSET', art: 'htpArtDay', rows: [
         { p: 'A ROUND IS ONE AFTERNOON: GOLD, THEN DUSK.' },
         { p: "AT SUNSET, OR WHEN YOUR LIVES RUN OUT, ANSEL BOOMS WHAT'S STILL STANDING.", c: 'gold' },
-        { ic: { img: 'pumpkin_unripe', s: 0.75 }, t: 'PUMPKINS GROW IN THE VINES. TAP A GREEN ONE TO WATER IT.' },
+        { ic: { img: 'sprout', s: 1 }, t: 'VINE PUMPKINS GROW BIGGER OVER TIME. TAP ONE TO PICK IT, OR A SPROUT TO WATER IT.' },
         { ic: { img: 'leafpile_a', s: 0.55 }, t: 'LEAF PILES HIDE SOME. NOTHING LEFT? TAP: MORE!' },
         { ic: { img: 'sparkle', n: 2 }, t: 'TAP THE SCENERY, TOO.' },
         { desk: true, ic: { keys: ['P', 'M'] }, t: 'PAUSE, MUTE' },

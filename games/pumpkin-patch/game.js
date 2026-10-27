@@ -880,6 +880,12 @@ class PatchScene extends Phaser.Scene {
             ANSEL_FRAMES[outfit].forEach(f => this.load.image(`ansel:${outfit}/${f}`, `${ANSEL_ART}${outfit}/${f}.png`));
         }
         this.load.json('ansel_frames', ANSEL_ART + 'frames.json');
+        // his hands over a pumpkin he holds: a layer for each frame that has one (frames.json says)
+        this.load.once('filecomplete-json-ansel_frames', (key, type, data) => {
+            for (const k in data.frames) {
+                if (data.frames[k].front) this.load.image(`ansel:${k}_front`, `${ANSEL_ART}${k}_front.png`);
+            }
+        });
         for (let i = 1; i <= 8; i++) this.load.image('gigi_' + i, `${SHARED}Gigi Running frames/frame_0${i}.png`);
         this.load.image('hoppah_stand', SHARED + 'hoppah_standing.png');
         this.load.image('hoppah_jump', SHARED + 'hoppah_jumping.png');
@@ -976,15 +982,17 @@ class PatchScene extends Phaser.Scene {
             it.state = 'ground';
         });
 
-        // Ansel
-        // Ansel (every frame shares one canvas, so one origin: his feet)
+        // Ansel (every frame shares one canvas, so one origin: his feet). front: his hands, drawn
+        // over a pumpkin he's holding (the pumpkin is drawn in front of him).
         const AF = this.anselData = this.cache.json.get('ansel_frames');
         this.ansel = {
-            x: 700, dir: 1, frame: 0, frameT: 0, moving: false, carrying: null,
+            x: 700, dir: 1, frame: 0, frameT: 0, moving: false, carrying: null, lifting: null,
             goal: null, busy: false, pose: 'run', bob: 0, jumpY: 0,
             laneY: 0, depthScale: 1, baseScale: 1, farming: false, walkingLane: false,
             img: this.add.image(700, GROUND, 'ansel:everyday/pick_1').setDepth(20)
                 .setOrigin(AF.footX / AF.w, AF.footY / AF.h),
+            front: this.add.image(700, GROUND, 'ansel:everyday/pick_1').setOrigin(AF.footX / AF.w, AF.footY / AF.h)
+                .setVisible(false),
             shadow: this.add.image(700, GROUND + 4, 'shadow').setDepth(9),
         };
         this.setPose('run');
@@ -1671,6 +1679,7 @@ class PatchScene extends Phaser.Scene {
             it.golden = golden;
             if (golden) it.heavy = true;
             it.state = 'lifting';
+            a.lifting = it;
             it.img.setScale(ds).setDepth(a.img.depth + 0.1);
             this.tweens.killTweensOf(img);
             img.destroy();
@@ -1680,6 +1689,7 @@ class PatchScene extends Phaser.Scene {
             const done = () => {
                 it.state = 'carried';
                 a.carrying = it;
+                a.lifting = null;
                 a.frame = 0;
                 this.setPose('run');
                 if (golden) { this.say('GOLDEN!', 1100); Sfx.perfect(3); this.earnLife(RULES.goldenLife, it.img.x, it.img.y, 300); }
@@ -1969,7 +1979,7 @@ class PatchScene extends Phaser.Scene {
         a.shadow.setPosition(a.x, feetY + 4).setScale(0.95 * ak * ds, ak * ds).setAlpha(ak);
 
         // Carried pumpkin: in his hands where this frame's own pumpkin was (on his head, or at
-        // his chest for a heavy one), in front of him with his hands tucked behind it
+        // his chest for a heavy one), drawn in front of him
         if (a.carrying && a.carrying.state === 'carried' && (!a.busy || a.walkingLane)) {
             const p = this.holdPos(a.carrying, a.frameName);
             a.carrying.img.setScale(ds).setDepth(a.img.depth + 0.1);
@@ -1979,6 +1989,15 @@ class PatchScene extends Phaser.Scene {
             if (a.carrying.golden && Math.random() < 0.04) {
                 this.sparkles.explode(1, a.carrying.img.x + Phaser.Math.Between(-30, 30), a.carrying.img.y);
             }
+        }
+        // ...with his hands over it, so it reads as held
+        const held = a.carrying && a.carrying.state === 'carried' ? a.carrying : a.lifting;
+        const fkey = held ? this.anselKey(a.frameName) + '_front' : null;
+        if (fkey && this.textures.exists(fkey)) {
+            a.front.setTexture(fkey).setVisible(true).setPosition(a.img.x, a.img.y)
+                .setScale(a.img.scaleX, a.img.scaleY).setFlipX(a.img.flipX).setDepth(a.img.depth + 0.2);
+        } else {
+            a.front.setVisible(false);
         }
 
         // Hovering item sways above the stack
@@ -2254,7 +2273,7 @@ class PatchScene extends Phaser.Scene {
         });
         this.resetPatch();
         this.tweens.killTweensOf(a);
-        a.laneY = 0; a.depthScale = 1; a.walkingLane = false; a.jumpY = 0;
+        a.laneY = 0; a.depthScale = 1; a.walkingLane = false; a.jumpY = 0; a.lifting = null;
         a.img.setDepth(20); a.shadow.setDepth(9);
         this.startRound();
         this.tapGuard = this.time.now + 300;

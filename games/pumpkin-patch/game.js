@@ -17,12 +17,14 @@
 // shouts MORE! and a fresh batch tumbles in.
 //
 // Controls
-//   Touch / mouse : tap a pumpkin (he fetches and lifts it), tap again to drop,
-//                   tap the hay bale (its BOOM sign) to bank and knock down the tower,
-//                   tap leaf piles, Ansel, trees, the bunny and the scenery for surprises,
-//                   tap anywhere for MORE! when the patch is empty
-//   Keyboard      : ←/→ walk · ↓ pick up / dive / BOOM beside the tower · ↑ or Space uppah / drop /
-//                   more / play again · B BOOM · M mute
+//   Touch / mouse : tap a pumpkin (he fetches it and lifts it over the tower), then tap
+//                   anywhere to drop it; tap a sprout or bare vine spot to water it;
+//                   tap the hay bale or its BOOM plank to bank and knock down the tower;
+//                   tap leaf piles, Ansel, trees, the bunny and the scenery for surprises;
+//                   tap empty ground for MORE! when there's nothing to pick.
+//                   Single taps only; what a tap does in each state: PatchScene.tapZones()
+//   Keyboard      : ←/→ walk · ↓ pick up / water / dive · ↑ or Space drop / more / play again ·
+//                   hold B BOOM · M mute (the walk back with a pumpkin ignores ←/→, ↑ and ↓)
 //
 // Built on Phaser 3 (MIT) with Matter.js physics.
 // ═════════════════════════════════════════════════════════════════════════════
@@ -436,6 +438,14 @@ const MUSIC = MUSIC_TRACKS[(() => {
 const DESKTOP = (() => {
     try { return window.matchMedia('(hover: hover) and (pointer: fine)').matches; } catch (e) { return false; }
 })();
+// ?zones=1 draws every tap zone for what's happening now (PatchScene.tapZones), for checking
+// the touch layout on a real phone.
+const ZONES_DEBUG = (() => {
+    try { return new URLSearchParams(window.location.search).get('zones') === '1'; } catch (e) { return false; }
+})();
+const THUMB_CSS = 48;     // the smallest tap target, CSS px across (a thumb)
+const TAP_BOUNCE = 120;   // ms: a second hit this soon, near the first, is the same tap
+const TAP_QUEUE = 600;    // ms: a tap made while Ansel is busy waits at most this long
 const MUTE_KEY = 'uppah.pumpkinpatch.muted';
 const BOOM_HOLD = 0.5; // seconds B must be held: a stray key press never sets off a BOOM
 const LIFE_SCALE = 0.72; // the pumpkin-life icons in the HUD
@@ -450,18 +460,36 @@ function calmFx(em) {
     return em;
 }
 
-// A broad touch (a resting palm, the side of a hand) is not a tap.
-function isPalm(p) {
+// A resting palm (or the side of a hand) is not a tap, but a thumb always is. Phones report a
+// thumb as a much bigger contact than a fingertip: iOS reports the contact radius in steps of
+// about 10 px (about 21 for a light touch, 31 for a firmer one, far more for a palm), and Android
+// reports whatever the panel measures, which varies a lot from phone to phone. So a contact is
+// ignored only if it's bigger than any thumb, or broad while another finger is already down.
+const PALM_R = 75;        // contact radius (CSS px) that is never a fingertip or thumb
+const PALM_R_SECOND = 56; // ...and the radius that's a palm when another touch is already down
+
+// Contact radius of this pointer's touch in CSS px (0 for a mouse, a pen or no data), and whether
+// another finger was already on the screen.
+function touchContact(p) {
     const ev = p && p.event;
-    if (!ev) return false;
-    if (ev.pointerType === 'touch') return ev.width > 56 || ev.height > 56;
+    if (!ev) return { r: 0, others: false };
+    if (ev.pointerType !== undefined) {
+        if (ev.pointerType !== 'touch') return { r: 0, others: false };
+        return { r: Math.max(ev.width || 0, ev.height || 0) / 2, others: !ev.isPrimary };
+    }
     const list = ev.changedTouches;
-    if (!list) return false;
+    if (!list) return { r: 0, others: false };
+    const others = !!ev.touches && ev.touches.length > list.length;
     for (let i = 0; i < list.length; i++) {
         const t = list[i];
-        if (t.identifier === p.identifier) return t.radiusX > 28 || t.radiusY > 28;
+        if (t.identifier === p.identifier) return { r: Math.max(t.radiusX || 0, t.radiusY || 0), others };
     }
-    return false;
+    return { r: 0, others };
+}
+
+function isPalm(p) {
+    const c = touchContact(p);
+    return c.r > PALM_R || (c.others && c.r > PALM_R_SECOND);
 }
 
 const Sfx = {
@@ -925,8 +953,10 @@ class PatchScene extends Phaser.Scene {
         this.wobbleAmp = 0;       // tower sway (visual only)
         this.wobbleT = 0;
         this.idleT = 0;           // seconds since the last tap (for the hand hint)
-        this.pending = null;      // a tap made while Ansel was busy, done when he's free
-        this.lastTapAt = 0;
+        this.pending = null;      // the latest tap made while Ansel was busy (see updateTaps)
+        this.lastTap = null;      // { at, x, y } of the last tap, for the double-hit guard
+        this.busyEpisode = 0;     // counts Ansel's busy spells, so a queued tap can't outlive its own
+        this.tapLog = [];         // the last few taps: state, zone, where (for testing and ?zones=1)
 
         // Matter world: gentle gravity, extra solver passes for steadier stacks.
         this.matter.world.setGravity(0, 1.5);
@@ -1096,6 +1126,7 @@ class PatchScene extends Phaser.Scene {
         this.input.on('pointerdown', p => this.onTap(p));
         this.keys = this.input.keyboard.addKeys('LEFT,RIGHT,UP,DOWN,A,D,W,S,SPACE,B');
         this.input.keyboard.on('keydown', e => this.onKey(e));
+        if (ZONES_DEBUG) this.zonesCreate(); // ?zones=1: draw the tap zones
 
         this.eggsCreate(); // surprises: click points and easter eggs
         this.scene.launch('ui');
@@ -1439,81 +1470,286 @@ class PatchScene extends Phaser.Scene {
         this.time.delayedCall(300, () => this.say('PUMPKINS!', 1500));
     }
 
+    // Where a tap or click on the world goes, in one place. inputState() names what's happening;
+    // tapZones() lists every zone a tap can land in for that state, in priority order, and what
+    // each one does; handleTap() runs the zone under the finger. ?zones=1 draws the same list, and
+    // the README's "What a tap does" table follows it. Single taps only: no double taps or long
+    // presses mean anything. The title, the how-to-play card, pause, the end card, the HUD buttons
+    // and the sticker badge and tray belong to the UI scene and never reach the world
+    // (UIScene.uiOwns).
     onTap(p) {
-        if (!this.started || this.roundOver || this.time.now < (this.tapGuard || 0)) return;
-        if (this.ui.hitButton(p) || this.ui.hitPause(p) || this.ui.paused || isPalm(p)) return;
-        // ignore a second tap that lands almost instantly (accidental double taps)
-        if (this.time.now - this.lastTapAt < 120) return;
-        if (this.ui.eggUiHit(p)) return; // surprises: sticker badge and tray
-        this.lastTapAt = this.time.now;
+        if (!this.started || this.roundOver || this.ui.uiOwns(p)) return;
+        // the tap that started or resumed the game isn't a game tap (resumedAt is wall-clock time:
+        // the scene's own clock jumps ahead after a pause)
+        const at = p.event && p.event.timeStamp;
+        if (this.time.now < (this.tapGuard || 0) || (this.resumedAt && at && at < this.resumedAt + 200)) return;
+        if (isPalm(p)) return;
+        // one finger bouncing (a second hit this soon, close by) is the same tap; another finger
+        // tapping somewhere else is a new one
+        const now = this.time.now, L = this.lastTap;
+        if (L && now - L.at < TAP_BOUNCE && Math.hypot(p.x - L.x, p.y - L.y) < THUMB_CSS * this.cssPx()) return;
+        this.lastTap = { at: now, x: p.x, y: p.y };
         this.idleT = 0;
-        this.poof.explode(6, p.worldX, p.worldY);
-        this.handleTap(p.worldX, p.worldY);
+        const w = this.cameras.main.getWorldPoint(p.x, p.y);
+        this.handleTap(w.x, w.y);
     }
 
+    // What's happening, as far as a tap is concerned.
+    inputState() {
+        const a = this.ansel;
+        if (!this.started) return 'title';
+        if (this.ui && this.ui.paused) return 'paused';
+        if (this.roundOver) return 'over';
+        if (this.hovering) return 'hovering';  // swaying over the tower, the ring showing
+        if (a.carrying || a.lifting) return 'carrying'; // picked up: the walk back can't be interrupted
+        if (this.tossed()) return 'tossing';   // flying up out of his hands, no ring yet
+        if (a.busy) return 'busy';             // picking, watering, diving, BOOM, MORE!, a jump, a cuddle
+        if (this.dropping) return 'dropping';  // falling onto the tower
+        return a.goal ? 'walking' : 'idle';
+    }
+
+    // The pumpkin in the toss (out of his hands, not hovering yet), if any.
+    tossed() {
+        return this.items.find(it => it.state === 'hover' && it !== this.hovering) || null;
+    }
+
+    // Logical game px per CSS px (about 1.9 on a 375-px-wide phone held upright).
+    cssPx() {
+        const d = this.scale.displayScale;
+        return d && d.x > 0 ? d.x : 1;
+    }
+
+    // Half a thumb (THUMB_CSS) in world px at the current zoom: no tap target is smaller.
+    thumbR() {
+        return (THUMB_CSS / 2) * this.cssPx() / (this.cameras.main.zoom || 1);
+    }
+
+    // Every zone a tap can land in now (state: inputState()). The lowest prio wins; within a prio,
+    // the zone the finger is deepest into for its size wins, so the nearest pumpkin is picked and a
+    // big one reaches further than a little one. run(wx, wy) does it (false passes the tap on to the
+    // next zone), react() is the instant wiggle, and a move zone (one that sends Ansel somewhere)
+    // is queued while he's busy instead of run.
+    //   hovering: drop, anywhere · carrying (the walk back) and tossing: nothing at all
+    //   1 the BOOM plank itself
+    //   2 pumpkins (on the path, or in the vines), vine spots, leaf piles, Hoppah, Ansel
+    //   3 the tower and the air just above it: nothing · the hay bale, and a thumb around the plank: BOOM
+    //   5 the scenery above the fence (surprises) · 6 anywhere else: walk there, or MORE!
+    tapZones(state) {
+        const ALL = { all: true };
+        if (state === 'hovering') return [{ id: 'drop', prio: 0, shape: ALL, run: () => this.drop() }];
+        // The walk back and the toss: a tap does nothing and isn't kept. (A tap in the toss would
+        // drop the pumpkin unaimed, at the end of its swing; once the ring shows, a tap drops.)
+        if (state === 'carrying' || state === 'tossing') return [{ id: 'none', prio: 0, shape: ALL, none: true }];
+        if (!['idle', 'walking', 'dropping', 'busy'].includes(state)) return [];
+        const Z = [], a = this.ansel, R = this.thumbR();
+        // BOOM only on purpose: with Ansel free and nothing hovering, carried or falling
+        const free = state === 'idle' || state === 'walking';
+        const boom = free ? { id: 'boom', run: () => this.knockDown() } : { id: 'wait' };
+
+        if (this.baleSignOn) Z.push({ ...boom, prio: 1, shape: this.signRect(false) });
+
+        for (const it of this.items) {
+            if (!this.looseItem(it)) continue;
+            const b = it.body.position;
+            Z.push({ id: 'pick', prio: 2, move: true, react: () => this.nudge(it), run: () => this.pickUp(it),
+                // one lying on the path also owns the dirt straight below it (a thumb strip)
+                shape: { cx: b.x, cy: b.y, r: Math.max(Math.max(it.bw, it.bh) / 2 + 40, R),
+                    col: it.body.bounds.max.y > GROUND - 10 } });
+        }
+        for (const sp of this.spots) {
+            if (sp.busy) continue;
+            const c = this.spotCentre(sp);
+            Z.push({ id: sp.stage >= 2 && sp.img ? 'pick' : 'water', prio: 2, move: true,
+                react: () => this.wiggleSpot(sp), run: () => this.harvest(sp),
+                shape: { cx: c.x, cy: c.y, r: Math.max(c.r, R) } });
+        }
+        for (const pile of this.piles) {
+            const hw = Math.max(pile.img.displayWidth / 2 + 20, R);
+            Z.push({ id: 'dive', prio: 2, move: true, run: () => this.dive(pile),
+                shape: { x: pile.x - hw, y: GROUND - 110, w: 2 * hw, h: 170, col: true } });
+        }
+        // Hoppah, and Ansel himself (a happy jump, or MORE! when the patch is empty): a tap
+        // squarely on one of them is for him, but a pumpkin or plant beside them wins a near tie
+        const h = this.hop;
+        if (h.active) {
+            const hw = Math.max(75, R), hh = Math.max(70, R);
+            Z.push({ id: 'hoppah', prio: 2, bias: 1.25, run: () => this.tapHoppah(),
+                shape: { x: h.x - hw, y: h.y - 50 - hh, w: 2 * hw, h: 2 * hh } });
+        }
+        const ds = a.depthScale, feet = GROUND - a.laneY - a.jumpY, aw = Math.max(70 * ds, R);
+        const head = feet - (HEAD_TOP + 20) * ds;
+        Z.push({ id: 'ansel', prio: 2, bias: 1.25, move: true, run: () => (this.anyLoose() ? this.anselJump() : this.more()),
+            shape: { x: a.x - aw, y: head, w: 2 * aw, h: feet + 10 - head } });
+        // the tower: a late second tap on a drop lands here, so it does nothing (MORE! if the patch
+        // is empty)
+        if (this.tower.length || this.dropping) {
+            Z.push({ id: 'tower', prio: 3, shape: this.towerRect(),
+                run: () => { if (free && !this.anyLoose()) this.more(); } });
+        }
+        if (this.baleSignOn) {
+            Z.push({ ...boom, prio: 3, shape: this.baleRect() });
+            Z.push({ ...boom, prio: 3, shape: this.signRect(true) });
+        }
+        Z.push({ id: 'scenery', prio: 5, run: (wx, wy) => this.tapScene(wx, wy),
+            shape: { x: 0, y: 0, w: WORLD_W, h: EGG_FLOOR } });
+        Z.push({ id: 'walk', prio: 6, move: true, shape: ALL,
+            run: wx => (this.anyLoose() ? this.walkTo(wx, null) : this.more()) });
+        return Z;
+    }
+
+    // The zones under (wx, wy), best first.
+    zonesAt(zones, wx, wy) {
+        const hits = [];
+        for (const z of zones) {
+            const n = this.zoneDepth(z.shape, wx, wy);
+            if (n < 1) hits.push({ z, n: n * (z.bias || 1) });
+        }
+        hits.sort((p, q) => p.z.prio - q.z.prio || p.n - q.n);
+        return hits.map(h => h.z);
+    }
+
+    // How far into a zone a point is: 0 at its centre, 1 at its edge, more outside. A col shape
+    // also runs straight down to the bottom of the world: below its centre only the sideways
+    // distance counts.
+    zoneDepth(s, wx, wy) {
+        if (s.all) return 0.999;
+        if (s.r !== undefined) {
+            const dx = wx - s.cx, dy = wy - s.cy;
+            return (s.col && dy > 0 ? Math.abs(dx) : Math.hypot(dx, dy)) / s.r;
+        }
+        const hw = s.w / 2, hh = s.h / 2, cx = s.x + hw, cy = s.y + hh;
+        const nx = Math.abs(wx - cx) / hw;
+        return s.col && wy > cy ? nx : Math.max(nx, Math.abs(wy - cy) / hh);
+    }
+
+    handleTap(wx, wy) {
+        const state = this.inputState();
+        for (const z of this.zonesAt(this.tapZones(state), wx, wy)) {
+            if (z.none) break;
+            // while Ansel is busy, a tap that would send him somewhere waits (the latest one only)
+            const queue = state === 'busy' && z.move;
+            if (!queue && z.run && z.run(wx, wy) === false) continue;
+            if (z.react) z.react();
+            if (queue) this.pending = { wx, wy, at: this.time.now, episode: this.busyEpisode };
+            this.poof.explode(6, wx, wy);
+            this.logTap(state, queue ? z.id + ' (queued)' : z.id, wx, wy);
+            return;
+        }
+        this.logTap(state, 'none', wx, wy);
+    }
+
+    // Every frame: the queued tap, and the walk back always reaching the tower.
+    // A tap made while Ansel was busy runs as soon as he's free, but only if it's the latest one,
+    // at most TAP_QUEUE ms old, and he hasn't started anything else since (another busy spell, or
+    // picking a pumpkin up). Otherwise it's forgotten, so a stale tap never fires later.
+    updateTaps(dt) {
+        const a = this.ansel;
+        if (a.busy && !this.wasBusy) this.busyEpisode++;
+        this.wasBusy = a.busy;
+        // nothing may strand him with a pumpkin in his arms: if nothing is taking him to the
+        // tower, he goes
+        if (this.started && !this.roundOver && a.carrying && !a.busy && !a.goal && !this.hovering) {
+            this.strandT = (this.strandT || 0) + dt;
+            if (this.strandT > 0.4) { this.strandT = 0; this.placeOnTower(); }
+        } else this.strandT = 0;
+        const P = this.pending;
+        if (!P) return;
+        const age = this.time.now - P.at, state = this.inputState();
+        if (state === 'busy' && P.episode === this.busyEpisode && age <= TAP_QUEUE) return; // still waiting
+        this.pending = null;
+        if (age > TAP_QUEUE || P.episode !== this.busyEpisode) return;
+        if (state !== 'idle' && state !== 'walking' && state !== 'dropping') return;
+        // only the zones that send him somewhere count now (the wiggle and any surprise already
+        // happened), so a queued tap can never BOOM
+        for (const z of this.zonesAt(this.tapZones(state).filter(q => q.move), P.wx, P.wy)) {
+            if (z.run(P.wx, P.wy) === false) continue;
+            this.logTap(state, z.id + ' (from queue)', P.wx, P.wy);
+            return;
+        }
+    }
+
+    logTap(state, zone, wx, wy) {
+        this.tapLog.push({ t: Math.round(this.time.now), state, zone, x: Math.round(wx), y: Math.round(wy) });
+        if (this.tapLog.length > 20) this.tapLog.shift();
+    }
+
+    // A pumpkin lying loose (on the path, rolling, or falling), not in the tower, a leaf pile or
+    // Ansel's arms, and not a banked one fading away.
+    looseItem(it) {
+        return !!it.body && !['tower', 'hidden', 'spent', 'gone'].includes(it.state);
+    }
+
+    // The nearest loose pumpkin within reach of (wx, wy) (used by the surprises).
     pumpkinAt(wx, wy) {
         let best = null, bd = 1e9;
         for (const it of this.items) {
-            if (!it.body || it.state === 'tower' || it.state === 'hidden' || it.state === 'spent') continue;
+            if (!this.looseItem(it)) continue;
             const d = Phaser.Math.Distance.Between(wx, wy, it.body.position.x, it.body.position.y);
-            const r = Math.max(it.bw, it.bh) / 2 + 40;
+            const r = Math.max(Math.max(it.bw, it.bh) / 2 + 40, this.thumbR());
             if (d < r && d < bd) { best = it; bd = d; }
         }
         return best;
     }
 
-    handleTap(wx, wy) {
-        const a = this.ansel;
-        if (this.hovering) { this.drop(); return; }
+    // The instant reaction to a tap on a pumpkin, before Ansel gets there: it hops.
+    nudge(it) {
+        if (!it.body || it.body.isStatic) return;
+        MSleep().set(it.body, false);
+        MB().setVelocity(it.body, { x: it.body.velocity.x, y: -5 });
+        Sfx.boop(it.bw / 4);
+    }
 
-        // the bunny can be tapped any time
-        const h = this.hop;
-        if (h.active && Math.abs(wx - h.x) < 75 && wy > h.y - 120 && wy < h.y + 20) { this.tapHoppah(); return; }
-        if (this.eggTap(wx, wy)) return; // surprises
-        if (this.tapScenery(wx, wy)) return;
-        // a tap on the BOOM sign means BOOM, even with a loose pumpkin lying in front of it
-        if (!a.carrying && !a.busy && this.hitSign(wx, wy)) { this.knockDown(); return; }
+    // ...and a plant in the vines wiggles (a bare spot just boops).
+    wiggleSpot(sp) {
+        const img = sp.img;
+        if (img) {
+            this.tweens.add({ targets: img, angle: { from: -6, to: 6 }, duration: 70, yoyo: true,
+                onComplete: () => { img.angle = 0; } });
+        }
+        Sfx.boop(40);
+    }
 
-        let it = this.pumpkinAt(wx, wy);
-        // a pumpkin growing in the vines may be closer to the finger than one on the path
-        const sp = this.spotAt(wx, wy);
-        const itD = it ? Phaser.Math.Distance.Between(wx, wy, it.body.position.x, it.body.position.y) : 1e9;
-        if (sp && sp.d < itD) {
-            it = null;
-            this.tweens.add({ targets: sp.spot.img, angle: { from: -6, to: 6 }, duration: 70, yoyo: true,
-                onComplete: () => { if (sp.spot.img) sp.spot.img.angle = 0; } });
-            Sfx.boop(40);
-            if (a.busy || this.hovering) { this.pending = { wx, wy }; return; }
-            if (a.carrying) { this.placeOnTower(); return; }
-            this.harvest(sp.spot);
-            return;
-        }
-        // instant reaction even before Ansel gets there
-        if (it && it.body && !it.body.isStatic) {
-            MSleep().set(it.body, false);
-            MB().setVelocity(it.body, { x: it.body.velocity.x, y: -5 });
-            Sfx.boop(it.bw / 4);
-        }
-        if (a.busy || this.hovering) { this.pending = { wx, wy }; return; }
-        if (a.carrying) { this.placeOnTower(); return; }
-        if (it) { this.pickUp(it); return; }
+    // A vine spot's tap target: the plant (a sprout, or a pumpkin of any size) or the bare soil
+    // where the next one comes up. Sprouts are tiny, so it's never smaller than r (and a thumb).
+    // harvest(sp) decides: a pumpkin is picked, a sprout or bare soil is watered.
+    spotCentre(sp) {
+        const lane = LANES[sp.lane];
+        if (!sp.img) return { x: sp.x, y: lane.y - 16, r: 70 };
+        return { x: sp.x, y: sp.img.y - sp.img.displayHeight / 2, r: Math.max(70, sp.img.displayWidth / 2 + 35) };
+    }
 
-        for (const pile of this.piles) {
-            if (Math.abs(wx - pile.x) < pile.img.displayWidth / 2 + 20 && wy > GROUND - 110 && wy < GROUND + 60) {
-                this.dive(pile); return;
-            }
-        }
-        // the hay bale or its BOOM sign: Ansel runs over and shoves the tower down
-        if (this.hitBale(wx, wy)) { this.knockDown(); return; }
-        // tapping Ansel: "MORE!" when the patch is empty, otherwise a happy jump
-        if (Math.abs(wx - a.x) < 70 && wy > GROUND - HEAD_TOP - 20 && wy < GROUND + 10) {
-            if (!this.anyLoose()) this.more(); else this.anselJump();
-            return;
-        }
-        if (!this.anyLoose()) { this.more(); return; }
-        // the tree line shakes leaves loose
-        if (wy > 1560 && wy < 1800) { this.shakeTree(wx); return; }
-        this.walkTo(wx, null);
+    // The scenery above the fence: the surprises, then the giraffe and the silo, then the trees.
+    tapScene(wx, wy) {
+        if (this.eggTap(wx, wy)) return true; // surprises
+        if (this.tapScenery(wx, wy)) return true;
+        if (wy > 1560 && wy < 1800) { this.shakeTree(wx); return true; }
+        return false;
+    }
+
+    // The tower and the air just above it, and the pumpkin falling onto it (world px).
+    towerRect() {
+        const st = this.stack, top = st.top();
+        let half = HAY_W / 2, y0 = top.y - 40;
+        for (const it of st.items) half = Math.max(half, Math.abs(it.img.x - st.x) + it.bw / 2);
+        const f = this.dropping && this.dropping.it;
+        if (f) { half = Math.max(half, Math.abs(f.img.x - st.x) + f.bw / 2); y0 = Math.min(y0, f.img.y - f.bh); }
+        half = Math.max(half + 12, this.thumbR());
+        return { x: st.x - half, y: y0, w: 2 * half, h: HAY_TOP + 12 - y0 };
+    }
+
+    // The hay bale below its top edge (the top edge goes with the tower).
+    baleRect() {
+        return { x: HAY_X - HAY_W / 2 - 12, y: HAY_TOP + 12, w: HAY_W + 24, h: GROUND - HAY_TOP - 12 };
+    }
+
+    // The BOOM plank as drawn (it hangs from the bale's foot and grows when the camera pulls
+    // back); thumb: grown to at least a thumb's size each way.
+    signRect(thumb) {
+        const k = this.baleSignInner.scaleX, w = this.signSize.w * k, h = this.signSize.h * k;
+        const r = { x: this.baleSign.x - w / 2, y: this.baleSign.y, w, h };
+        if (!thumb) return r;
+        const T = 2 * this.thumbR(), px = Math.max(12, (T - w) / 2), py = Math.max(12, (T - h) / 2);
+        return { x: r.x - px, y: r.y - py, w: w + 2 * px, h: h + 2 * py };
     }
 
     anselJump() {
@@ -1616,14 +1852,14 @@ class PatchScene extends Phaser.Scene {
         }
     }
 
+    // The nearest vine spot within a thumb of (wx, wy): a plant at any stage, or bare soil.
     spotAt(wx, wy) {
         let best = null, bd = 1e9;
         for (const sp of this.spots) {
-            if (!sp.img || sp.stage < 1 || sp.busy) continue;
-            const cy = sp.img.y - sp.img.displayHeight / 2;
-            const d = Phaser.Math.Distance.Between(wx, wy, sp.x, cy);
-            const r = Math.max(70, sp.img.displayWidth / 2 + 35); // generous for little fingers
-            if (d < r && d < bd) { best = sp; bd = d; }
+            if (sp.busy) continue;
+            const c = this.spotCentre(sp);
+            const d = Phaser.Math.Distance.Between(wx, wy, c.x, c.y);
+            if (d < Math.max(c.r, this.thumbR()) && d < bd) { best = sp; bd = d; }
         }
         return best ? { spot: best, d: bd } : null;
     }
@@ -1875,10 +2111,10 @@ class PatchScene extends Phaser.Scene {
         const isDown = code === 'ArrowDown' || code === 'KeyS';
         if (!isUp && !isDown) return;
         if (this.hovering) { this.drop(); return; }
-        if (a.busy) return;
+        // the walk back with a pumpkin can't be interrupted (he takes it to the tower himself)
+        if (a.busy || a.carrying) return;
         if (isUp) {
-            if (a.carrying) this.placeOnTower();
-            else if (!this.anyLoose()) this.more();
+            if (!this.anyLoose()) this.more();
             return;
         }
         // DOWN: pick up a pumpkin close by on the path, else harvest (or water) the nearest one
@@ -1893,8 +2129,8 @@ class PatchScene extends Phaser.Scene {
         if (best) { this.pickUp(best); return; }
         let spot = null, sd = 230;
         for (const sp of this.spots) {
-            if (!sp.img || sp.stage < 1 || sp.busy) continue;
-            const d = Math.abs(sp.x - a.x) - (sp.stage >= 3 ? 40 : 0); // a ripe one wins a near tie
+            if (sp.busy) continue; // a pumpkin to pick, or a sprout or bare spot to water
+            const d = Math.abs(sp.x - a.x) - (sp.stage >= 2 && sp.img ? 40 : 0); // a pumpkin wins a near tie
             if (d < sd) { spot = sp; sd = d; }
         }
         if (spot) { this.harvest(spot); return; }
@@ -1932,9 +2168,9 @@ class PatchScene extends Phaser.Scene {
         const dt = Math.min(delta, 50) / 1000;
         const a = this.ansel;
 
-        // Manual walking (keyboard)
+        // Manual walking (keyboard); never on the walk back with a pumpkin
         let manual = 0;
-        if (this.started && !a.busy && !this.hovering) {
+        if (this.started && !a.busy && !this.hovering && !a.carrying) {
             if (this.keys.LEFT.isDown || this.keys.A.isDown) manual = -1;
             if (this.keys.RIGHT.isDown || this.keys.D.isDown) manual = 1;
         }
@@ -2089,12 +2325,8 @@ class PatchScene extends Phaser.Scene {
             if (this.bubbleTimer <= 0) this.bubble.setVisible(false);
         }
 
-        // A tap made while Ansel was busy runs as soon as he's free
-        if (this.pending && !a.busy && !a.goal && !this.hovering) {
-            const p = this.pending;
-            this.pending = null;
-            this.handleTap(p.wx, p.wy);
-        }
+        // A tap made while Ansel was busy runs as soon as he's free (or is forgotten)
+        this.updateTaps(dt);
 
         if (this.started) this.idleT += dt;
         this.updateHint(time);
@@ -2422,17 +2654,14 @@ class PatchScene extends Phaser.Scene {
         }
     }
 
-    // Tapping the bale or its sign: Ansel runs over and shoves it (BOOM).
+    // Is (wx, wy) on the bale, or on (or a thumb from) its BOOM sign? The tap zones (tapZones)
+    // use baleRect() and signRect() directly; these say the same for anything else that asks.
     hitBale(wx, wy) {
-        return this.baleSignOn && Math.abs(wx - HAY_X) < HAY_W / 2 + 30 && wy > HAY_TOP - 20 && wy < GROUND + 20;
+        return this.baleSignOn && this.zoneDepth(this.baleRect(), wx, wy) < 1;
     }
 
-    // The sign itself (it can be larger than the bale when the camera has pulled back).
     hitSign(wx, wy) {
-        if (!this.baleSignOn) return false;
-        const k = this.baleSignInner.scaleX, s = this.signSize;
-        return Math.abs(wx - this.baleSign.x) < (s.w * k) / 2 + 12 &&
-            wy > this.baleSign.y - 12 && wy < this.baleSign.y + s.h * k + 12;
+        return this.baleSignOn && this.zoneDepth(this.signRect(true), wx, wy) < 1;
     }
 
     // Hold B to BOOM. A single press, a stray key or key auto-repeat never sets it off: B has
@@ -3054,6 +3283,7 @@ class UIScene extends Phaser.Scene {
             else if (this.paused && (e.code === 'Space' || e.code === 'Enter')) this.setPaused(false);
         });
         this.game.events.on(Phaser.Core.Events.HIDDEN, () => this.setPaused(true));
+        if (ZONES_DEBUG) this.zonesUiCreate(); // ?zones=1: the HUD's tap areas and the input state
         this.ready = true;
     }
 
@@ -3121,13 +3351,33 @@ class UIScene extends Phaser.Scene {
         this.patch.begin();
     }
 
+    // UI first: does this tap belong to the UI? Then the patch ignores it. The title, the
+    // how-to-play card, the pause menu and the end card take every tap; during play the sound and
+    // pause buttons and the sticker badge and tray take theirs, and everything else is the world's.
+    uiOwns(p) {
+        const H = this.htp;
+        if (!this.patch.started || this.paused || this.endShown || (H && (H.open || H.leaving))) return true;
+        return this.hitButton(p) || this.hitPause(p) || this.eggUiHit(p);
+    }
+
+    // The sound and pause buttons' tap areas (screen px), a little bigger than the buttons and
+    // each at least a thumb (THUMB_CSS) across, however small the phone.
+    soundRect() {
+        const T = THUMB_CSS * this.patch.cssPx(), w = Math.max(120, T);
+        return { x: this.scale.width - w, y: 0, w, h: Math.max(115, T) };
+    }
+    pauseRect() {
+        const s = this.soundRect(), w = Math.max(104, THUMB_CSS * this.patch.cssPx());
+        return { x: s.x - w, y: 0, w, h: s.h };
+    }
+    inRect(p, r) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; }
+
     hitButton(p) {
-        return p.x > this.scale.width - 120 && p.y < 115;
+        return this.inRect(p, this.soundRect());
     }
 
     hitPause(p) {
-        const w = this.scale.width;
-        return this.pauseBtn.visible && p.x > w - 224 && p.x <= w - 120 && p.y < 115;
+        return this.pauseBtn.visible && this.inRect(p, this.pauseRect());
     }
 
     // Chunky pixel icons drawn from tiny grids: o = ink outline, # = cream, 4 screen px per art pixel.
@@ -3449,6 +3699,109 @@ class UIScene extends Phaser.Scene {
         this.patch.resetRound();
     }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAP ZONES OVERLAY (?zones=1): every zone PatchScene.tapZones() would test for the current
+// state, drawn over the world in its action's colour (the winners on top), plus the HUD's tap
+// areas and a line naming the state. It draws exactly what the input code tests.
+// ═════════════════════════════════════════════════════════════════════════════
+const ZONE_COLORS = {
+    drop: 0x4fc3f7, none: 0x9e9e9e, wait: 0x9e9e9e, boom: 0xff4f4f, pick: 0xffd54f, water: 0x66d96a,
+    dive: 0xff9800, hoppah: 0xf48fb1, tower: 0xb39ddb, ansel: 0x80deea, scenery: 0xce93d8, walk: 0xffffff,
+};
+const ZONE_WORDS = {
+    drop: 'DROP', none: 'NOTHING', wait: 'NOTHING', boom: 'BOOM', pick: 'PICK', water: 'WATER', dive: 'DIVE',
+    hoppah: 'HOPPAH', tower: 'NOTHING', ansel: 'JUMP', scenery: 'SURPRISES', walk: 'WALK',
+};
+const zoneCss = c => '#' + c.toString(16).padStart(6, '0');
+
+const PatchZones = {
+    zonesCreate() {
+        this.zoneG = this.add.graphics().setDepth(200);
+        this.zoneLabels = [];
+        this.events.on('postupdate', () => this.drawZones()); // after the camera has moved
+    },
+
+    drawZones() {
+        const cam = this.cameras.main, v = cam.worldView, k = 1 / cam.zoom;
+        const state = this.inputState(), zones = this.tapZones(state);
+        const g = this.zoneG.clear();
+        let li = 0;
+        const label = (text, x, y, color) => {
+            let t = this.zoneLabels[li++];
+            if (!t) {
+                t = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', color: '#ffffff', stroke: INK,
+                    strokeThickness: 4, align: 'center' }).setOrigin(0.5).setDepth(201);
+                this.zoneLabels.push(t);
+            }
+            t.setText(text).setColor(color).setScale(k).setPosition(x, y).setVisible(true);
+        };
+        // lowest priority first, so the zones that win a tap are drawn on top
+        for (const z of [...zones].sort((p, q) => q.prio - p.prio)) {
+            const c = ZONE_COLORS[z.id] || 0xffffff, s = z.shape, word = ZONE_WORDS[z.id] || z.id.toUpperCase();
+            if (s.all) {
+                // the whole screen: washed in its colour and named in the middle (walking, the
+                // fallback when idle, is only named in the bottom line)
+                if (z.id === 'walk') continue;
+                g.fillStyle(c, 0.2).fillRect(v.x, v.y, v.width, v.height);
+                label('ANYWHERE: ' + word, v.centerX, v.y + v.height * 0.4, zoneCss(c));
+                this.zoneLabels[li - 1].setScale(2 * k);
+                continue;
+            }
+            g.lineStyle(3 * k, c, 0.95).fillStyle(c, 0.24);
+            let lx, ly;
+            if (s.r !== undefined) {
+                if (s.col) {
+                    // a circle that runs straight down into the dirt
+                    g.beginPath().arc(s.cx, s.cy, s.r, Math.PI, 2 * Math.PI)
+                        .lineTo(s.cx + s.r, WORLD_FLOOR).lineTo(s.cx - s.r, WORLD_FLOOR).closePath().fillPath().strokePath();
+                } else {
+                    g.fillCircle(s.cx, s.cy, s.r).strokeCircle(s.cx, s.cy, s.r);
+                }
+                lx = s.cx; ly = s.cy;
+            } else {
+                const h = s.col ? WORLD_FLOOR - s.y : s.h;
+                g.fillRect(s.x, s.y, s.w, h).strokeRect(s.x, s.y, s.w, h);
+                // label the part of it that's on screen
+                const x0 = Math.max(s.x, v.x), x1 = Math.min(s.x + s.w, v.right);
+                const y0 = Math.max(s.y, v.y), y1 = Math.min(s.y + Math.min(h, s.col ? s.h : h), v.bottom);
+                lx = (x0 + x1) / 2; ly = (y0 + y1) / 2;
+            }
+            label(word, lx, ly, zoneCss(c));
+        }
+        for (; li < this.zoneLabels.length; li++) this.zoneLabels[li].setVisible(false);
+        const rest = zones.find(z => z.shape.all);
+        this.zoneLine = state.toUpperCase() + (rest ? (rest.prio === 0 ? ': ANYWHERE ' : ': ELSEWHERE ') +
+            (ZONE_WORDS[rest.id] || rest.id) : '');
+    },
+};
+
+const UIZones = {
+    zonesUiCreate() {
+        const g = this.add.graphics().setDepth(300);
+        const line = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '16px', color: '#ffffff', stroke: INK,
+            strokeThickness: 6 }).setOrigin(0, 1).setDepth(301);
+        const c = 0x00e5ff;
+        this.events.on('update', () => {
+            const P = this.patch, h = this.scale.height;
+            g.clear().lineStyle(3, c, 1).fillStyle(c, 0.22);
+            const box = (r, word) => {
+                if (!r) return;
+                g.fillRect(r.x, r.y, r.w, r.h).strokeRect(r.x, r.y, r.w, r.h);
+            };
+            box(this.soundRect());
+            if (this.pauseBtn.visible) box(this.pauseRect());
+            if (this.eggUi && this.eggUi.badge.visible) box(this.eggBadgeRect());
+            if (this.eggTrayRect) box(this.eggTrayRect());
+            const state = P.started ? (P.zoneLine || P.inputState().toUpperCase()) : 'TITLE';
+            line.setText('TAP ZONES · ' + state).setPosition(12, h - 12).setWordWrapWidth(this.scale.width - 24);
+        });
+    },
+};
+
+Object.assign(PatchScene.prototype, PatchZones);
+Object.assign(UIScene.prototype, UIZones);
+// ═══════════════════════════════════════════════════════════ end TAP ZONES ══
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Logical game size that matches the screen's shape: 720 on the short side.
@@ -3874,8 +4227,9 @@ const PatchEggs = {
     },
 
     // ── Tapping ─────────────────────────────────────────────────────────────
-    // Called from handleTap() after the hovering drop and the bunny, so gameplay keeps
-    // priority. Returns true if a surprise took the tap.
+    // Called from the tap zones (tapScene) only after pumpkins, vine spots, leaf piles, Hoppah,
+    // the tower, the bale and Ansel, so gameplay keeps priority. Returns true if a surprise took
+    // the tap.
     eggTap(wx, wy) {
         if (!this.eggJ || wy > EGG_FLOOR) return false;
         if (this.pumpkinAt(wx, wy)) return false;                 // pumpkins first, even mid-air
@@ -4859,8 +5213,22 @@ const UIEggs = {
         E.badge.setPosition(w - 20, EGG_BADGE_Y);
     },
 
+    // The badge's tap area (screen px): from the sound button's down, at least a thumb tall.
+    eggBadgeRect() {
+        const h = Math.max(64, THUMB_CSS * this.patch.cssPx()), y = Math.max(EGG_BADGE_Y - 5, this.soundRect().h);
+        return { x: this.scale.width - 168, y, w: 168, h };
+    },
+
     eggOnBadge(p) {
-        return p.x > this.scale.width - 160 && p.y >= EGG_BADGE_Y - 4 && p.y < EGG_BADGE_Y + 60;
+        const r = this.eggBadgeRect();
+        return p.x >= r.x && p.y >= r.y && p.y < r.y + r.h;
+    },
+
+    // The open tray's tap area (screen px), or null.
+    eggTrayRect() {
+        const E = this.eggUi;
+        if (!E || !E.shown) return null;
+        return { x: E.tray.x - E.tw / 2, y: E.tray.y, w: E.tw, h: E.trayH };
     },
 
     // Index of the sticker under the pointer (tray showing), or -1.
@@ -4872,11 +5240,13 @@ const UIEggs = {
     },
 
     // Does this tap belong to the badge or the open tray? (The patch ignores those taps.)
+    // (Not while paused or the how-to-play card is up: those take every tap.)
     eggUiHit(p) {
         const E = this.eggUi, P = this.patch;
-        if (!E || !P.started || P.roundOver) return false;
+        if (!E || !P.started || P.roundOver || this.paused || (this.htp && this.htp.open)) return false;
         if (this.eggOnBadge(p)) return true;
-        return E.shown && Math.abs(p.x - E.tray.x) < E.tw / 2 && p.y > E.tray.y && p.y < E.tray.y + E.trayH;
+        const r = this.eggTrayRect();
+        return !!r && p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
     },
 
     eggUiTap(p) {
@@ -5104,8 +5474,9 @@ const UIHtp = {
     htpHit(btn, p) {
         if (!btn || !btn.visible) return false;
         for (let o = btn; o; o = o.parentContainer) if (!o.visible) return false;
-        const m = btn.getWorldTransformMatrix();
-        return Math.abs(p.x - m.tx) < btn.bw / 2 && Math.abs(p.y - m.ty) < btn.bh / 2;
+        // at least a thumb (THUMB_CSS) each way, however small the screen draws the button
+        const m = btn.getWorldTransformMatrix(), T = THUMB_CSS * this.patch.cssPx();
+        return Math.abs(p.x - m.tx) < Math.max(btn.bw, T) / 2 && Math.abs(p.y - m.ty) < Math.max(btn.bh, T) / 2;
     },
 
     // ── title extras ─────────────────────────────────────────────────────────

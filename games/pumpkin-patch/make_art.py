@@ -367,6 +367,175 @@ def wood_panel():
 
 
 # ─────────────────────────────────────────────────────────── background ──
+SILO_X0, SILO_X1, SILO_TOP = 170, 197, 398   # art px; the pumpkin sits on SILO_TOP
+
+MINI_FONT = {
+    "A": [".#.", "#.#", "###", "#.#", "#.#"],
+    "N": ["#..#", "##.#", "#.##", "#..#", "#..#"],
+    "S": ["###", "#..", "###", "..#", "###"],
+    "E": ["###", "#..", "##.", "#..", "###"],
+    "L": ["#..", "#..", "#..", "#..", "###"],
+    "'": ["#", "#", ".", ".", "."],
+}
+
+
+def draw_text(px, text, x, y, col):
+    """Tiny 5-px-tall pixel font for signs."""
+    for ch in text:
+        g = MINI_FONT[ch]
+        for gy, row in enumerate(g):
+            for gx, c in enumerate(row):
+                if c == "#":
+                    px[x + gx, y + gy] = col
+        x += len(g[0]) + 1
+
+
+def silo_pumpkin(wink=False):
+    """Big grinning jack-o'-lantern for the top of the silo (2 frames: smile, wink)."""
+    img = pumpkin(40, 27, "orange", 8, seed=77, curl=True)
+    p = img.load()
+    W, H = img.size
+    cx, cy = W // 2, 6 + 2 + 27 // 2       # body centre (pumpkin(): top pad 6, outline pad)
+    dark, deep, glint = hx("#3a1a0c"), hx("#24100a"), hx("#fff3c4")
+    def put(x, y, c):
+        if 0 <= x < W and 0 <= y < H and p[x, y][3]:
+            p[x, y] = c
+    # eyes: tall ovals with a glint (the left one winks)
+    for ex in (cx - 8, cx + 7):
+        if wink and ex < cx:
+            for dx in range(-2, 3):
+                put(ex + dx, cy - 3 + (1 if abs(dx) == 2 else 0), deep)
+            continue
+        for dy in range(-3, 3):
+            for dx in range(-2, 2):
+                if (dx + 0.5) ** 2 / 4 + (dy + 0.5) ** 2 / 9 <= 1:
+                    put(ex + dx, cy - 2 + dy, dark)
+        put(ex - 1, cy - 4, glint)
+    # nose
+    for dy in range(3):
+        for dx in range(-dy, dy + 1):
+            put(cx + dx, cy + 1 + dy, dark)
+    # wide smile with two front teeth
+    for dx in range(-11, 12):
+        y = cy + 6 + round((dx / 11) ** 2 * -3)
+        put(cx + dx, y, deep)
+        if abs(dx) < 10:
+            put(cx + dx, y + 1, dark)
+    for tx in (cx - 2, cx + 1):
+        put(tx, cy + 6, hx("#f6efe0"))
+        put(tx + 1, cy + 6, hx("#f6efe0"))
+        put(tx, cy + 7, hx("#e2d6bd"))
+        put(tx + 1, cy + 7, hx("#e2d6bd"))
+    return img
+
+
+def giraffe_frame(phase):
+    """One frame of a pixel giraffe walking right (pacing gait: same-side legs together)."""
+    rnd = random.Random(31)
+    Wd, Hd = 56, 88
+    img = Image.new("RGBA", (Wd, Hd), (0, 0, 0, 0))
+    p = img.load()
+    base, line, patch, patch_d, belly = hx("#f2c662"), hx("#f6dc98"), hx("#b9692a"), hx("#94511d"), hx("#f4dfaa")
+    leg_lo, hoof = hx("#efdcaa"), hx("#4a2c18")
+    foot_y = Hd - 4
+    bob = round(math.sin(phase * 2) * 0.6)
+    # seeds for the patch pattern
+    # big blocky patches on a jittered grid, separated by thin light lines
+    seeds = []
+    for gy in range(0, Hd + 6, 6):
+        for gx in range(-3, Wd + 6, 6):
+            seeds.append((gx + (3 if (gy // 6) % 2 else 0) + rnd.uniform(-1.4, 1.4), gy + rnd.uniform(-1.4, 1.4)))
+    def patchy(x, y):
+        ds = sorted((x - sx) ** 2 + (y - sy) ** 2 for sx, sy in seeds)
+        return math.sqrt(ds[1]) - math.sqrt(ds[0]) > 1.0
+    mask = {}
+    def disc(cx, cy, r, kind):
+        for y in range(int(cy - r - 1), int(cy + r + 2)):
+            for x in range(int(cx - r - 1), int(cx + r + 2)):
+                if (x - cx) ** 2 + (y - cy) ** 2 <= r * r and 0 <= x < Wd and 0 <= y < Hd:
+                    mask[(x, y)] = kind
+    # legs (far pair first, darker), pacing: near legs phase, far legs phase + pi
+    hip_y = 60 + bob
+    for far, ph in ((True, phase + math.pi), (False, phase)):
+        for hx_ in (13, 30):
+            hipx = hx_ + (2 if far else 0)
+            swing = math.sin(ph) * 4.5
+            lift = max(0.0, math.cos(ph)) * 2.2  # the swinging foot comes off the ground
+            footx = hipx + swing
+            kneex = hipx + swing * 0.55 + (1 if hx_ > 20 else -1)
+            for t in range(0, 101):
+                tt = t / 100
+                if tt < 0.45:
+                    x = hipx + (kneex - hipx) * tt / 0.45; y = hip_y + (72 - lift - hip_y) * tt / 0.45
+                else:
+                    k = (tt - 0.45) / 0.55
+                    x = kneex + (footx - kneex) * k; y = 72 - lift + (foot_y - lift - 72 + lift) * k
+                for w in range(2):
+                    xx, yy = int(round(x)) + w, int(round(y))
+                    if 0 <= xx < Wd and 0 <= yy < Hd:
+                        mask[(xx, yy)] = "farleg" if far else "leg"
+            for w in range(2):
+                fx = int(round(footx)) + w
+                mask[(fx, int(round(foot_y - lift)))] = "hoof"
+                mask[(fx, int(round(foot_y - lift)) - 1)] = "hoof"
+    # body: sloping back, higher at the shoulders
+    for x in range(8, 36):
+        top = 50 - (x - 8) * 0.18 + bob
+        for y in range(int(top), int(62 + bob)):
+            mask[(x, y)] = "belly" if y > 59 + bob else "body"
+    disc(10, 56 + bob, 5, "body")
+    disc(33, 53 + bob, 6, "body")
+    # tail
+    for k in range(10):
+        mask[(7 - k // 4, 54 + k + bob)] = "tail"
+    mask[(4, 64 + bob)] = mask[(5, 64 + bob)] = mask[(4, 65 + bob)] = "tuft"
+    # neck up and forward, head bobbing a little with the stride
+    hb = round(math.sin(phase) * 1)
+    for i in range(0, 41):
+        t = i / 40
+        cx = 33 + 12 * t
+        cy = 52 + bob - 42 * t + hb * t
+        disc(cx, cy, 3.4 - 1.2 * t, "neck")
+    hx0, hy0 = 47, 11 + bob + hb
+    for y in range(hy0 - 3, hy0 + 3):
+        for x in range(hx0 - 3, hx0 + 7):
+            if ((x - hx0 - 1.5) / 5.2) ** 2 + ((y - hy0) / 3) ** 2 <= 1:
+                mask[(x, y)] = "head"
+    for ox in (hx0 - 1, hx0 + 1):          # ossicones
+        mask[(ox, hy0 - 4)] = "neck"; mask[(ox, hy0 - 5)] = "neck"; mask[(ox, hy0 - 6)] = "tuft"
+    mask[(hx0 - 4, hy0 - 2)] = "head"; mask[(hx0 - 5, hy0 - 2)] = "head"  # ear
+    # paint
+    for (x, y), kind in mask.items():
+        if kind in ("body", "neck"):
+            c = patch if patchy(x, y) else line
+            if c == patch and (y > 56 + bob or x > 34):
+                c = patch_d
+        elif kind == "belly":
+            c = belly
+        elif kind == "head":
+            c = base
+        elif kind == "leg":
+            c = (patch if patchy(x, y) else line) if y < 68 + bob else leg_lo
+        elif kind == "farleg":
+            c = mix((patch if patchy(x, y) else line) if y < 68 + bob else leg_lo, INK + (255,), 0.25)
+        elif kind == "hoof":
+            c = hoof
+        elif kind == "tail":
+            c = patch_d
+        else:
+            c = hx("#5a3418")
+        p[x, y] = c
+    # mane along the back of the neck, eye, nostril
+    for i in range(0, 34):
+        t = i / 40
+        x = int(round(33 + 12 * t - (3.4 - 1.2 * t))); y = int(round(52 + bob - 42 * t + hb * t))
+        if 0 <= x < Wd and (x, y) in mask:
+            p[x, y] = hx("#8a4a1c")
+    p[hx0 + 1, hy0 - 1] = INK + (255,)
+    p[hx0 + 6, hy0 + 1] = hx("#8a5a2c")
+    return outline(img, 0.65)
+
+
 def background(W=480, H=540, seed=5):
     rnd = random.Random(seed)
     img = Image.new("RGBA", (W, H), hx("#000000"))
@@ -512,6 +681,31 @@ def background(W=480, H=540, seed=5):
     img.alpha_composite(layer)
     p = img.load()
 
+    # silo beside the barn (its jack-o'-lantern top is a separate sprite so it can wink)
+    silo = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    sp_ = silo.load()
+    sx0, sx1, sy0, sy1 = SILO_X0, SILO_X1, SILO_TOP, 458
+    conc = [hx("#7a7360"), hx("#958d78"), hx("#b3ab95"), hx("#cdc6b1"), hx("#ddd7c4")]
+    for y in range(sy0, sy1):
+        for x in range(sx0, sx1 + 1):
+            u = (x - sx0) / (sx1 - sx0)          # 0 = left edge, 1 = right edge
+            shade = 0.25 + 0.75 * math.sin(math.pi * min(1, u * 1.15))  # lit from the left
+            t = 4 if shade > 0.93 else 3 if shade > 0.72 else 2 if shade > 0.45 else 1
+            if (y - sy0) % 6 == 5:
+                t = max(0, t - 1)                  # concrete stave rings
+            if t >= 2 and bayer(x, y) < 0.06:
+                t -= 1
+            sp_[x, y] = conc[t]
+    # sign band with ANSEL'S on it
+    band_y = sy0 + 3
+    for y in range(band_y, band_y + 7):
+        for x in range(sx0, sx1 + 1):
+            sp_[x, y] = hx("#f3eee2") if y not in (band_y, band_y + 6) else hx("#c9c1ad")
+    draw_text(sp_, "ANSEL'S", sx0 + 1, band_y + 1, INK + (255,))
+    silo = outline(silo, 0.6)
+    img.alpha_composite(silo)
+    p = img.load()
+
     # barn
     barn = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     bp = barn.load()
@@ -604,6 +798,8 @@ def background(W=480, H=540, seed=5):
     img.alpha_composite(fence)
     p = img.load()
 
+    front_fence = fence
+
     # foreground patch: soil rows with vines, then the trodden play path
     for y in range(470, H):
         for x in range(W):
@@ -654,7 +850,10 @@ def background(W=480, H=540, seed=5):
         c = LEAF_COLS[rnd.choice(["red", "orange", "yellow", "brown"])]
         p[x, y] = hx(c[1])
         p[x + 1, y] = hx(c[2])
-    return img
+    # front layer: the fence plus the foreground patch, drawn in front of the giraffe
+    front = front_fence.copy()
+    front.paste(img.crop((0, 470, W, H)), (0, 470))
+    return img, front
 
 
 def leaves_sheet():
@@ -818,7 +1017,16 @@ def main():
     save(bubble(), "bubble.png")
     save(bubble_tail(), "bubble_tail.png")
     save(wood_panel(), "panel.png")
-    save(background(), "background.png")
+    bg, front = background()
+    save(bg, "background.png")
+    save(front, "foreground.png")
+    save(silo_pumpkin(False), "silo_pumpkin.png")
+    save(silo_pumpkin(True), "silo_pumpkin_wink.png")
+    frames = [giraffe_frame(i * math.pi / 2) for i in range(4)]
+    sheet = Image.new("RGBA", (frames[0].width * 4, frames[0].height), (0, 0, 0, 0))
+    for i, f in enumerate(frames):
+        sheet.alpha_composite(f, (i * f.width, 0))
+    save(sheet, "giraffe.png")
 
 
 if __name__ == "__main__":

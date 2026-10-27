@@ -36,6 +36,9 @@ const PLAY_L = 150, PLAY_R = 1770; // walls
 const HAY_X = 960;
 const HAY_W = 160, HAY_H = 88;
 const HAY_TOP = GROUND - HAY_H;
+// Scenery anchors (game px): the silo's pumpkin sits on its top, the giraffe walks behind the fence
+const SILO_X = 736, SILO_TOP_Y = 1592;
+const GIRAFFE_Y = 1852, GIRAFFE_SPEED = 34;
 
 // ── Ansel poses: scale chosen so his head is the same size in every pose ─────
 const HEAD_PX = 86;
@@ -107,7 +110,7 @@ const MILESTONES = [
     { h: 300,  text: 'OVER THE FENCE!' },
     { h: 400,  text: 'AS TALL AS GIGI!', gigi: true },
     { h: 480,  text: 'TALLER THAN THE TREES!' },
-    { h: 610,  text: 'TALLER THAN THE BARN!' },
+    { h: 620,  text: 'TALLER THAN THE SILO!' },
     { h: 900,  text: 'UP IN THE CLOUDS!' },
     { h: 1300, text: 'TOUCHING THE SKY!' },
     { h: 1750, text: 'TO THE MOON!', gigi: true },
@@ -291,6 +294,14 @@ const Sfx = {
         this._tone('triangle', 400, 300, 0.25, 0.2, now + 0.16);
     },
 
+    hum() {
+        // a gentle giraffe "mmm"
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        this._tone('sine', 150, 120, 0.4, 0.28, now);
+        this._tone('triangle', 300, 240, 0.4, 0.08, now);
+    },
+
     boing() {
         if (!this.ctx) return;
         this._tone('sine', 180, 620, 0.18, 0.3);
@@ -382,9 +393,11 @@ class PatchScene extends Phaser.Scene {
         const art = ['background', 'haybale', 'leafpile_a', 'leafpile_b',
             'bubble', 'bubble_tail', 'panel', 'icon_pumpkin', 'sound_on', 'sound_off',
             'hand', 'sparkle', 'dust', 'shadow', 'target',
+            'foreground', 'silo_pumpkin', 'silo_pumpkin_wink',
             ...Object.keys(PUMPKIN_SPECS)];
         art.forEach(k => this.load.image(k, ART + k + '.png'));
         this.load.spritesheet('leaves', ART + 'leaves.png', { frameWidth: 28, frameHeight: 28 });
+        this.load.spritesheet('giraffe', ART + 'giraffe.png', { frameWidth: 224, frameHeight: 352 });
     }
 
     create() {
@@ -410,6 +423,14 @@ class PatchScene extends Phaser.Scene {
         this.matter.world.engine.velocityIterations = 10;
 
         this.add.image(0, 0, 'background').setOrigin(0, 0).setDepth(0);
+        // ── Scenery: jack-o'-lantern silo, a giraffe strolling behind the fence ──
+        this.silo = this.add.image(SILO_X, SILO_TOP_Y + 8, 'silo_pumpkin').setOrigin(0.5, 1).setDepth(1);
+        this.silo.nextWink = 12;
+        this.raffe = {
+            img: this.add.sprite(420, GIRAFFE_Y, 'giraffe', 0).setOrigin(0.5, 1).setDepth(2),
+            x: 420, dir: 1, frame: 0, frameT: 0, mode: 'walk', t: Phaser.Math.FloatBetween(6, 12),
+        };
+        this.add.image(0, 0, 'foreground').setOrigin(0, 0).setDepth(3);
 
         const solid = { isStatic: true, friction: 1, frictionStatic: 2, restitution: 0, label: 'solid' };
         this.matter.add.rectangle(WORLD_W / 2, GROUND + 60, WORLD_W * 2, 120, solid);
@@ -869,6 +890,7 @@ class PatchScene extends Phaser.Scene {
         // the bunny can be tapped any time
         const h = this.hop;
         if (h.active && Math.abs(wx - h.x) < 75 && wy > h.y - 120 && wy < h.y + 20) { this.tapHoppah(); return; }
+        if (this.tapScenery(wx, wy)) return;
 
         const it = this.pumpkinAt(wx, wy);
         // instant reaction even before Ansel gets there
@@ -935,6 +957,64 @@ class PatchScene extends Phaser.Scene {
         if (!this.ansel.busy) this.say('HOPPAH!', 1000);
         h.scared = true;
         h.phase = 'hop'; h.t = 0; h.fromX = h.x; h.toX = h.x + h.dir * 230; h.dur = 0.55; h.height = 150;
+    }
+
+    // ── Scenery: giraffe and silo ───────────────────────────────────────────
+    tapScenery(wx, wy) {
+        const r = this.raffe;
+        if (Math.abs(wx - r.x) < 95 && wy > GIRAFFE_Y - 340 && wy < GIRAFFE_Y - 20) {
+            r.mode = 'look'; r.t = 1.6; r.frame = 0;
+            r.img.setFrame(0);
+            this.tweens.add({ targets: r.img, y: GIRAFFE_Y - 22, duration: 180, yoyo: true, ease: 'Quad.Out' });
+            this.sparkles.explode(8, r.x + r.dir * 70, GIRAFFE_Y - 300);
+            Sfx.hum();
+            if (!this.ansel.busy) this.say('GIRAFFE!', 1100);
+            return true;
+        }
+        if (Math.abs(wx - SILO_X) < 95 && wy > SILO_TOP_Y - 150 && wy < SILO_TOP_Y + 20) {
+            this.siloWink(true);
+            if (!this.ansel.busy) this.say('BIG PUMPKIN!', 1100);
+            return true;
+        }
+        return false;
+    }
+
+    siloWink(tapped) {
+        const p = this.silo;
+        p.setTexture('silo_pumpkin_wink');
+        this.time.delayedCall(tapped ? 900 : 450, () => p.setTexture('silo_pumpkin'));
+        if (tapped) {
+            Sfx.giggle();
+            this.tweens.killTweensOf(p);
+            p.angle = 0;
+            this.tweens.add({ targets: p, angle: { from: -7, to: 7 }, duration: 110, yoyo: true, repeat: 2,
+                onComplete: () => { p.angle = 0; } });
+        }
+    }
+
+    updateScenery(dt) {
+        // the silo pumpkin winks now and then on its own
+        this.silo.nextWink -= dt;
+        if (this.silo.nextWink <= 0) {
+            this.silo.nextWink = Phaser.Math.FloatBetween(10, 20);
+            this.siloWink(false);
+        }
+        // the giraffe ambles back and forth behind the fence, stopping to look around
+        const r = this.raffe;
+        r.t -= dt;
+        if (r.mode === 'walk') {
+            r.x += r.dir * GIRAFFE_SPEED * dt;
+            r.frameT += dt;
+            if (r.frameT > 0.24) { r.frameT = 0; r.frame = (r.frame + 1) % 4; r.img.setFrame(r.frame); }
+            if (r.x < 140 || r.x > WORLD_W - 140) { r.dir = r.x < 140 ? 1 : -1; }
+            if (r.t <= 0) { r.mode = 'look'; r.t = Phaser.Math.FloatBetween(2, 4); r.img.setFrame(0); }
+        } else if (r.t <= 0) {
+            r.mode = 'walk';
+            r.t = Phaser.Math.FloatBetween(7, 14);
+            if (Math.random() < 0.35) r.dir = -r.dir;
+        }
+        r.img.x = r.x;
+        r.img.setFlipX(r.dir < 0);
     }
 
     updateHoppah(dt) {
@@ -1209,6 +1289,7 @@ class PatchScene extends Phaser.Scene {
         if (this.started) this.idleT += dt;
         this.updateHint(time);
         this.updateHoppah(dt);
+        this.updateScenery(dt);
         this.updateGigi(dt);
         this.updateCamera(dt);
     }

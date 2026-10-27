@@ -348,8 +348,13 @@ const INK = '#2b1810';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sound: chiptune voice + effects synthesized with WebAudio (same voice as the
-// Uppah runner), plus the shared background music.
+// Uppah runner), plus the level's own music.
 // ─────────────────────────────────────────────────────────────────────────────
+// "Pumpkin Patch Afternoon": 120 BPM. The intro plays once, then bars 19-38
+// (36.01 s to 76.01 s, cut on bar lines where the music matches) loop with no gap;
+// the song's hard ending and the silence after it are never heard.
+const MUSIC = { url: 'audio/pumpkin_patch_afternoon.mp3', volume: 0.2, loopStart: 36.01, loopEnd: 76.01 };
+
 const Sfx = {
     ctx: null, master: null, muted: false, music: null,
 
@@ -364,12 +369,37 @@ const Sfx = {
             const d = this.noiseBuf.getChannelData(0);
             for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
         } catch (e) { this.ctx = null; }
-        try {
-            this.music = new Audio(SHARED + 'The_Perfect_Score.mp3');
-            this.music.loop = true;
-            this.music.volume = 0.22;
-            this.music.play().catch(() => {});
-        } catch (e) {}
+        this.startMusic();
+    },
+
+    // Decoded and looped in WebAudio so the loop is seamless, routed through the master
+    // volume so mute covers it. Falls back to a plain looping <audio> if that fails.
+    startMusic() {
+        const fallback = () => {
+            try {
+                this.music = new Audio(MUSIC.url);
+                this.music.loop = true;
+                this.music.volume = MUSIC.volume;
+                this.music.muted = this.muted;
+                this.music.play().catch(() => {});
+            } catch (e) {}
+        };
+        if (!this.ctx || !window.fetch) { fallback(); return; }
+        fetch(MUSIC.url).then(r => r.arrayBuffer()).then(data => {
+            this.ctx.decodeAudioData(data, buf => {
+                const src = this.ctx.createBufferSource();
+                const g = this.ctx.createGain();
+                src.buffer = buf;
+                src.loop = true;
+                src.loopStart = MUSIC.loopStart;
+                src.loopEnd = Math.min(MUSIC.loopEnd, buf.duration);
+                g.gain.value = MUSIC.volume;
+                src.connect(g);
+                g.connect(this.master);
+                src.start();
+                this.musicSrc = src;
+            }, fallback);
+        }).catch(fallback);
     },
 
     setMuted(m) {

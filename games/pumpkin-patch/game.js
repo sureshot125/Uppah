@@ -893,19 +893,19 @@ class PatchScene extends Phaser.Scene {
         // BOOM lives on the bale: a little wooden sign hangs on its front when there's a tower to
         // bank; tap the bale (or the tower) and Ansel gives it a big shove
         // (the sign hangs from its top edge so it can grow when the camera pulls back)
-        this.baleSign = this.add.container(HAY_X, HAY_TOP + 4).setDepth(21.5).setVisible(false);
+        this.baleSign = this.add.container(HAY_X, HAY_TOP + 34).setDepth(21.5).setVisible(false);
         this.baleSignInner = this.add.container(0, 0);
-        const SIGN_W = 184, SIGN_H = 84;
+        const SIGN_W = 164, SIGN_H = 76; // narrower than the bale, hung low so its top shows
         const signBoard = this.add.nineslice(0, SIGN_H / 2, 'panel', null, SIGN_W, SIGN_H, 20, 20, 20, 20);
-        this.baleSignTitle = this.add.text(0, SIGN_H / 2 - 14, 'BOOM!', {
+        this.baleSignTitle = this.add.text(0, SIGN_H / 2 - 13, 'BOOM!', {
             fontFamily: FONT, fontSize: '24px', color: '#ff9a3a', stroke: INK, strokeThickness: 7,
         }).setOrigin(0.5);
-        this.baleSignValue = this.add.text(0, SIGN_H / 2 + 16, '', {
+        this.baleSignValue = this.add.text(0, SIGN_H / 2 + 14, '', {
             fontFamily: FONT, fontSize: '20px', color: '#ffd35a', stroke: INK, strokeThickness: 6,
         }).setOrigin(0.5);
         // fills while B is held
-        this.boomFillBg = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 12, SIGN_W - 32, 8, 0x2b1810).setOrigin(0, 0.5).setVisible(false);
-        this.boomFill = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 12, SIGN_W - 32, 8, 0xff9a3a).setOrigin(0, 0.5).setVisible(false);
+        this.boomFillBg = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 9, SIGN_W - 32, 8, 0x2b1810).setOrigin(0, 0.5).setVisible(false);
+        this.boomFill = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 9, SIGN_W - 32, 8, 0xff9a3a).setOrigin(0, 0.5).setVisible(false);
         this.baleSignInner.add([signBoard, this.baleSignTitle, this.baleSignValue, this.boomFillBg, this.boomFill]);
         this.baleSign.add(this.baleSignInner);
         this.signSize = { w: SIGN_W, h: SIGN_H };
@@ -1915,12 +1915,12 @@ class PatchScene extends Phaser.Scene {
                 if (it.state === 'falling') it.state = 'ground';
                 it.fromDrop = false;
             }
-            if (it.settleT > 0.6 && it.state === 'ground' && it.body.bounds.max.y < HAY_TOP + 20 &&
+            if (it.settleT > 0.45 && it.state === 'ground' && it.body.bounds.max.y < HAY_TOP + 20 &&
                 Math.abs(it.body.position.x - HAY_X) < HAY_W / 2 + 10) {
                 const side = it.body.position.x < HAY_X ? -1 : 1;
                 MSleep().set(it.body, false);
-                MB().setVelocity(it.body, { x: side * 4.5, y: -3 });
-                MB().setAngularVelocity(it.body, side * 0.08);
+                MB().setVelocity(it.body, { x: side * 7, y: -4 });
+                MB().setAngularVelocity(it.body, side * 0.12);
                 it.settleT = 0;
             }
         }
@@ -2219,7 +2219,7 @@ class PatchScene extends Phaser.Scene {
         const v = value ? '+' + value : '';
         if (v !== this.baleSignValue.text) this.baleSignValue.setText(v);
         const H = this.signSize.h;
-        this.baleSignTitle.setY(v ? H / 2 - 14 : H / 2);
+        this.baleSignTitle.setY(v ? H / 2 - 13 : H / 2);
         // keep the words readable when the camera pulls back for a tall tower
         this.baleSignInner.setScale(Phaser.Math.Clamp(0.9 / (this.camZoom || 1), 1, 1.5));
         if (avail !== this.baleSignOn) {
@@ -3176,6 +3176,8 @@ class UIScene extends Phaser.Scene {
         E.rows.setText('SCORE   ' + info.score + '\nTALLEST ' + info.tallest + '\nBEST    ' + info.best);
         E.best.setVisible(info.newBest);
         E.go.setVisible(false);
+        this.pauseBtn.setVisible(false);
+        this.pauseIcon.setVisible(false);
         E.root.setVisible(true).setAlpha(0);
         this.tweens.add({ targets: E.root, alpha: 1, duration: 300 });
         this.endShown = true;
@@ -3203,6 +3205,8 @@ class UIScene extends Phaser.Scene {
     retry() {
         if (!this.endShown || !this.endReady) return;
         this.hideEnd();
+        this.pauseBtn.setVisible(true);
+        this.pauseIcon.setVisible(true);
         this.patch.resetRound();
     }
 }

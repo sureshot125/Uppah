@@ -121,6 +121,39 @@ NUDGE = {}
 # The frame the dizzy frame is built from.
 DIZZY_FROM = 'pick_1'
 
+# Hands painted back in. Where the sheet's pumpkin was, his hands were drawn over it and
+# went with it (WebP smears the pumpkin's orange into them), leaving arms that end in stubs.
+# Each entry is the centre of a chunky mitt, in art px of the frame's cut (the --dump view,
+# before line-up), read off the frames: at the end of each arm, on the pumpkin's side or
+# top. Everyday hands are skin; farmer hands are his brown gloves. The farmer's pick, tug
+# and heave frames kept most of their gloves, so only the frames that lost them get new ones.
+HANDS = {
+    ('everyday', 'pick_3'):  [(44, 63), (42, 75)],
+    ('everyday', 'tug_1'):   [(53, 68), (43, 74)],
+    ('everyday', 'tug_2'):   [(58, 60), (52, 63)],
+    ('everyday', 'heave'):   [(50, 38), (49, 44)],
+    ('everyday', 'heavy_1'): [(46, 43), (49, 62)],
+    ('everyday', 'heavy_2'): [(41, 44), (45, 61)],
+    ('everyday', 'carry_1'): [(28, 26), (53, 28)],
+    ('everyday', 'carry_2'): [(22, 26), (43, 28)],
+    ('everyday', 'carry_3'): [(19, 26), (41, 28)],
+    ('everyday', 'carry_4'): [(18, 26), (43, 28)],
+    ('everyday', 'carry_6'): [(21, 26), (48, 28)],
+    ('farmer', 'heavy_1'):   [(41, 45)],
+    ('farmer', 'heavy_2'):   [(43, 44)],
+    ('farmer', 'carry_1'):   [(29, 24), (56, 26)],
+    ('farmer', 'carry_2'):   [(27, 25), (52, 26)],
+    ('farmer', 'carry_3'):   [(28, 25), (55, 26)],
+    ('farmer', 'carry_6'):   [(26, 26), (52, 27)],
+}
+# A mitt, 5 x 4 art px inside its outline, centred on the spot: o outline, L/M/D light, mid and
+# shadow (lit from the top left like the rest of him), the bottom row hinting at fingers.
+MITT = ['.ooooo.', 'oLLLLMo', 'oLLLMMo', 'oMMMMDo', 'oMDMDDo', '.ooooo.']
+HAND_RAMP = {
+    'everyday': [(230, 160, 128), (228, 151, 114), (174, 124, 102)],   # his skin, from face and arms
+    'farmer': [(157, 123, 94), (124, 98, 79), (108, 85, 70)],          # his gloves
+}
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 def hsv(rgb):
@@ -361,6 +394,52 @@ def repair(fr, ink, dark):
     fr['outline'] = edge
 
 
+def paint_hands(fr, pal, ink, dark):
+    """Paint mitts at the frame's HANDS spots, and work out its front layer: the hands the
+    game draws over its own pumpkin (the mitts, and for the farmer the gloves the frame kept)."""
+    f = fr['f']
+    idx, on = fr['idx'], fr['on']
+    H, W = on.shape
+    ramp = nearest(pal, np.array(HAND_RAMP[f['outfit']], float))
+    front = np.zeros_like(on)
+    ring = np.zeros_like(on)
+    spots = HANDS.get((f['outfit'], f['name']), [])
+    for cx, cy in spots:
+        x0, y0 = cx - 3, cy - 3
+        foot = np.zeros_like(on)
+        cells = []
+        for j, row in enumerate(MITT):
+            for i, ch in enumerate(row):
+                y, x = y0 + j, x0 + i
+                if ch != '.' and 0 <= y < H and 0 <= x < W:
+                    foot[y, x] = True
+                    cells.append((y, x, ch))
+        # where the mitt meets his arm (skin or glove, not outline) there's no line: it runs on
+        arm = on & ~dark[idx] & ~foot
+        joins = ndimage.binary_dilation(arm, PLUS) & foot
+        for y, x, ch in cells:
+            if ch == 'o' and joins[y, x]:
+                idx[y, x] = ramp[1]
+            elif ch == 'o':
+                idx[y, x] = ink
+                ring[y, x] = True
+            else:
+                idx[y, x] = ramp['LMD'.index(ch)]
+            on[y, x] = True
+            front[y, x] = True
+    fr['hand_spots'] = list(spots)
+    if f['outfit'] == 'farmer':
+        # gloves the frame kept over the pumpkin go in front too, with their outline
+        kept = drop_small(fr['frontmask'] & on, 12) & ~front
+        kept |= ndimage.binary_dilation(kept, PLUS) & on & dark[idx]
+        front |= kept
+    # in the front layer each mitt is outlined all round (it sits on the pumpkin, not the arm)
+    fidx = idx.copy()
+    fidx[front & ~ring & ndimage.binary_dilation(~front, PLUS) & ~dark[idx]] = ink
+    fr['front'] = front if front.any() else None
+    fr['front_idx'] = fidx
+
+
 # ── pixel stars for the dizzy frame ──────────────────────────────────────────
 STAR = ['..o..', '.oyo.', 'oyYyo', '.oyo.', '..o..']
 
@@ -422,10 +501,22 @@ def main():
             temps = [t for t in frames if t['f']['outfit'] == f['outfit'] and t['f']['name'].startswith('walk_')]
             restore_head(fr, temps, ink)
         repair(fr, ink, cls['dark'])
+        paint_hands(fr, pal, ink, cls['dark'])
         b = fr['art']['body']
         if b.any() and f['hold'] in ('bottom', 'center'):
             ys, xs = np.nonzero(b)
             fr['pbox'] = dict(top=ys.min(), bottom=ys.max() + 1, left=xs.min(), right=xs.max() + 1)
+
+    if '--dump' in sys.argv:   # debugging: the repaired frames before anchoring
+        d = sys.argv[sys.argv.index('--dump') + 1]
+        os.makedirs(d, exist_ok=True)
+        np.save(os.path.join(d, 'palette.npy'), pal)
+        for fr in frames:
+            if fr['art']:
+                np.savez(os.path.join(d, f"{fr['f']['outfit']}_{fr['f']['name']}.npz"), idx=fr['idx'], on=fr['on'],
+                         gone=fr['gone'], body=fr['art']['body'], hull=fr['art']['hull'], front=fr['frontmask'])
+            elif fr['f']['name'] in ('walk_1', 'pick_1', 'toss'):
+                np.savez(os.path.join(d, f"{fr['f']['outfit']}_{fr['f']['name']}.npz"), idx=fr['idx'], on=fr['on'])
 
     # anchors: feet at the bottom of the biggest piece, body centre at the overalls
     for fr in frames:
@@ -440,7 +531,8 @@ def main():
     # derived: dizzy (standing frame + stars over his head)
     for outfit in ('everyday', 'farmer'):
         base = next(fr for fr in frames if fr['f']['outfit'] == outfit and fr['f']['name'] == DIZZY_FROM)
-        frames.append(dict(base, f=dict(base['f'], name='dizzy', hold=None), front=None, pbox=None, stars=True))
+        frames.append(dict(base, f=dict(base['f'], name='dizzy', hold=None), front=None, pbox=None, hand_spots=None,
+                           stars=True))
 
     # one canvas for every frame, anchor (feet, body centre) at the same spot
     ext = [0, 0, 0, 0]  # left, right, up, down (art px from the anchor)
@@ -464,10 +556,11 @@ def main():
         f = fr['f']
         ox, oy = int(round(FX - fr['ax'])), int(FY - fr['ay'])
 
-        def place(mask):
+        def place(mask, idx=None):
+            idx = fr['idx'] if idx is None else idx
             canvas = np.zeros((CH, CW, 4), np.uint8)
             ys, xs = np.nonzero(mask)
-            canvas[ys + oy, xs + ox] = pal8[fr['idx'][ys, xs]]
+            canvas[ys + oy, xs + ox] = pal8[idx[ys, xs]]
             return canvas
 
         body = place(fr['on'])
@@ -487,6 +580,15 @@ def main():
             info['hold'] = {'x': round(float(px) * SCALE, 1), 'y': round(float(py) * SCALE, 1),
                             'w': int(b['right'] - b['left']) * SCALE, 'h': int(b['bottom'] - b['top']) * SCALE,
                             'anchor': f['hold']}
+        if fr.get('front') is not None and f.get('hold') in ('bottom', 'center'):
+            # his hands over the pumpkin: the game draws this layer above its own pumpkin
+            front = place(fr['front'], fr['front_idx'])
+            save(front, os.path.join(OUT, f['outfit'], f['name'] + '_front.png'))
+            written.append((key + '_front', front))
+            info['front'] = True
+        if fr.get('hand_spots') and f.get('hold') in ('bottom', 'center'):
+            info['hands'] = [[round(float(cx + 0.5 + ox - FX) * SCALE, 1), round(float(FY - (cy + 0.5 + oy)) * SCALE, 1)]
+                             for cx, cy in fr['hand_spots']]
         meta['frames'][key] = info
     meta = json.loads(json.dumps(meta, default=int))
     with open(os.path.join(OUT, 'frames.json'), 'w') as fh:

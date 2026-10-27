@@ -3,6 +3,17 @@
  "footY": 285,
  "frames": {
   "everyday/carry_1": {
+   "front": true,
+   "hands": [
+    [
+     -31.5,
+     226.5
+    ],
+    [
+     43.5,
+     220.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 60,
@@ -10,9 +21,20 @@
     "x": 3.0,
     "y": 216.0
    },
-   "top": 234
+   "top": 237
   },
   "everyday/carry_2": {
+   "front": true,
+   "hands": [
+    [
+     -13.5,
+     226.5
+    ],
+    [
+     49.5,
+     220.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 60,
@@ -20,9 +42,20 @@
     "x": 3.0,
     "y": 216.0
    },
-   "top": 234
+   "top": 237
   },
   "everyday/carry_3": {
+   "front": true,
+   "hands": [
+    [
+     -25.5,
+     226.5
+    ],
+    [
+     40.5,
+     220.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 60,
@@ -30,9 +63,20 @@
     "x": 3.0,
     "y": 216.0
    },
-   "top": 234
+   "top": 237
   },
   "everyday/carry_4": {
+   "front": true,
+   "hands": [
+    [
+     -28.5,
+     226.5
+    ],
+    [
+     46.5,
+     220.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 63,
@@ -40,9 +84,20 @@
     "x": 3.0,
     "y": 213.0
    },
-   "top": 234
+   "top": 237
   },
   "everyday/carry_6": {
+   "front": true,
+   "hands": [
+    [
+     -34.5,
+     226.5
+    ],
+    [
+     46.5,
+     220.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 60,
@@ -50,12 +105,23 @@
     "x": 1.5,
     "y": 216.0
    },
-   "top": 234
+   "top": 237
   },
   "everyday/dizzy": {
    "top": 276
   },
   "everyday/heave": {
+   "front": true,
+   "hands": [
+    [
+     34.5,
+     148.5
+    ],
+    [
+     31.5,
+     130.5
+    ]
+   ],
    "hold": {
     "anchor": "center",
     "h": 54,
@@ -66,6 +132,17 @@
    "top": 252
   },
   "everyday/heavy_1": {
+   "front": true,
+   "hands": [
+    [
+     40.5,
+     139.5
+    ],
+    [
+     49.5,
+     82.5
+    ]
+   ],
    "hold": {
     "anchor": "center",
     "h": 63,
@@ -76,6 +153,17 @@
    "top": 249
   },
   "everyday/heavy_2": {
+   "front": true,
+   "hands": [
+    [
+     43.5,
+     139.5
+    ],
+    [
+     55.5,
+     88.5
+    ]
+   ],
    "hold": {
     "anchor": "center",
     "h": 66,
@@ -92,6 +180,17 @@
    "top": 231
   },
   "everyday/pick_3": {
+   "front": true,
+   "hands": [
+    [
+     61.5,
+     73.5
+    ],
+    [
+     55.5,
+     37.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 54,
@@ -105,6 +204,17 @@
    "top": 258
   },
   "everyday/tug_1": {
+   "front": true,
+   "hands": [
+    [
+     73.5,
+     58.5
+    ],
+    [
+     43.5,
+     40.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 54,
@@ -115,6 +225,17 @@
    "top": 228
   },
   "everyday/tug_2": {
+   "front": true,
+   "hands": [
+    [
+     70.5,
+     82.5
+    ],
+    [
+     52.5,
+     73.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 54,
@@ -143,6 +264,17 @@
    "top": 255
   },
   "farmer/carry_1": {
+   "front": true,
+   "hands": [
+    [
+     -25.5,
+     241.5
+    ],
+    [
+     55.5,
+     235.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 63,
@@ -153,6 +285,17 @@
    "top": 273
   },
   "farmer/carry_2": {
+   "front": true,
+   "hands": [
+    [
+     -31.5,
+     235.5
+    ],
+    [
+     43.5,
+     232.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 63,
@@ -163,6 +306,17 @@
    "top": 246
   },
   "farmer/carry_3": {
+   "front": true,
+   "hands": [
+    [
+     -31.5,
+     238.5
+    ],
+    [
+     49.5,
+     235.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 60,
@@ -173,6 +327,17 @@
    "top": 249
   },
   "farmer/carry_6": {
+   "front": true,
+   "hands": [
+    [
+     -34.5,
+     232.5
+    ],
+    [
+     43.5,
+     229.5
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
     "h": 63,
@@ -186,6 +351,7 @@
    "top": 276
   },
   "farmer/heave": {
+   "front": true,
    "hold": {
     "anchor": "center",
     "h": 57,
@@ -196,6 +362,13 @@
    "top": 255
   },
   "farmer/heavy_1": {
+   "front": true,
+   "hands": [
+    [
+     25.5,
+     145.5
+    ]
+   ],
    "hold": {
     "anchor": "center",
     "h": 63,
@@ -206,6 +379,13 @@
    "top": 261
   },
   "farmer/heavy_2": {
+   "front": true,
+   "hands": [
+    [
+     37.5,
+     148.5
+    ]
+   ],
    "hold": {
     "anchor": "center",
     "h": 60,
@@ -222,6 +402,7 @@
    "top": 234
   },
   "farmer/pick_3": {
+   "front": true,
    "hold": {
     "anchor": "bottom",
     "h": 51,
@@ -235,6 +416,7 @@
    "top": 258
   },
   "farmer/tug_1": {
+   "front": true,
    "hold": {
     "anchor": "bottom",
     "h": 51,
@@ -245,6 +427,7 @@
    "top": 246
   },
   "farmer/tug_2": {
+   "front": true,
    "hold": {
     "anchor": "bottom",
     "h": 54,

@@ -46,17 +46,44 @@ const HAY_TOP = GROUND - HAY_H;
 // Scenery anchors (game px): the silo's pumpkin sits on its top, the giraffe walks behind the fence
 const SILO_X = 736, SILO_TOP_Y = 1592;
 const GIRAFFE_Y = 1852, GIRAFFE_SPEED = 34;
+const GIRAFFE_LOOK = 4; // giraffe.png: 4 walk frames, then looking out at us, then its blink
 
-// ── Ansel poses: scale chosen so his head is the same size in every pose ─────
-const HEAD_PX = 86;
-const POSES = {
-    run:   { headSrc: 117, foot: 27, h: 370 },
-    up:    { headSrc: 180, foot: 5,  h: 509 },
-    down:  { headSrc: 201, foot: 0,  h: 436 },
-    dizzy: { headSrc: 136, foot: 6,  h: 444 },
+// ── Ansel: frames cut from the owner's sheets by make_ansel_frames.py ─────────
+// art/ansel/<outfit>/<frame>.png, all on one canvas with his feet at the same spot
+// (art/ansel/frames.json), 3 game px per art pixel. Everyday clothes (cap) until his first
+// trip into the vine rows, then the farmer outfit (straw hat, gloves, boots) for good.
+const ANSEL_ART = ART + 'ansel/';
+const ANSEL_FRAMES = {
+    everyday: ['walk_1', 'walk_2', 'walk_3', 'walk_4', 'walk_5', 'walk_6', 'pick_1', 'pick_2', 'pick_3',
+        'tug_1', 'tug_2', 'heave', 'toss', 'carry_1', 'carry_2', 'carry_3', 'carry_4', 'carry_6',
+        'heavy_1', 'heavy_2', 'dizzy'],
+    farmer: ['walk_1', 'walk_2', 'walk_3', 'walk_4', 'walk_5', 'walk_6', 'pick_1', 'pick_2', 'pick_3',
+        'tug_1', 'tug_2', 'heave', 'toss', 'carry_1', 'carry_2', 'carry_3', 'carry_6', 'heavy_1', 'heavy_2',
+        'dizzy', ...Array.from({ length: 12 }, (_, i) => 'water_' + (i + 1))],
 };
-const RUN_SCALE = HEAD_PX / POSES.run.headSrc;
-const HEAD_TOP = Math.round((343 - 27) * RUN_SCALE); // feet → top of hair, run frames
+// Walk cycles. The sheets are short a few carry frames (everyday carry has 5 of 6, farmer
+// 4 of 6, heavy carry 2 per outfit): those cycles run what's there with each frame held
+// longer, so a full stride takes the same time as the 6-frame walk.
+const ANSEL_CYCLES = {
+    walk:  { everyday: ['walk_1', 'walk_2', 'walk_3', 'walk_4', 'walk_5', 'walk_6'] },
+    carry: { everyday: ['carry_1', 'carry_2', 'carry_3', 'carry_4', 'carry_6'],
+             farmer: ['carry_1', 'carry_2', 'carry_3', 'carry_6'] },
+    heavy: { everyday: ['heavy_1', 'heavy_2'] },
+};
+// Single-frame poses. Where there's no art for a pose yet, the closest frame stands in
+// (noted); swap in new frames here.
+const ANSEL_POSES = {
+    stand: 'pick_1',     // idle
+    bend: 'pick_2', grab: 'pick_3', tug1: 'tug_1', tug2: 'tug_2', heave: 'heave', toss: 'toss',
+    cheer: 'toss',       // milestones, tapping Ansel, MORE!, sunset (no cheer art yet)
+    boom: 'toss',        // the tower blows: his happiest face, arms up (no celebration art yet)
+    shove: 'pick_2',     // the BOOM shove: leaning in, arms out (no bale-shove art yet)
+    dive: 'pick_3',      // into a leaf pile (no dive art yet)
+    scoop: 'pick_3',     // scooping up Hoppah (no bunny-grab art yet)
+    hug: 'heavy_1',      // cuddling Hoppah at his chest (no bunny-hug art yet)
+    dizzy: 'dizzy',      // the standing frame plus pixel stars (no dizzy art yet)
+};
+const HEAD_TOP = 255;    // feet → top of his cap, walk frames (the straw hat is a few px taller)
 const WALK_SPEED = 380, HEAVY_SPEED = 270;
 
 // Perfect-drop streak lengths that get a fanfare.
@@ -108,8 +135,6 @@ const GROW_SPOTS = [
     { lane: 1, x: 450 }, { lane: 1, x: 700 }, { lane: 1, x: 1290 }, { lane: 1, x: 1545 },
 ];
 const GROW = { sproutDelay: [4, 8], stageTime: [9, 14], goldenChance: 0.06 };
-// Where his straw hat sits for each pose (px above his feet at full size, x nudge facing right)
-const HAT_POS = { run: { top: 232, dx: 0 }, up: { top: 226, dx: -8 }, down: { top: 182, dx: -2 }, dizzy: { top: 240, dx: 2 } };
 const PILES = [
     { key: 'leafpile_b', x: 262,  hides: 'pumpkin_orange_s' },
     { key: 'leafpile_a', x: 1695, hides: 'pumpkin_orange_m' },
@@ -753,11 +778,11 @@ class PatchScene extends Phaser.Scene {
     constructor() { super('patch'); }
 
     preload() {
-        for (let i = 1; i <= 6; i++) this.load.image('ansel_' + i, `${SHARED}Ansel Running frames/frame_0${i}.png`);
+        for (const outfit in ANSEL_FRAMES) {
+            ANSEL_FRAMES[outfit].forEach(f => this.load.image(`ansel:${outfit}/${f}`, `${ANSEL_ART}${outfit}/${f}.png`));
+        }
+        this.load.json('ansel_frames', ANSEL_ART + 'frames.json');
         for (let i = 1; i <= 8; i++) this.load.image('gigi_' + i, `${SHARED}Gigi Running frames/frame_0${i}.png`);
-        this.load.image('ansel_up', SHARED + 'Ansel Up.png');
-        this.load.image('ansel_down', SHARED + 'Ansel Down.png');
-        this.load.image('ansel_dizzy', SHARED + 'Ansel damage.png');
         this.load.image('hoppah_stand', SHARED + 'hoppah_standing.png');
         this.load.image('hoppah_jump', SHARED + 'hoppah_jumping.png');
         this.eggsPreload(); // surprises
@@ -765,7 +790,7 @@ class PatchScene extends Phaser.Scene {
             'bubble', 'bubble_tail', 'panel', 'icon_pumpkin', 'sound_on', 'sound_off',
             'hand', 'sparkle', 'dust', 'shadow', 'target',
             'foreground', 'silo_pumpkin', 'silo_pumpkin_wink',
-            'sprout', 'pumpkin_unripe', 'watering_can', 'drop', 'straw_hat',
+            'sprout', 'pumpkin_unripe',
             ...Object.keys(PUMPKIN_SPECS)];
         art.forEach(k => this.load.image(k, ART + k + '.png'));
         this.load.spritesheet('leaves', ART + 'leaves.png', { frameWidth: 28, frameHeight: 28 });
@@ -845,11 +870,14 @@ class PatchScene extends Phaser.Scene {
         });
 
         // Ansel
+        // Ansel (every frame shares one canvas, so one origin: his feet)
+        const AF = this.anselData = this.cache.json.get('ansel_frames');
         this.ansel = {
             x: 700, dir: 1, frame: 0, frameT: 0, moving: false, carrying: null,
             goal: null, busy: false, pose: 'run', bob: 0, jumpY: 0,
             laneY: 0, depthScale: 1, baseScale: 1, farming: false, walkingLane: false,
-            img: this.add.image(700, GROUND, 'ansel_1').setDepth(20),
+            img: this.add.image(700, GROUND, 'ansel:everyday/pick_1').setDepth(20)
+                .setOrigin(AF.footX / AF.w, AF.footY / AF.h),
             shadow: this.add.image(700, GROUND + 4, 'shadow').setDepth(9),
         };
         this.setPose('run');
@@ -861,14 +889,6 @@ class PatchScene extends Phaser.Scene {
             shadow: this.add.image(-300, GROUND + 4, 'shadow').setScale(0.6, 0.8).setDepth(9).setVisible(false),
             active: false, next: 14, phase: 'sit', t: 0, x: -300, y: GROUND, dir: 1, scared: false,
         };
-
-        // Farming props: straw hat (stays on once he's been farming) and a watering can
-        this.hat = this.add.image(0, 0, 'straw_hat').setOrigin(0.5, 1).setDepth(20.2).setVisible(false);
-        this.can = this.add.image(0, 0, 'watering_can').setOrigin(0.2, 0.7).setDepth(20.3).setVisible(false);
-        this.drops = this.add.particles(0, 0, 'drop', {
-            lifespan: 520, speedX: { min: -20, max: 20 }, speedY: { min: 90, max: 200 }, gravityY: 500,
-            scale: { start: 1, end: 0.6 }, emitting: false,
-        }).setDepth(33);
 
         // Where the hovering pumpkin will land
         this.ghost = this.add.image(0, 0, 'target').setDepth(11).setVisible(false);
@@ -1006,15 +1026,57 @@ class PatchScene extends Phaser.Scene {
     towerTop(stack) { return (stack || this.stack).top(); }
 
     // ── Ansel ───────────────────────────────────────────────────────────────
+    // 'run' is the walk cycle (update() picks walking, carrying or heavy carrying, or standing
+    // still); any other pose is one frame (ANSEL_POSES, or a frame name such as 'water_7').
     setPose(pose) {
-        const a = this.ansel, P = POSES[pose];
+        const a = this.ansel;
         a.pose = pose;
-        const key = pose === 'run' ? 'ansel_' + (a.frame + 1) : 'ansel_' + pose;
-        a.img.setTexture(key);
-        a.baseScale = HEAD_PX / P.headSrc;
+        if (pose === 'run') {
+            const cyc = this.anselCycle();
+            a.frameName = a.moving || a.carrying ? cyc[a.frame % cyc.length] : ANSEL_POSES.stand;
+        } else {
+            a.frameName = ANSEL_POSES[pose] || pose;
+        }
+        a.img.setTexture(this.anselKey(a.frameName));
         a.img.setScale(a.baseScale * a.depthScale);
-        a.img.setOrigin(0.5, 1 - P.foot / P.h);
         a.img.setFlipX(a.dir < 0);
+    }
+
+    // Texture for one of Ansel's frames in the outfit he has on (else the other outfit's).
+    anselKey(name, outfit) {
+        outfit = outfit || (this.ansel && this.ansel.farming ? 'farmer' : 'everyday');
+        const key = `ansel:${outfit}/${name}`;
+        return this.textures.exists(key) ? key : `ansel:${outfit === 'farmer' ? 'everyday' : 'farmer'}/${name}`;
+    }
+
+    // The walk cycle for now: walking, a pumpkin on his head, or a heavy one hugged to his chest.
+    anselCycle() {
+        const a = this.ansel, it = a.carrying;
+        const c = ANSEL_CYCLES[it ? (this.heavyHold(it) ? 'heavy' : 'carry') : 'walk'];
+        return c[a.farming ? 'farmer' : 'everyday'] || c.everyday;
+    }
+
+    // The big varieties and the golden one are hugged at his chest instead of carried on his head.
+    heavyHold(it) {
+        return it.heavy || it.golden || (it.heft || HEFT[it.key] || 1) >= 1.25;
+    }
+
+    // Where a pumpkin he holds goes in a frame (frames.json records where the sheet's own pumpkin
+    // was): its centre, sat on the same bottom (ground, his head) or centred at his chest.
+    holdPos(it, frame) {
+        const a = this.ansel, ds = a.depthScale, feetY = GROUND - a.laneY;
+        const info = this.anselData.frames[this.anselKey(frame).slice(6)];
+        const h = info && info.hold;
+        if (!h) return { x: a.x, y: feetY - HEAD_TOP * ds };
+        const up = h.y + (h.anchor === 'bottom' ? (it.bh - 4) / 2 : 0);
+        return { x: a.x + a.dir * h.x * ds, y: feetY - up * ds };
+    }
+
+    // Show a held pose and move the pumpkin into his hands for it.
+    holdPose(it, pose, ms = 70) {
+        this.setPose(pose);
+        const p = this.holdPos(it, ANSEL_POSES[pose] || pose);
+        this.tweens.add({ targets: it.img, x: p.x, y: p.y, angle: 0, duration: ms, ease: 'Quad.Out' });
     }
 
     say(text, ms = 1100) {
@@ -1052,17 +1114,28 @@ class PatchScene extends Phaser.Scene {
             if (!it.body || it.state === 'tower' || a.carrying) return;
             this.face(it.body.position.x);
             a.busy = true;
-            this.setPose('down');
+            this.setPose('bend');
             Sfx.down();
             this.say('DOWN');
-            this.time.delayedCall(330, () => {
+            // bend, grab, tug, tug (heave a heavy one), and it's up: about half a second
+            const heavy = this.heavyHold(it), carryFrame = heavy ? 'heavy_1' : 'carry_1';
+            this.time.delayedCall(80, () => {
                 this.removeBody(it);
                 it.state = 'carried';
                 a.carrying = it;
+                it.img.setDepth(a.img.depth + 0.1);   // in front of him, his hands tucked behind it
+                this.holdPose(it, 'grab', 80);
+            });
+            this.time.delayedCall(160, () => this.holdPose(it, 'tug1'));
+            this.time.delayedCall(240, () => this.holdPose(it, 'tug2'));
+            if (heavy) this.time.delayedCall(320, () => this.holdPose(it, 'heave', 100));
+            this.time.delayedCall(heavy ? 440 : 320, () => {
                 Sfx.pickup();
+                this.setPose(carryFrame);
+                const p = this.holdPos(it, carryFrame);
                 this.tweens.add({
-                    targets: it.img, x: a.x, y: GROUND - HEAD_TOP - it.bh / 2 + 12, angle: 0,
-                    duration: 260, ease: 'Quad.Out',
+                    targets: it.img, x: p.x, y: p.y, angle: 0,
+                    duration: 140, ease: 'Back.Out',
                     onComplete: () => {
                         a.busy = false;
                         a.frame = 0;
@@ -1072,7 +1145,7 @@ class PatchScene extends Phaser.Scene {
                         else if (this.tower.length > 0 && Math.random() < 0.4) { Sfx.more(); this.say('MORE!'); }
                         else this.say(Phaser.Utils.Array.GetRandom(['PUNKIN!', 'PUMPKIN!', 'MINE!']));
                         // straight to the stack: tap-to-fetch, tap-to-drop (two taps per pumpkin)
-                        this.time.delayedCall(200, () => this.placeOnTower());
+                        this.time.delayedCall(100, () => this.placeOnTower());
                     },
                 });
             });
@@ -1087,7 +1160,7 @@ class PatchScene extends Phaser.Scene {
             if (!it) return;
             this.face(HAY_X);
             a.busy = true;
-            this.setPose('up');
+            this.setPose('toss');
             Sfx.uppah();
             this.say('UPPAH!');
             const top = this.towerTop();
@@ -1097,15 +1170,16 @@ class PatchScene extends Phaser.Scene {
             const hx = top.x + side * this.hoverAmp, hy = top.y - it.bh / 2 - 120;
             it.state = 'hover';
             a.carrying = null;
-            this.tweens.add({ targets: it.img, x: hx, duration: 520, ease: 'Sine.InOut' });
+            this.tweens.add({ targets: it.img, x: hx, duration: 380, ease: 'Sine.InOut' });
             this.tweens.add({
-                targets: it.img, y: { value: hy, ease: 'Back.Out' }, duration: 520,
+                targets: it.img, y: { value: hy, ease: 'Back.Out' }, duration: 380,
                 onComplete: () => {
+                    it.img.setDepth(10);
                     this.hovering = it;
                     this.hoverT = 0;
                     this.hoverU = side < 0 ? 0 : 2 * this.hoverAmp;
                     this.hoverBaseX = top.x;
-                    this.time.delayedCall(250, () => { a.busy = false; this.setPose('run'); });
+                    this.time.delayedCall(120, () => { a.busy = false; this.setPose('run'); });
                 },
             });
         });
@@ -1135,7 +1209,7 @@ class PatchScene extends Phaser.Scene {
         this.walkTo(this.standSpot(pile.x, 60), () => {
             this.face(pile.x);
             a.busy = true;
-            this.setPose('down');
+            this.setPose('dive');
             Sfx.crunch();
             this.burst.explode(34, pile.x, GROUND - 30);
             this.say('LEAVES!');
@@ -1165,15 +1239,23 @@ class PatchScene extends Phaser.Scene {
         this.walkTo(this.standSpot(stack.x, 150), () => {
             this.face(stack.x);
             a.busy = true;
-            this.setPose('down');
+            this.setPose('shove');
             this.say('BOOM!', 900);
             this.time.delayedCall(200, () => {
                 if (!this.boom(stack)) { a.busy = false; this.setPose('run'); return; }
-                this.time.delayedCall(450, () => this.setPose('dizzy'));
+                this.anselBoomFace();
                 this.time.delayedCall(1500, () => { Sfx.more(); this.say('MORE!'); });
                 this.time.delayedCall(1700, () => { a.busy = false; this.setPose('run'); });
             });
         });
+    }
+
+    // The tower blows: his happiest face (ANSEL_POSES.boom), arms up, and a happy hop.
+    anselBoomFace() {
+        const a = this.ansel;
+        this.setPose('boom');
+        this.tweens.add({ targets: a, jumpY: 36, duration: 160, ease: 'Quad.Out', yoyo: true, repeat: 1,
+            onComplete: () => { a.jumpY = 0; } });
     }
 
     // Is there anything left to pick up (not counting pumpkins still hidden in leaves)?
@@ -1186,7 +1268,7 @@ class PatchScene extends Phaser.Scene {
         const a = this.ansel;
         if (a.busy || a.carrying || this.hovering || this.anyLoose()) return;
         a.busy = true;
-        this.setPose('up');
+        this.setPose('cheer');
         Sfx.more();
         this.say('MORE!', 1300);
         // the whole patch grows: every spot comes up a stage, rippling out from Ansel
@@ -1298,7 +1380,7 @@ class PatchScene extends Phaser.Scene {
         const a = this.ansel;
         if (a.busy || a.carrying) return;
         a.busy = true;
-        this.setPose('up');
+        this.setPose('cheer');
         Sfx.uppah();
         this.time.delayedCall(250, () => Sfx.giggle());
         this.say('UPPAH!', 900);
@@ -1433,7 +1515,7 @@ class PatchScene extends Phaser.Scene {
                 a.walkingLane = false;
                 a.img.setDepth(20);
                 a.shadow.setDepth(9);
-                if (a.carrying) a.carrying.img.setDepth(10);
+                if (a.carrying) a.carrying.img.setDepth(a.img.depth + 0.1);
                 if (then) then();
             } });
     }
@@ -1442,14 +1524,18 @@ class PatchScene extends Phaser.Scene {
         const a = this.ansel;
         const ds = lane.scale;
         const img = sp.img;
-        this.setPose('down');
+        this.setPose('bend');
         Sfx.down();
         this.say('DOWN!', 700);
-        // grab the stem and tug: the pumpkin wiggles on its vine
-        Sfx.tug();
-        this.tweens.add({ targets: img, angle: { from: -9, to: 9 }, duration: 120, yoyo: true, repeat: 2,
-            onRepeat: () => Sfx.tug(), onComplete: () => { img.angle = 0; } });
-        this.time.delayedCall(820, () => {
+        // grab it and tug, tug, tug: the pumpkin wiggles on its vine (about 0.8 s to his head)
+        this.time.delayedCall(80, () => this.setPose('grab'));
+        [160, 280, 400, 520].forEach((ms, i) => this.time.delayedCall(ms, () => this.setPose(i % 2 ? 'tug2' : 'tug1')));
+        this.time.delayedCall(150, () => {
+            Sfx.tug();
+            this.tweens.add({ targets: img, angle: { from: -9, to: 9 }, duration: 75, yoyo: true, repeat: 2,
+                onRepeat: () => Sfx.tug(), onComplete: () => { img.angle = 0; } });
+        });
+        this.time.delayedCall(600, () => {
             // pop! off the vine
             Sfx.pop();
             this.treeLeaves.explode(6, sp.x, lane.y - 16);
@@ -1459,10 +1545,11 @@ class PatchScene extends Phaser.Scene {
             if (golden) it.heavy = true;
             it.state = 'lifting';
             it.img.setScale(ds).setDepth(a.img.depth + 0.1);
+            this.tweens.killTweensOf(img);
             img.destroy();
             sp.img = null; sp.stage = 0; sp.key = null; sp.golden = false; sp.busy = false;
             sp.t = Phaser.Math.FloatBetween(...GROW.sproutDelay);
-            const headY = (GROUND - a.laneY) - (HEAD_TOP + it.bh / 2 - 14 + 16) * ds;
+            const carryFrame = this.heavyHold(it) ? 'heavy_1' : 'carry_1';
             const done = () => {
                 it.state = 'carried';
                 a.carrying = it;
@@ -1476,39 +1563,38 @@ class PatchScene extends Phaser.Scene {
                     this.time.delayedCall(150, () => this.placeOnTower());
                 });
             };
+            const lift = () => {
+                this.setPose(carryFrame);
+                const p = this.holdPos(it, carryFrame);
+                this.tweens.add({ targets: it.img, x: p.x, y: p.y, angle: 0, duration: 160, ease: 'Back.Out', onComplete: done });
+            };
             if (it.heavy) {
-                // it's heavy: up a little, sag, then heave it onto his head
+                // it's heavy: heave it up first, then hug it
                 this.say('NNNGH!', 900);
-                this.tweens.chain({ targets: it.img, tweens: [
-                    { y: it.img.y - 28 * ds, duration: 260, ease: 'Quad.Out' },
-                    { y: it.img.y - 12 * ds, duration: 220, ease: 'Quad.In' },
-                    { x: a.x, y: headY, duration: 420, ease: 'Back.Out', onComplete: done },
-                ] });
+                this.holdPose(it, 'heave', 110);
+                this.time.delayedCall(130, lift);
                 this.cameras.main.shake(110, 0.003);
             } else {
-                this.tweens.add({ targets: it.img, x: a.x, y: headY, duration: 280, ease: 'Quad.Out', onComplete: done });
+                lift();
             }
         });
     }
 
+    // The 12-frame watering animation (the can and the drops are in the frames). The plant
+    // grows on the pour, all the way to a ripe pumpkin, so one trip with the can pays off.
     waterSpot(sp, lane) {
         const a = this.ansel;
-        const ds = lane.scale;
-        const feetY = GROUND - a.laneY;
-        const canX = a.x + a.dir * 34 * ds, canY = feetY - 96 * ds;
-        this.can.setVisible(true).setScale(ds).setFlipX(a.dir < 0).setPosition(canX, canY).setAngle(0)
-            .setOrigin(a.dir < 0 ? 0.8 : 0.2, 0.7).setDepth(a.img.depth + 0.3);
-        this.tweens.add({ targets: this.can, angle: a.dir * 32, duration: 220, ease: 'Quad.Out' });
-        Sfx.water();
-        const spoutX = canX + a.dir * 60 * ds, spoutY = canY - 4 * ds;
-        for (let i = 0; i < 7; i++) {
-            this.time.delayedCall(180 + i * 110, () => this.drops.explode(3, spoutX, spoutY));
-        }
-        this.time.delayedCall(1050, () => {
+        const step = 85;
+        for (let i = 0; i < 12; i++) this.time.delayedCall(i * step, () => this.setPose('water_' + (i + 1)));
+        this.time.delayedCall(3 * step, () => Sfx.water());
+        this.time.delayedCall(6 * step, () => {
+            while (sp.stage < 2) this.growSpot(sp, false);
             this.growSpot(sp);
             this.say(sp.stage >= 3 ? (sp.golden ? 'GOLDEN!' : 'PUMPKIN!') : 'GROW!', 900);
-            this.tweens.add({ targets: this.can, angle: 0, duration: 160, onComplete: () => this.can.setVisible(false) });
+        });
+        this.time.delayedCall(12 * step, () => {
             sp.busy = false;
+            this.setPose('run');
             this.leaveLane(false, () => { a.busy = false; });
         });
     }
@@ -1517,8 +1603,8 @@ class PatchScene extends Phaser.Scene {
     tapScenery(wx, wy) {
         const r = this.raffe;
         if (Math.abs(wx - r.x) < 95 && wy > GIRAFFE_Y - 340 && wy < GIRAFFE_Y - 20) {
-            r.mode = 'look'; r.t = 1.6; r.frame = 0;
-            r.img.setFrame(0);
+            r.mode = 'look'; r.t = 2.4; r.frame = 0;
+            r.img.setFrame(GIRAFFE_LOOK);
             this.tweens.add({ targets: r.img, y: GIRAFFE_Y - 22, duration: 180, yoyo: true, ease: 'Quad.Out' });
             this.sparkles.explode(8, r.x + r.dir * 70, GIRAFFE_Y - 300);
             Sfx.hum();
@@ -1561,11 +1647,15 @@ class PatchScene extends Phaser.Scene {
             r.frameT += dt;
             if (r.frameT > 0.24) { r.frameT = 0; r.frame = (r.frame + 1) % 4; r.img.setFrame(r.frame); }
             if (r.x < 140 || r.x > WORLD_W - 140) { r.dir = r.x < 140 ? 1 : -1; }
-            if (r.t <= 0) { r.mode = 'look'; r.t = Phaser.Math.FloatBetween(2, 4); r.img.setFrame(0); }
+            if (r.t <= 0) { r.mode = 'look'; r.t = Phaser.Math.FloatBetween(2.5, 4.5); r.img.setFrame(GIRAFFE_LOOK); }
         } else if (r.t <= 0) {
             r.mode = 'walk';
             r.t = Phaser.Math.FloatBetween(7, 14);
+            r.img.setFrame(r.frame);
             if (Math.random() < 0.35) r.dir = -r.dir;
+        } else {
+            // looking out at us, with a slow blink
+            r.img.setFrame(r.t > 0.8 && r.t < 1.05 ? GIRAFFE_LOOK + 1 : GIRAFFE_LOOK);
         }
         r.img.x = r.x;
         r.img.setFlipX(r.dir < 0);
@@ -1711,50 +1801,44 @@ class PatchScene extends Phaser.Scene {
 
         if (a.walkingLane) a.moving = true;
 
-        // Walk cycle
+        // Walk cycle: walking, carrying on his head, or a heavy one hugged at his chest. Short
+        // cycles hold each frame longer so a stride always takes six walk-frame ticks.
         if (a.pose === 'run') {
+            const cyc = this.anselCycle();
             if (a.moving) {
                 a.frameT += dt;
-                if (a.frameT > 0.085 * 270 / speed) {
+                if (a.frameT > 0.085 * 270 / speed * 6 / cyc.length) {
                     a.frameT = 0;
-                    a.frame = (a.frame + 1) % 6;
-                    if (a.frame === 0 || a.frame === 3) Sfx.step(a.frame === 3);
+                    a.frame = (a.frame + 1) % cyc.length;
+                    const half = Math.floor(cyc.length / 2);
+                    if (a.frame === 0 || a.frame === half) Sfx.step(a.frame === half);
                 }
             } else {
                 a.frame = 0;
             }
-            a.img.setTexture('ansel_' + (a.frame + 1));
-            a.img.setFlipX(a.dir < 0);
-        } else {
-            a.img.setFlipX(a.dir < 0);
+            a.frame %= cyc.length;
+            a.frameName = a.moving || a.carrying ? cyc[a.frame] : ANSEL_POSES.stand;
+            const key = this.anselKey(a.frameName);
+            if (a.img.texture.key !== key) a.img.setTexture(key);
         }
+        a.img.setFlipX(a.dir < 0);
         a.img.x = a.x;
         const idleBob = a.moving ? 0 : Math.sin(time / 380) * 1.5;
         const ds = a.depthScale;
         const feetY = GROUND - a.laneY;
         a.img.y = feetY + idleBob - a.jumpY;
         a.img.setScale(a.baseScale * ds);
-        // a heavy pumpkin makes him sway as he walks
-        a.img.angle = (a.carrying && a.carrying.heavy && a.moving) ? Math.sin(time / 110) * 3 : 0;
         const ak = 1 - a.jumpY / 200;
         a.shadow.setPosition(a.x, feetY + 4).setScale(0.95 * ak * ds, ak * ds).setAlpha(ak);
-        // straw hat
-        if (a.farming) {
-            const hp = HAT_POS[a.pose] || HAT_POS.run;
-            this.hat.setVisible(true).setScale(ds).setFlipX(a.dir < 0)
-                .setPosition(a.x + hp.dx * a.dir * ds, feetY + idleBob - a.jumpY - (hp.top - 24) * ds)
-                .setDepth(a.img.depth + 0.2)
-                .setAngle(a.img.angle);
-        }
 
-        // Carried item rides on his head
+        // Carried pumpkin: in his hands where this frame's own pumpkin was (on his head, or at
+        // his chest for a heavy one), in front of him with his hands tucked behind it
         if (a.carrying && a.carrying.state === 'carried' && (!a.busy || a.walkingLane)) {
-            const walkBob = a.moving ? Math.abs(Math.sin(a.frame / 6 * Math.PI * 2)) * 6 : 0;
-            const hatLift = a.farming ? 16 : 0;
-            a.carrying.img.setScale(ds);
-            a.carrying.img.x = a.x + a.dir * 2 * ds;
-            a.carrying.img.y = feetY - (HEAD_TOP + a.carrying.bh / 2 - 14 + hatLift) * ds - walkBob + idleBob;
-            a.carrying.img.angle = a.moving ? Math.sin(time / 120) * 4 : 0;
+            const p = this.holdPos(a.carrying, a.frameName);
+            a.carrying.img.setScale(ds).setDepth(a.img.depth + 0.1);
+            a.carrying.img.x = p.x;
+            a.carrying.img.y = p.y + idleBob - a.jumpY;
+            a.carrying.img.angle = a.moving ? Math.sin(time / 120) * 2 : 0;
             if (a.carrying.golden && Math.random() < 0.15) {
                 this.sparkles.explode(1, a.carrying.img.x + Phaser.Math.Between(-30, 30), a.carrying.img.y);
             }
@@ -1811,7 +1895,11 @@ class PatchScene extends Phaser.Scene {
         // Speech bubble follows his head
         if (this.bubble.visible) {
             this.bubbleTimer -= delta;
-            const headY = (GROUND - a.laneY) - (HEAD_TOP + (a.carrying ? a.carrying.bh - 4 : 14) + (a.farming ? 18 : 0)) * a.depthScale;
+            // above his cap or hat, or above the pumpkin on his head
+            const feet = GROUND - a.laneY, held = a.carrying && a.carrying.state === 'carried' ? a.carrying : null;
+            const over = Math.max(HEAD_TOP + 14 + (a.farming ? 6 : 0),
+                held ? (feet - held.img.y) / a.depthScale + (held.bh - 4) / 2 + 8 : 0);
+            const headY = feet - over * a.depthScale;
             const ts = this.textScale;
             const r = this.bubbleRoot;
             r.setScale(ts);
@@ -2012,9 +2100,8 @@ class PatchScene extends Phaser.Scene {
         });
         this.resetPatch();
         this.tweens.killTweensOf(a);
-        a.laneY = 0; a.depthScale = 1; a.walkingLane = false;
+        a.laneY = 0; a.depthScale = 1; a.walkingLane = false; a.jumpY = 0;
         a.img.setDepth(20); a.shadow.setDepth(9);
-        this.can.setVisible(false);
         this.startRound();
         this.tapGuard = this.time.now + 300;
         this.time.delayedCall(300, () => this.say('PUMPKINS!', 1500));
@@ -2041,7 +2128,7 @@ class PatchScene extends Phaser.Scene {
         if (newBest) { this.best.score = this.score; saveBest(this.best); }
         if (reason === 'dusk') this.ui.banner('SUNSET!');
         this.time.delayedCall(900, () => {
-            if (!a.busy && !a.carrying) this.setPose(reason === 'dusk' ? 'up' : 'dizzy');
+            if (!a.busy && !a.carrying) this.setPose(reason === 'dusk' ? 'cheer' : 'dizzy');
             this.say(reason === 'dusk' ? 'NIGHT NIGHT!' : 'UH OH!', 1600);
             if (reason === 'dusk') Sfx.fanfare(); else Sfx.lose();
         });
@@ -2133,7 +2220,7 @@ class PatchScene extends Phaser.Scene {
         this.say('BOOM!', 900);
         if (!a.busy && !a.carrying) {
             a.busy = true;
-            this.setPose('up');
+            this.anselBoomFace();
             this.time.delayedCall(650, () => { a.busy = false; this.setPose('run'); });
         }
     }
@@ -2462,7 +2549,7 @@ class PatchScene extends Phaser.Scene {
         this.burst.explode(30, top.x, top.y);
         this.time.delayedCall(900, () => {
             if (!this.ansel.busy && !this.ansel.carrying) {
-                this.setPose('up');
+                this.setPose('cheer');
                 this.time.delayedCall(700, () => { if (!this.ansel.busy) this.setPose('run'); });
             }
             this.say('YAY!', 900);
@@ -2653,7 +2740,7 @@ class UIScene extends Phaser.Scene {
         T.t2 = this.add.text(0, 0, 'PUMPKIN PATCH', {
             fontFamily: FONT, fontSize: '54px', color: '#ff9a3a', stroke: INK, strokeThickness: 12, align: 'center',
         }).setOrigin(0.5);
-        T.hero = this.add.image(0, 0, 'ansel_up').setScale(0.55).setOrigin(0.5, 1);
+        T.hero = this.add.image(0, 0, 'ansel:everyday/toss').setOrigin(0.5, 1);
         T.p1 = this.add.image(0, 0, 'pumpkin_deep_xl').setOrigin(0.5, 1);
         T.p2 = this.add.image(0, 0, 'pumpkin_orange_l').setOrigin(0.5, 1);
         T.p3 = this.add.image(0, 0, 'pumpkin_white_m').setOrigin(0.5, 1);
@@ -2794,7 +2881,7 @@ class UIScene extends Phaser.Scene {
         if (!ptex.has('planks')) ptex.add('planks', 0, 12, 8, 48, 48);
         E.wood = this.add.tileSprite(0, 0, 500, 420, 'panel', 'planks');
         E.title = this.add.text(0, 0, '', txt(40, '#ff9a3a', 10)).setOrigin(0.5);
-        E.hero = this.add.image(0, 0, 'ansel_dizzy').setOrigin(0.5, 1);
+        E.hero = this.add.image(0, 0, 'ansel:everyday/dizzy').setOrigin(0.5, 1);
         E.rows = this.add.text(0, 0, '', Object.assign(txt(20, '#fff6e0', 6), { lineSpacing: 16 })).setOrigin(0, 0.5);
         E.best = this.add.text(0, 0, 'NEW BEST!', txt(22, '#ffd35a', 8)).setOrigin(0.5);
         E.go = this.add.text(0, 0, 'TAP TO PLAY AGAIN', txt(20, '#fff6e0', 8)).setOrigin(0.5);
@@ -2821,7 +2908,7 @@ class UIScene extends Phaser.Scene {
             E.panel.setSize(pw, ph).setPosition(cxm, cym);
             E.wood.setSize(pw - 24, ph - 24).setPosition(cxm, cym);
             E.title.setPosition(cxm, cym - ph / 2 + 70).setFontSize(44);
-            E.hero.setPosition(cxm, cym - 40).setScale(0.5);
+            E.hero.setPosition(cxm, cym - 40).setScale(0.77);
             E.rows.setPosition(cxm - 190, cym + 90);
             E.best.setPosition(cxm, cym + 220);
             E.go.setPosition(cxm, cym + ph / 2 - 60);
@@ -2830,7 +2917,7 @@ class UIScene extends Phaser.Scene {
             E.panel.setSize(pw, ph).setPosition(cxm, cym);
             E.wood.setSize(pw - 24, ph - 24).setPosition(cxm, cym);
             E.title.setPosition(cxm, cym - ph / 2 + 60).setFontSize(40);
-            E.hero.setPosition(cxm - 180, cym + 120).setScale(0.42);
+            E.hero.setPosition(cxm - 180, cym + 120).setScale(0.65);
             E.rows.setPosition(cxm - 70, cym - 10);
             E.best.setPosition(cxm + 90, cym + 110);
             E.go.setPosition(cxm, cym + ph / 2 - 50);
@@ -2918,7 +3005,7 @@ class UIScene extends Phaser.Scene {
     showEnd(info) {
         const E = this.end;
         E.title.setText(info.reason === 'dusk' ? 'SUNSET!' : info.reason === 'topple' ? 'TOWER DOWN!' : 'UH OH!');
-        E.hero.setTexture(info.reason === 'dusk' ? 'ansel_up' : 'ansel_dizzy');
+        E.hero.setTexture(this.patch.anselKey(info.reason === 'dusk' ? ANSEL_POSES.cheer : ANSEL_POSES.dizzy));
         E.rows.setText('SCORE   ' + info.score + '\nTALLEST ' + info.tallest + '\nBEST    ' + info.best);
         E.best.setVisible(info.newBest);
         E.go.setVisible(false);
@@ -3980,7 +4067,7 @@ const PatchEggs = {
         a.goal = null;
         h.t = 99;
         this.face(h.x);
-        this.setPose('down');
+        this.setPose('scoop');
         Sfx.pickup();
         // a stand-in bunny does the cuddle; the real one waits, hidden, until he springs free
         const p = G.img = this.add.image(h.x, h.y, 'hoppah_stand').setOrigin(0.5, 305 / 327).setScale(0.3)
@@ -3990,7 +4077,7 @@ const PatchEggs = {
         const holdX = a.x + a.dir * 30, holdY = GROUND - 92;
         this.tweens.add({ targets: p, x: holdX, y: holdY, scale: 0.27, duration: 240, ease: 'Quad.Out' });
         this.time.delayedCall(260, () => {
-            this.setPose('run');
+            this.setPose('hug');
             Sfx.giggle();
             this.say('HOPPAH!', 1100);
             // he wriggles...
@@ -4017,7 +4104,7 @@ const PatchEggs = {
             targets: p, y: p.y - 170, duration: 280, ease: 'Quad.Out',
             onComplete: () => this.tweens.add({ targets: p, y: GROUND, duration: 280, ease: 'Quad.In' }),
         });
-        this.setPose('up');
+        this.setPose('cheer');
         this.say('WHOA!', 900);
         this.time.delayedCall(570, () => {
             // the real Hoppah lands where the stand-in did and hops off, fast

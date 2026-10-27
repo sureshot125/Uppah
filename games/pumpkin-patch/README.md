@@ -9,7 +9,7 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
 - **Stack honestly.** A pumpkin lands where you drop it. A drop very near the centre is a perfect drop: it snaps most of the way in but keeps a quarter of its miss, so even a run of perfects slowly leans. If its centre is past the edge of the one below, it rolls off. A moderate miss wobbles and sometimes goes over. The whole stack tips if its weight leans past the joint below. Only a player's very first round gets help with the first two pumpkins (and the pointing hand shows the very first one); after that it's all on you.
 - **Weight and order matter.** A big, heavy pumpkin is a wide, steady base. A heavy one dropped on a small one rocks hard and often topples. A little one on a big one is easy. Build big at the bottom and small on top. Landing on something at least as heavy scores a bonus.
 - **Wind.** Watch the windsock beside the bale and the leaves; they start streaming a second before a gust. A gust pushes the hovering pumpkin and drifts it as it falls (aim upwind; the ring shows where it will really land), sways the tower a little more and leans the hovering pumpkin, and adds a sideways load that can tip a crooked tower (a crooked tower catches more of it). Gusts get stronger as the tower grows and toward sunset.
-- **BOOM!** Once the tower is 3 tall, a wooden BOOM sign on the hay bale shows how many points it will bank. Tapping the bale (or holding B for half a second) sends Ansel to shove it: that banks the tower's points × (1 + 0.2 per pumpkin) and knocks it down. If the tower falls first, the points on the fallen pumpkins are lost. Stack one more, or cash in now?
+- **BOOM!** Once the tower is 3 tall, a wooden BOOM sign on the hay bale shows how many points it will bank. Tapping the bale (or holding B for half a second) sends Ansel to shove it: that banks the tower's points × (1 + 0.2 per pumpkin) and knocks it down. If the tower falls first, the points on the fallen pumpkins are lost. Stack one more, or cash in now? Every round also ends in a BOOM: whatever is still standing at sunset (or when the last life goes) is banked with the same height bonus, so there's no reason to cash in just before the end.
 - **Pumpkin lives.** You start with 3. Each pumpkin that falls off the tower costs one. You can earn lives back, up to 5:
   - 3 perfect drops in a row: +1.
   - BOOM a tower 8 tall: +1 (14 tall: +2).
@@ -17,7 +17,7 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
   - Harvesting a golden pumpkin: +1.
 
   Each one flies into the life row as a little pumpkin, with a chime.
-- **Rounds.** The afternoon lasts 3 minutes and the sky turns gold, then dusky. At sunset, or when the lives run out, the round ends and the end card shows your score, tallest tower and best. Tap to play again.
+- **Rounds.** The afternoon lasts 3 minutes and the sky turns gold, then dusky. At sunset, or when the lives run out, Ansel BOOMs whatever is still standing and the round ends. The end card shows that last BOOM, your score, your best, and a picture of the round's tallest tower beside Ansel. Tap to play again.
 - Leaf piles hide surprise pumpkins. **Tap anywhere for MORE!** when the patch runs out. Ansel, the trees, Hoppah the bunny and lots of the scenery react when tapped.
 
 Keyboard: arrows or A/D to walk; Down or S to pick up, harvest the nearest vine pumpkin, or dive into a leaf pile; Up, W or Space to lift, drop, ask for more or play again; hold B to BOOM (a single press does nothing, so a stray key can't bank the tower); P or Esc to pause; M to mute (remembered).
@@ -71,7 +71,7 @@ Measured with `sim.js` (2000 rounds each, 3-minute day, a returning player with 
 | Expert (45 ms) | 16 / 26 / 37 | 8% (90% if they BOOM at 14) |
 | Near-perfect (25 ms) | 25 / 37 / 43 | 33% |
 
-Wind is present but not dominant. Players stack 8 vs 8 with gusts on and off (casual), 19 vs 20 (good) and 26 vs 31 (expert). Gusts topple a tower 0.09 (casual) to 0.46 (expert) times per round, always one that was already leaning. Pressing BOOM at 8–14 banks a median of about 22,000–23,000 for a good player; an expert pushing to 18 banks about 48,000.
+Wind is present but not dominant. Players stack 8 vs 8 with gusts on and off (casual), 19 vs 20 (good) and 26 vs 31 (expert). Gusts topple a tower 0.09 (casual) to 0.46 (expert) times per round, always one that was already leaning. Pressing BOOM at 8–14 banks a median of about 25,000 for a good player; an expert pushing to 18 banks about 49,000. Never pressing BOOM (only the automatic one at the end) scores a median of about 5,000 (good) and 14,500 (expert), so cashing in during the round still pays.
 
 The game picks its resolution from the screen's shape (720 on the short side) and re-fits when a phone rotates, so it fills both landscape and portrait screens.
 

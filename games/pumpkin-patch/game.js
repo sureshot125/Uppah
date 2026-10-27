@@ -3053,18 +3053,25 @@ class UIScene extends Phaser.Scene {
         const titleY = portrait ? h * 0.16 : 120;
         T.t1.setPosition(w / 2, titleY);
         T.t2.setPosition(w / 2, titleY + (portrait ? 90 : 70))
-            .setFontSize(portrait ? 46 : 54)
+            .setFontSize(portrait ? 46 : Math.min(54, Math.floor((w - 60) / 13))) // one line, even when narrow
             .setWordWrapWidth(w - 40);
         if (portrait) T.t2.setText('PUMPKIN\nPATCH').setLineSpacing(14);
         else T.t2.setText('PUMPKIN PATCH');
-        const groundY = portrait ? h * 0.74 : 560;
-        T.hero.setPosition(w / 2 - (portrait ? 140 : 150), groundY);
-        const px = w / 2 + (portrait ? 130 : 120);
-        T.p1.setPosition(px, groundY);
-        T.p2.setPosition(px + 2, groundY - 90);
-        T.p3.setPosition(px, groundY - 168);
-        T.how.setPosition(w / 2, portrait ? h - 210 : 598).setWordWrapWidth(w - 60);
-        T.go.setPosition(w / 2, portrait ? h - 80 : 676);
+        // stacked from the bottom so nothing collides on any screen shape: the prompt, then the hint
+        // (however many lines it wraps to), then Ansel and the title pumpkins standing above it
+        T.go.setPosition(w / 2, portrait ? h - 80 : h - 44);
+        T.how.setWordWrapWidth(w - 60);
+        T.how.setPosition(w / 2, T.go.y - 30 - T.how.height / 2);
+        const groundY = Math.min(portrait ? h * 0.74 : 560, T.how.y - T.how.height / 2 - 14);
+        // Ansel and the title pumpkins shrink to fit between the BEST line and the hint
+        if (T.heroBase === undefined) T.heroBase = T.hero.scaleX;
+        const roomTop = T.t2.getBounds().bottom + 52;
+        const k = Phaser.Math.Clamp((groundY - roomTop) / 290, 0.45, 1), kx = Math.max(k, 0.8);
+        T.hero.setScale(T.heroBase * k).setPosition(w / 2 - (portrait ? 140 : 150) * kx, groundY);
+        const px = w / 2 + (portrait ? 130 : 120) * kx;
+        T.p1.setScale(k).setPosition(px, groundY);
+        T.p2.setScale(k).setPosition(px + 2 * k, groundY - 90 * k);
+        T.p3.setScale(k).setPosition(px, groundY - 168 * k);
         this.tweens.killTweensOf(T.hero);
         this.tweens.add({ targets: T.hero, y: groundY - 6, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         if (portrait) this.bannerText.setWordWrapWidth(w - 320); // clear of the BOOM button
@@ -5303,7 +5310,7 @@ const UIHtp = {
         H.portrait = portrait;
         H.shade.setSize(w, h);
         H.cw = portrait ? Math.min(w - 28, 692) : Math.min(w - 56, 1184);
-        H.ch = portrait ? Math.min(h - 200, 1340) : h - 32;
+        H.ch = portrait ? Math.min(h - (h < 1100 ? 40 : 200), 1340) : h - 32; // short screens: all the room
         H.root.setPosition(Math.round(w / 2), Math.round(h / 2));
         H.panel.setSize(H.cw, H.ch);
         H.wood.setSize(H.cw - 24, H.ch - 24);
@@ -5377,29 +5384,54 @@ const UIHtp = {
         H.iconW = Math.max(72, ...rows.map(r => r.icon ? r.icon.iw + 22 : 0));
         const innerW = H.cw - 2 * (H.portrait ? 30 : 40);
         const top = -H.ch / 2 + 106, bottom = H.ch / 2 - (H.portrait ? 160 : 104);
-        const avail = bottom - top, gap = 16;
+        const avail = bottom - top;
+        let gap = 16;
         const measure = tw => rows.reduce((s, r) => s + this.htpRowFit(r, tw) + gap, -gap);
+        // Squarer screens wrap the text onto more lines. Rather than let it run into the buttons,
+        // step the text down a little (and tighten the gaps) until the page fits.
+        const STEPS = [[20, 16], [18, 12], [17, 10], [16, 8], [15, 6]];
+        const setSize = ([px, g]) => {
+            gap = g;
+            rows.forEach(r => r.text.setFontSize(px).setLineSpacing(Math.round(px / 2)));
+        };
         let artW, artH, tw, th;
         if (H.portrait) {
             tw = innerW;
-            th = measure(tw);
+            for (const st of STEPS) {
+                setSize(st);
+                th = measure(tw);
+                if (th + 30 + 220 <= avail) break;
+            }
             artW = innerW;
-            artH = Math.max(220, Math.min(Math.round(artW / 1.1), avail - th - 30));
+            // the picture takes what the text leaves; on a short screen it goes, never the words
+            const room = avail - th - 30;
+            artH = room >= 120 ? Math.min(Math.round(artW / 1.1), room) : 0;
             artW = Math.min(artW, Math.round(artH * 1.1));
-            const used = artH + 30 + th, y0 = top + Math.max(0, (avail - used) / 2);
-            this.htpArtBox(pg.art, -artW / 2, y0, artW, artH);
-            this.htpPlaceRows(rows, -tw / 2, y0 + artH + 30, gap);
+            const used = (artH ? artH + 30 : 0) + th, y0 = top + Math.max(0, (avail - used) / 2);
+            if (artH) this.htpArtBox(pg.art, -artW / 2, y0, artW, artH);
+            this.htpPlaceRows(rows, -tw / 2, y0 + (artH ? artH + 30 : 0), gap);
         } else {
-            // give the picture as much room as the text allows
-            for (let f = 0.46; f >= 0.28; f -= 0.02) {
-                artW = Math.round(innerW * f);
-                th = measure(innerW - artW - 32);
-                if (th <= avail) break;
+            // give the picture as much room as the text allows, then shrink the text if needed
+            let fits = false;
+            for (const st of STEPS) {
+                setSize(st);
+                for (let f = 0.46; f >= 0.28; f -= 0.02) {
+                    artW = Math.round(innerW * f);
+                    th = measure(innerW - artW - 32);
+                    if (th <= avail) { fits = true; break; }
+                }
+                if (fits) break;
+            }
+            const x0 = -innerW / 2;
+            if (!fits) {
+                // a very square screen: the text gets the whole width and the picture steps aside
+                th = measure(innerW);
+                this.htpPlaceRows(rows, x0, top + Math.max(0, (avail - th) / 2), gap);
+                return;
             }
             artH = Math.min(avail, Math.round(artW / 1.1));
             artW = Math.round(artH * 1.1);
             th = measure(innerW - artW - 32);
-            const x0 = -innerW / 2;
             this.htpArtBox(pg.art, x0, top + (avail - artH) / 2, artW, artH);
             this.htpPlaceRows(rows, x0 + artW + 32, top + Math.max(0, (avail - th) / 2), gap);
         }

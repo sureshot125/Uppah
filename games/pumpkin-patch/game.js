@@ -107,15 +107,13 @@ const PUMPKIN_SPECS = {
     pumpkin_orange_s: { w: 15, h: 11 },
     pumpkin_golden:   { w: 22, h: 16 },
 };
+// Pumpkins lying on the path when a round starts. Once they're used up, pumpkins come from the
+// vines (and from anything that falls off the tower: BOOMed pumpkins are spent).
 const LAYOUT = [
     { key: 'pumpkin_orange_m', x: 420 },
-    { key: 'pumpkin_gold_s',   x: 520 },
-    { key: 'pumpkin_green_m',  x: 640 },
     { key: 'pumpkin_deep_xl',  x: 800 },
     { key: 'pumpkin_white_m',  x: 1110 },
-    { key: 'pumpkin_orange_s', x: 1220 },
     { key: 'pumpkin_orange_l', x: 1345 },
-    { key: 'pumpkin_warty_s',  x: 1470 },
     { key: 'pumpkin_gold_s',   x: 1570 },
 ];
 // What a MORE! batch is drawn from (repeats = more likely)
@@ -126,8 +124,11 @@ const MORE_POOL = [
 const MORE_BATCH = 5;
 
 // ── Growing patch: pumpkins grow in two lanes of the vine rows behind the path ──
-// Tap a ripe one and Ansel (in his straw hat) wades in, tugs it off the vine and
-// carries it back; tap an unripe one and he waters it so it grows.
+// Plants sprout and grow to a green, unripe pumpkin on their own, then wait for water (left
+// alone, an unripe one ripens only slowly).
+// Tap a ripe one and Ansel (in his straw hat) wades in, tugs it off the vine and carries
+// it back; tap a sprout or an unripe one and he waters it, it ripens in front of him, and
+// he picks it and carries it back in the same trip.
 // Gigi's visit: she stands between the two vine rows (the front row hides her feet), at
 // roughly Ansel's height, and jogs rather than sprints.
 const GIGI = { y: 1962, depth: 5, scale: 0.55, speed: 250 };
@@ -140,7 +141,11 @@ const GROW_SPOTS = [
     { lane: 0, x: 1430 }, { lane: 0, x: 1660 },
     { lane: 1, x: 450 }, { lane: 1, x: 700 }, { lane: 1, x: 1290 }, { lane: 1, x: 1545 },
 ];
-const GROW = { sproutDelay: [4, 8], stageTime: [9, 14], goldenChance: 0.06 };
+// sproutDelay: seconds from a pick to a new sprout; stageTime: sprout to unripe; ripenTime:
+// unripe to ripe without water (slow, so most vine pumpkins get watered; null = only water
+// ripens one); start: each spot's stage when a round begins (0 bare, 1 sprout, 2 unripe, 3 ripe).
+const GROW = { sproutDelay: [4, 8], stageTime: [9, 14], ripenTime: [30, 50], goldenChance: 0.06,
+    start: [2, 1, 3, 2, 1, 2, 2, 1, 3, 2] };
 const PILES = [
     { key: 'leafpile_b', x: 262,  hides: 'pumpkin_orange_s' },
     { key: 'leafpile_a', x: 1695, hides: 'pumpkin_orange_m' },
@@ -212,12 +217,12 @@ const HEFT = {
 // amp/speed: hover sway half-width (px) and glide speed (px/s); perfect: snap zone (px);
 // wind: gust strength (plus RULES.duskWind toward sunset); gap: calm seconds between gusts.
 const STAGES = [
-    { at: 0,  name: 'CALM',   amp: 34,  speed: 135, perfect: 22, wind: 0.2,  gap: [7, 10] },
-    { at: 4,  name: 'BREEZY', amp: 42,  speed: 150, perfect: 12, wind: 0.35, gap: [7, 10] },
-    { at: 8,  name: 'WINDY',  amp: 56,  speed: 175, perfect: 10, wind: 0.5,  gap: [5, 8] },
-    { at: 13, name: 'GUSTY',  amp: 72,  speed: 205, perfect: 9,  wind: 0.65, gap: [4, 7] },
-    { at: 20, name: 'STORMY', amp: 90,  speed: 235, perfect: 8,  wind: 0.8,  gap: [3.5, 6] },
-    { at: 30, name: 'WILD WIND', amp: 104, speed: 265, perfect: 7, wind: 1,  gap: [3, 5] },
+    { at: 0,  name: 'CALM',   amp: 34,  speed: 145, perfect: 22, wind: 0.2,  gap: [7, 10] },
+    { at: 4,  name: 'BREEZY', amp: 42,  speed: 170, perfect: 12, wind: 0.35, gap: [7, 10] },
+    { at: 8,  name: 'WINDY',  amp: 56,  speed: 195, perfect: 10, wind: 0.5,  gap: [5, 8] },
+    { at: 13, name: 'GUSTY',  amp: 72,  speed: 220, perfect: 9,  wind: 0.65, gap: [4, 7] },
+    { at: 20, name: 'STORMY', amp: 90,  speed: 245, perfect: 8,  wind: 0.8,  gap: [3.5, 6] },
+    { at: 30, name: 'WILD WIND', amp: 104, speed: 270, perfect: 7, wind: 1,  gap: [3, 5] },
 ];
 
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -932,22 +937,22 @@ class PatchScene extends Phaser.Scene {
         this.hayBody = this.matter.add.rectangle(HAY_X, GROUND - HAY_H / 2, HAY_W, HAY_H,
             { ...solid, label: 'hay' });
         this.hayImg = this.add.image(HAY_X, GROUND + 4, 'haybale').setOrigin(0.5, 1).setDepth(8);
-        // BOOM lives on the bale: a little wooden sign hangs on its front when there's a tower to
-        // bank; tap the bale (or the tower) and Ansel gives it a big shove
-        // (the sign hangs from its top edge so it can grow when the camera pulls back)
-        this.baleSign = this.add.container(HAY_X, HAY_TOP + 34).setDepth(21.5).setVisible(false);
+        // BOOM lives at the bale: when there's a tower to bank, a little wooden plank is propped
+        // against the bale's foot, down on the path, so the whole bale stays in view. It hangs from
+        // its top edge, so when the camera pulls back it grows down into the dirt, never over the bale.
+        this.baleSign = this.add.container(HAY_X, GROUND - 2).setDepth(21.5).setVisible(false);
         this.baleSignInner = this.add.container(0, 0);
-        const SIGN_W = 164, SIGN_H = 76; // narrower than the bale, hung low so its top shows
+        const SIGN_W = 150, SIGN_H = 60;
         const signBoard = this.add.nineslice(0, SIGN_H / 2, 'panel', null, SIGN_W, SIGN_H, 20, 20, 20, 20);
-        this.baleSignTitle = this.add.text(0, SIGN_H / 2 - 13, 'BOOM!', {
-            fontFamily: FONT, fontSize: '24px', color: '#ff9a3a', stroke: INK, strokeThickness: 7,
+        this.baleSignTitle = this.add.text(0, SIGN_H / 2 - 12, 'BOOM!', {
+            fontFamily: FONT, fontSize: '22px', color: '#ff9a3a', stroke: INK, strokeThickness: 7,
         }).setOrigin(0.5);
-        this.baleSignValue = this.add.text(0, SIGN_H / 2 + 14, '', {
-            fontFamily: FONT, fontSize: '20px', color: '#ffd35a', stroke: INK, strokeThickness: 6,
+        this.baleSignValue = this.add.text(0, SIGN_H / 2 + 13, '', {
+            fontFamily: FONT, fontSize: '18px', color: '#ffd35a', stroke: INK, strokeThickness: 6,
         }).setOrigin(0.5);
         // fills while B is held
-        this.boomFillBg = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 9, SIGN_W - 32, 8, 0x2b1810).setOrigin(0, 0.5).setVisible(false);
-        this.boomFill = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 9, SIGN_W - 32, 8, 0xff9a3a).setOrigin(0, 0.5).setVisible(false);
+        this.boomFillBg = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 7, SIGN_W - 32, 6, 0x2b1810).setOrigin(0, 0.5).setVisible(false);
+        this.boomFill = this.add.rectangle(-SIGN_W / 2 + 16, SIGN_H - 7, SIGN_W - 32, 6, 0xff9a3a).setOrigin(0, 0.5).setVisible(false);
         this.baleSignInner.add([signBoard, this.baleSignTitle, this.baleSignValue, this.boomFillBg, this.boomFill]);
         this.baleSign.add(this.baleSignInner);
         this.signSize = { w: SIGN_W, h: SIGN_H };
@@ -1374,10 +1379,11 @@ class PatchScene extends Phaser.Scene {
             onComplete: () => { a.jumpY = 0; } });
     }
 
-    // Is there anything left to pick up (not counting pumpkins still hidden in leaves)?
+    // Is there anything left to fetch: a pumpkin on the path, or a vine pumpkin to pick or water
+    // (not counting pumpkins still hidden in leaves)?
     anyLoose() {
-        return this.items.some(it => it.body && it.state !== 'tower' && it.state !== 'hidden') ||
-            (this.spots || []).some(sp => sp.stage >= 3 && !sp.busy);
+        return this.items.some(it => it.body && it.state !== 'tower' && it.state !== 'hidden' && it.state !== 'spent') ||
+            (this.spots || []).some(sp => sp.stage >= 1 && !sp.busy);
     }
 
     more() {
@@ -1387,13 +1393,14 @@ class PatchScene extends Phaser.Scene {
         this.setPose('cheer');
         Sfx.more();
         this.say('MORE!', 1300, true);
-        // the whole patch grows: every spot comes up a stage, rippling out from Ansel
+        // the whole patch grows a stage or two, rippling out from Ansel, but never past unripe:
+        // only water ripens a pumpkin
         const order = [...this.spots].sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x));
         order.forEach((sp, i) => {
             this.time.delayedCall(250 + i * 110, () => {
                 if (sp.busy) return;
-                this.growSpot(sp);
-                if (sp.stage < 3 && i % 2 === 0) this.growSpot(sp);
+                if (sp.stage < 2) this.growSpot(sp);
+                if (sp.stage < 2 && i % 2 === 0) this.growSpot(sp);
             });
         });
         // and tuck a new surprise into any leaf pile that's empty
@@ -1432,7 +1439,7 @@ class PatchScene extends Phaser.Scene {
     pumpkinAt(wx, wy) {
         let best = null, bd = 1e9;
         for (const it of this.items) {
-            if (!it.body || it.state === 'tower' || it.state === 'hidden') continue;
+            if (!it.body || it.state === 'tower' || it.state === 'hidden' || it.state === 'spent') continue;
             const d = Phaser.Math.Distance.Between(wx, wy, it.body.position.x, it.body.position.y);
             const r = Math.max(it.bw, it.bh) / 2 + 40;
             if (d < r && d < bd) { best = it; bd = d; }
@@ -1542,7 +1549,7 @@ class PatchScene extends Phaser.Scene {
         this.spots.forEach((sp, i) => {
             if (sp.img) { this.tweens.killTweensOf(sp.img); sp.img.destroy(); }
             Object.assign(sp, { stage: 0, t: 0, img: null, key: null, golden: false, busy: false });
-            const start = [3, 2, 3, 1, 2, 3, 2, 1, 3, 2][i % 10];
+            const start = GROW.start[i % GROW.start.length];
             for (let k = 0; k < start; k++) this.growSpot(sp, false);
         });
     }
@@ -1561,7 +1568,9 @@ class PatchScene extends Phaser.Scene {
         }
         if (!sp.img) sp.img = this.add.image(sp.x, lane.y + 6, key).setOrigin(0.5, 1).setDepth(lane.depth);
         sp.img.setTexture(key).setScale(scale).setAngle(0);
-        sp.t = Phaser.Math.FloatBetween(...GROW.stageTime);
+        // an unripe pumpkin waits for water (or, if GROW.ripenTime is set, ripens slowly by itself)
+        sp.t = sp.stage === 2 ? (GROW.ripenTime ? Phaser.Math.FloatBetween(...GROW.ripenTime) : Infinity)
+            : Phaser.Math.FloatBetween(...GROW.stageTime);
         if (fx) {
             sp.img.setScale(scale * 0.5);
             this.tweens.add({ targets: sp.img, scale, duration: 260, ease: 'Back.Out' });
@@ -1699,7 +1708,8 @@ class PatchScene extends Phaser.Scene {
     }
 
     // The 12-frame watering animation (the can and the drops are in the frames). The plant
-    // grows on the pour, all the way to a ripe pumpkin, so one trip with the can pays off.
+    // grows on the pour, all the way to a ripe pumpkin, and he picks it and carries it back
+    // in the same trip.
     waterSpot(sp, lane) {
         const a = this.ansel;
         const step = 85;
@@ -1711,6 +1721,7 @@ class PatchScene extends Phaser.Scene {
             this.say(sp.stage >= 3 ? (sp.golden ? 'GOLDEN!' : 'PUMPKIN!') : 'GROW!', 900);
         });
         this.time.delayedCall(12 * step, () => {
+            if (sp.stage >= 3 && sp.img) { this.pickFromVine(sp, lane); return; }
             sp.busy = false;
             this.setPose('run');
             this.leaveLane(false, () => { a.busy = false; });
@@ -2018,6 +2029,8 @@ class PatchScene extends Phaser.Scene {
                 it.fromDrop = false;
                 it.blown = false;
             }
+            // a BOOMed pumpkin has been banked: once it lands (or after a while), it fades away
+            if (it.state === 'spent' && (it.settleT > 0.35 || it.airT > 3)) { this.fadeSpent(it); continue; }
             if (it.settleT > 0.45 && it.state === 'ground' && it.body.bounds.max.y < HAY_TOP + 20 &&
                 Math.abs(it.body.position.x - HAY_X) < HAY_W / 2 + 10) {
                 const side = it.body.position.x < HAY_X ? -1 : 1;
@@ -2363,9 +2376,9 @@ class PatchScene extends Phaser.Scene {
         const v = value ? '+' + value : '';
         if (v !== this.baleSignValue.text) this.baleSignValue.setText(v);
         const H = this.signSize.h;
-        this.baleSignTitle.setY(v ? H / 2 - 13 : H / 2);
+        this.baleSignTitle.setY(v ? H / 2 - 12 : H / 2);
         // keep the words readable when the camera pulls back for a tall tower
-        this.baleSignInner.setScale(Phaser.Math.Clamp(0.9 / (this.camZoom || 1), 1, 1.5));
+        this.baleSignInner.setScale(Phaser.Math.Clamp(0.9 / (this.camZoom || 1), 1, 1.3));
         if (avail !== this.baleSignOn) {
             this.baleSignOn = avail;
             this.tweens.killTweensOf(sign);
@@ -2381,7 +2394,7 @@ class PatchScene extends Phaser.Scene {
         this.baleSwayT = (this.baleSwayT ?? 2) - dt * (1 + (danger || 0));
         if (this.baleSwayT <= 0) {
             this.baleSwayT = 6;
-            this.tweens.add({ targets: sign, angle: { from: -2, to: 2 }, duration: 600, yoyo: true, ease: 'Sine.InOut',
+            this.tweens.add({ targets: sign, angle: { from: -1.5, to: 1.5 }, duration: 700, yoyo: true, ease: 'Sine.InOut',
                 onComplete: () => sign.setAngle(0) });
         }
     }
@@ -2441,7 +2454,7 @@ class PatchScene extends Phaser.Scene {
             MB().setVelocity(it.body, { x: dirAway * (6 + Math.random() * 7) + (Math.random() - 0.5) * 8,
                                         y: -6 - Math.random() * 7 - k });
             MB().setAngularVelocity(it.body, (Math.random() - 0.5) * 0.3);
-            it.state = 'falling';
+            it.state = 'spent'; // banked: it fades away once it lands, it doesn't go back on the path
             it.blown = true;
             it.airT = 0;
             it.pts = 0;
@@ -2735,6 +2748,19 @@ class PatchScene extends Phaser.Scene {
         }
     }
 
+    // A banked pumpkin leaves quietly: no more body, a slow fade, then it's gone.
+    fadeSpent(it) {
+        this.removeBody(it);
+        it.shadow.setVisible(false);
+        it.state = 'gone';
+        this.tweens.add({ targets: it.img, alpha: 0, duration: 900, ease: 'Sine.In', onComplete: () => {
+            it.img.destroy();
+            it.shadow.destroy();
+            const i = this.items.indexOf(it);
+            if (i >= 0) this.items.splice(i, 1);
+        } });
+    }
+
     // Let a pumpkin that was in the air fall as an ordinary physics body.
     looseDrop(it) {
         this.addBody(it, it.img.x, it.img.y, Phaser.Math.DegToRad(it.img.angle));
@@ -2836,7 +2862,7 @@ class PatchScene extends Phaser.Scene {
         if (this.started && !this.roundOver && !this.handDone && !midDrop && !a.busy) {
             let best = null, bd = 1e9;
             for (const it of this.items) {
-                if (!it.body || it.state === 'tower' || it.state === 'hidden') continue;
+                if (!it.body || it.state === 'tower' || it.state === 'hidden' || it.state === 'spent') continue;
                 const d = Math.abs(it.body.position.x - a.x);
                 if (d > 70 && d < bd) { bd = d; best = it; }
             }

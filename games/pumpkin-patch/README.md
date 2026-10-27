@@ -5,6 +5,12 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
 ## How to play
 
 - **Tap a pumpkin.** Ansel picks it up, carries it on his head and lifts it over the stack ("uppah!").
+- **Where pumpkins come from.** A round starts with 5 pumpkins on the path and a couple hidden in the leaf piles. After that they come from the vine rows behind the path.
+  - Plants sprout and grow to a green, unripe pumpkin on their own, then wait for water. Left alone, an unripe one only ripens slowly (30–50 s).
+  - Tap a ripe one and Ansel puts on his straw hat, wades in, tugs it off the vine and carries it back.
+  - Tap a sprout or an unripe one and he waters it. It ripens in front of him, and he picks it and carries it back in the same trip.
+  - BOOMed pumpkins are banked and spent: they fly off, settle and fade away.
+  - Pumpkins that fall off a bad drop stay on the path to be picked up again.
 - **Tap again** to drop it. A plain ring on the stack shows where it will land (wind drift included). It doesn't tell you whether it will stay: that's for you to judge from weight, order and lean.
 - **Stack honestly.** A pumpkin lands where you drop it. A drop very near the centre is a perfect drop: it snaps most of the way in but keeps a quarter of its miss, so even a run of perfects slowly leans. If its centre is past the edge of the one below, it rolls off. A moderate miss wobbles and sometimes goes over. The whole stack tips if its weight leans past the joint below. Only a player's very first round gets help with the first two pumpkins (and the pointing hand shows the very first one); after that it's all on you.
 - **Weight and order matter.** A big, heavy pumpkin is a wide, steady base. A heavy one dropped on a small one rocks hard and often topples. A little one on a big one is easy. Build big at the bottom and small on top. Landing on something at least as heavy scores a bonus.
@@ -18,7 +24,7 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
 
   Each one flies into the life row as a little pumpkin, with a chime.
 - **Rounds.** The afternoon lasts 3 minutes and the sky turns gold, then dusky. At sunset, or when the lives run out, Ansel BOOMs whatever is still standing and the round ends. The end card shows that last BOOM, your score, your best, and a picture of the round's tallest tower beside Ansel. Tap to play again.
-- Leaf piles hide surprise pumpkins. **Tap anywhere for MORE!** when the patch runs out. Ansel, the trees, Hoppah the bunny and lots of the scenery react when tapped.
+- Leaf piles hide surprise pumpkins. **Tap anywhere for MORE!** if there's nothing left to pick or water: the patch sprouts and grows (never past unripe; only water or time ripens a pumpkin) and the leaf piles fill again. Ansel, the trees, Hoppah the bunny and lots of the scenery react when tapped.
 
 Keyboard: arrows or A/D to walk; Down or S to pick up, harvest the nearest vine pumpkin, or dive into a leaf pile; Up, W or Space to lift, drop, ask for more or play again; hold B to BOOM (a single press does nothing, so a stray key can't bank the tower); P or Esc to pause; M to mute (remembered).
 
@@ -55,23 +61,26 @@ The pause button sits beside the sound button, and the game pauses itself when t
   - `RULES`: lives and how to earn them, first-round help, the perfect-drop snap, flat-top widths, wobble, wind, sway, BOOM, points, the 3-minute day.
   - `HEFT`: how heavy each variety is.
   - `STAGES`: CALM, BREEZY, WINDY, GUSTY, STORMY and WILD WIND, by tower height, each with sway width and speed, perfect zone and gust strength.
+- The patch: `LAYOUT` (path pumpkins at the start), `GROW` (sprout and unripe times, how slowly an unripe pumpkin ripens by itself, the golden chance, each spot's starting stage) and `GROW_SPOTS`.
 - Per-tower state lives in a `Stack` object (one per hay bale), so more bales are a small change.
 - Items may carry `it.golden` (scores ×3) and `it.heft` (overrides the variety's weight).
 - `PatchScene.earnLife(n, x, y)` awards lives from anywhere, with the fly-in.
 - `PatchScene.say()` filters what Ansel says: lines in `SAY_LINES`, or calls that pass `important`.
 - One-time help is remembered per device in `localStorage` (`uppah.pumpkinpatch.played`, `.hinted`).
 
-Measured with `sim.js` (2000 rounds each, 3-minute day, a returning player with no first-round help), pumpkins stacked per round (p10 / median / p90). Timing players aim the landing ring at the centre with the given timing error.
+Measured with `sim.js` (2000 rounds each, 3-minute day, a returning player with no first-round help), pumpkins stacked per round (p10 / median / p90). Each pumpkin costs a real trip with the game's timings: walking, wading into and out of a vine row, 12 frames of watering at 85 ms, the pick, and the slower heavy carry. Path trips average about 3 s; vine trips with watering about 5–6 s. Timing players aim the landing ring at the centre with the given timing error. They tap anything in sight at random.
 
 | Player | Never BOOM | Reach sunset |
 |---|---|---|
-| Random tapper | 3 / 6 / 10 | 0% |
-| Casual (150 ms) | 4 / 8 / 15 | 0% |
-| Good (70 ms) | 11 / 19 / 30 | 1% (93% if they BOOM at 8) |
-| Expert (45 ms) | 16 / 26 / 37 | 8% (90% if they BOOM at 14) |
-| Near-perfect (25 ms) | 25 / 37 / 43 | 33% |
+| Random tapper | 3 / 7 / 11 | 0% |
+| Casual (150 ms) | 4 / 8 / 14 | 0% |
+| Good (70 ms) | 10 / 17 / 27 | 8% (92% if they BOOM at 8) |
+| Expert (45 ms) | 15 / 24 / 31 | 25% (85% if they BOOM at 14) |
+| Near-perfect (25 ms) | 23 / 31 / 33 | 62% |
 
-Wind is present but not dominant. Players stack 8 vs 8 with gusts on and off (casual), 19 vs 20 (good) and 26 vs 31 (expert). Gusts topple a tower 0.09 (casual) to 0.46 (expert) times per round, always one that was already leaning. Pressing BOOM at 8–14 banks a median of about 25,000 for a good player; an expert pushing to 18 banks about 49,000. Never pressing BOOM (only the automatic one at the end) scores a median of about 5,000 (good) and 14,500 (expert), so cashing in during the round still pays.
+- **Watering:** about half of all stacked pumpkins were watered first (46–50%). After the first minute, 62–84% of trips go to the vines. A player who always fetches whatever is nearest Ansel waters 75–90%. MORE! is almost never needed, since there's nearly always something to pick or water.
+- **BOOM:** pressing BOOM at 8–14 banks a median of about 18,500 for a good player; an expert pushing to 14–18 banks about 31,000–33,000. Never pressing BOOM (only the automatic one at the end) scores a median of about 5,500 (good) and 14,300 (expert), so cashing in during the round still pays.
+- **Wind:** present but not dominant. Players stack 8 vs 8 with gusts on and off (casual), 17 vs 18 (good) and 24 vs 27 (expert). Gusts topple a tower 0.08 (casual) to 0.39 (expert) times per round, always one that was already leaning.
 
 The game picks its resolution from the screen's shape (720 on the short side) and re-fits when a phone rotates, so it fills both landscape and portrait screens.
 

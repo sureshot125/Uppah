@@ -1613,8 +1613,22 @@ class PatchScene extends Phaser.Scene {
     // How far into a zone a point is: 0 at its centre, 1 at its edge, more outside. A col shape
     // also runs straight down to the bottom of the world: below its centre only the sideways
     // distance counts.
+    // Shapes: { all }, a circle { cx, cy, r, col }, a rect { x, y, w, h, col }, a capsule round a
+    // segment { x1, y1, x2, y2, r } (the giraffe's neck), and a band that follows the painted
+    // scenery { band: { step, top: [y per column], bottom: [y per column] or a y } } (hills, trees).
     zoneDepth(s, wx, wy) {
         if (s.all) return 0.999;
+        if (s.x1 !== undefined) {
+            const vx = s.x2 - s.x1, vy = s.y2 - s.y1;
+            const t = Phaser.Math.Clamp(((wx - s.x1) * vx + (wy - s.y1) * vy) / (vx * vx + vy * vy || 1), 0, 1);
+            return Math.hypot(wx - (s.x1 + t * vx), wy - (s.y1 + t * vy)) / s.r;
+        }
+        if (s.band) {
+            const B = s.band, i = Phaser.Math.Clamp(Math.floor(wx / B.step), 0, B.top.length - 1);
+            const top = B.top[i], bottom = Array.isArray(B.bottom) ? B.bottom[i] : B.bottom;
+            if (!(bottom > top)) return 2;
+            return Math.abs(wy - (top + bottom) / 2) / ((bottom - top) / 2);
+        }
         if (s.r !== undefined) {
             const dx = wx - s.cx, dy = wy - s.cy;
             return (s.col && dy > 0 ? Math.abs(dx) : Math.hypot(dx, dy)) / s.r;
@@ -3732,6 +3746,10 @@ class UIScene extends Phaser.Scene {
 const ZONE_COLORS = {
     drop: 0x4fc3f7, none: 0x9e9e9e, wait: 0x9e9e9e, boom: 0xff4f4f, pick: 0xffd54f, water: 0x66d96a,
     dive: 0xff9800, hoppah: 0xf48fb1, tower: 0xb39ddb, ansel: 0x80deea, scenery: 0xce93d8, walk: 0xffffff,
+    // the surprises (PatchScene.eggZones)
+    balloon: 0x4dd0e1, crow: 0x4dd0e1, bird: 0x4dd0e1, squirrel: 0x4dd0e1, giraffe: 0xffb74d, jack: 0xff8a50,
+    sign: 0xffcc80, rooster: 0xef5350, owl: 0xce93d8, barn: 0xe57373, sun: 0xfff176, moon: 0xfff9c4,
+    cloud: 0xe0f7fa, fence: 0xd7a86e, stars: 0x9fa8da, hills: 0x9575cd, trees: 0x81c784,
 };
 const ZONE_WORDS = {
     drop: 'DROP', none: 'NOTHING', wait: 'NOTHING', boom: 'BOOM', pick: 'PICK', water: 'WATER', dive: 'DIVE',
@@ -3746,19 +3764,71 @@ const PatchZones = {
         this.events.on('postupdate', () => this.drawZones()); // after the camera has moved
     },
 
+    // Draw one zone shape; returns where its label goes (the middle of its part on screen).
+    drawShape(g, s, v) {
+        if (s.x1 !== undefined) {
+            // a capsule round a segment
+            const a = Math.atan2(s.y2 - s.y1, s.x2 - s.x1), pts = [];
+            for (let i = 0; i <= 8; i++) {
+                const t = a + Math.PI / 2 + Math.PI * i / 8;
+                pts.push({ x: s.x1 + Math.cos(t) * s.r, y: s.y1 + Math.sin(t) * s.r });
+            }
+            for (let i = 0; i <= 8; i++) {
+                const t = a - Math.PI / 2 + Math.PI * i / 8;
+                pts.push({ x: s.x2 + Math.cos(t) * s.r, y: s.y2 + Math.sin(t) * s.r });
+            }
+            g.fillPoints(pts, true).strokePoints(pts, true);
+            return { x: (s.x1 + s.x2) / 2, y: (s.y1 + s.y2) / 2, top: Math.min(s.y1, s.y2) - s.r };
+        }
+        if (s.band) {
+            // a band that follows the painted scenery, column by column
+            const B = s.band, n = B.top.length, bot = i => (Array.isArray(B.bottom) ? B.bottom[i] : B.bottom);
+            const pts = [];
+            for (let i = 0; i < n; i++) pts.push({ x: i * B.step, y: B.top[i] }, { x: (i + 1) * B.step, y: B.top[i] });
+            for (let i = n - 1; i >= 0; i--) pts.push({ x: (i + 1) * B.step, y: bot(i) }, { x: i * B.step, y: bot(i) });
+            g.fillPoints(pts, true).strokePoints(pts, true);
+            const i = Phaser.Math.Clamp(Math.floor((v.centerX + v.width * 0.3) / B.step), 0, n - 1);
+            return { x: (i + 0.5) * B.step, y: (B.top[i] + bot(i)) / 2, inside: true };
+        }
+        if (s.r !== undefined) {
+            if (s.col) {
+                // a circle that runs straight down into the dirt
+                g.beginPath().arc(s.cx, s.cy, s.r, Math.PI, 2 * Math.PI)
+                    .lineTo(s.cx + s.r, WORLD_FLOOR).lineTo(s.cx - s.r, WORLD_FLOOR).closePath().fillPath().strokePath();
+            } else {
+                g.fillCircle(s.cx, s.cy, s.r).strokeCircle(s.cx, s.cy, s.r);
+            }
+            return { x: s.cx, y: s.cy, top: s.cy - s.r };
+        }
+        const h = s.col ? WORLD_FLOOR - s.y : s.h;
+        g.fillRect(s.x, s.y, s.w, h).strokeRect(s.x, s.y, s.w, h);
+        const x0 = Math.max(s.x, v.x), x1 = Math.min(s.x + s.w, v.right);
+        const y0 = Math.max(s.y, v.y), y1 = Math.min(s.y + Math.min(h, s.col ? s.h : h), v.bottom);
+        return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, top: s.y, inside: s.w > 600 };
+    },
+
     drawZones() {
         const cam = this.cameras.main, v = cam.worldView, k = 1 / cam.zoom;
         const state = this.inputState(), zones = this.tapZones(state);
         const g = this.zoneG.clear();
         let li = 0;
-        const label = (text, x, y, color) => {
+        const label = (text, x, y, color, scale = 1) => {
             let t = this.zoneLabels[li++];
             if (!t) {
                 t = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', color: '#ffffff', stroke: INK,
                     strokeThickness: 4, align: 'center' }).setOrigin(0.5).setDepth(201);
                 this.zoneLabels.push(t);
             }
-            t.setText(text).setColor(color).setScale(k).setPosition(x, y).setVisible(true);
+            t.setText(text).setColor(color).setScale(k * scale).setPosition(x, y).setVisible(true);
+        };
+        // a label goes just above its zone, so it never hides the art (big ones are named inside)
+        const draw = (z, word, alpha, above) => {
+            const c = ZONE_COLORS[z.id] || 0xffffff;
+            g.lineStyle(3 * k, c, 0.95).fillStyle(c, alpha);
+            const at = this.drawShape(g, z.shape, v);
+            if (!word) return;
+            const y = above && !at.inside && at.top !== undefined ? Math.max(v.y + 12 * k, at.top - 9 * k) : at.y;
+            label(word, at.x, y, zoneCss(c));
         };
         // lowest priority first, so the zones that win a tap are drawn on top
         for (const z of [...zones].sort((p, q) => q.prio - p.prio)) {
@@ -3768,35 +3838,36 @@ const PatchZones = {
                 // fallback when idle, is only named in the bottom line)
                 if (z.id === 'walk') continue;
                 g.fillStyle(c, 0.2).fillRect(v.x, v.y, v.width, v.height);
-                label('ANYWHERE: ' + word, v.centerX, v.y + v.height * 0.4, zoneCss(c));
-                this.zoneLabels[li - 1].setScale(2 * k);
+                label('ANYWHERE: ' + word, v.centerX, v.y + v.height * 0.4, zoneCss(c), 2);
                 continue;
             }
-            g.lineStyle(3 * k, c, 0.95).fillStyle(c, 0.24);
-            let lx, ly;
-            if (s.r !== undefined) {
-                if (s.col) {
-                    // a circle that runs straight down into the dirt
-                    g.beginPath().arc(s.cx, s.cy, s.r, Math.PI, 2 * Math.PI)
-                        .lineTo(s.cx + s.r, WORLD_FLOOR).lineTo(s.cx - s.r, WORLD_FLOOR).closePath().fillPath().strokePath();
-                } else {
-                    g.fillCircle(s.cx, s.cy, s.r).strokeCircle(s.cx, s.cy, s.r);
+            if (z.id === 'scenery') {
+                // the scenery: its outline, then every surprise in it (eggZones), winners on top
+                g.lineStyle(2 * k, c, 0.6).strokeRect(s.x, s.y, s.w, s.h);
+                const eggs = this.eggZones().filter(e => this.zoneOnScreen(e.shape, v));
+                const mid = eggs.filter(e => e.id === 'fence')
+                    .sort((p, q) => Math.abs(p.shape.x - v.centerX) - Math.abs(q.shape.x - v.centerX))[0];
+                for (const e of eggs.sort((p, q) => q.prio - p.prio)) {
+                    const big = !!(e.shape.band || e.shape.w > 600);
+                    draw(e, e === mid ? 'FENCE' : (e.label ?? e.id.toUpperCase()), big ? 0.1 : 0.22, true);
                 }
-                lx = s.cx; ly = s.cy;
-            } else {
-                const h = s.col ? WORLD_FLOOR - s.y : s.h;
-                g.fillRect(s.x, s.y, s.w, h).strokeRect(s.x, s.y, s.w, h);
-                // label the part of it that's on screen
-                const x0 = Math.max(s.x, v.x), x1 = Math.min(s.x + s.w, v.right);
-                const y0 = Math.max(s.y, v.y), y1 = Math.min(s.y + Math.min(h, s.col ? s.h : h), v.bottom);
-                lx = (x0 + x1) / 2; ly = (y0 + y1) / 2;
+                continue;
             }
-            label(word, lx, ly, zoneCss(c));
+            draw(z, word, 0.24);
         }
         for (; li < this.zoneLabels.length; li++) this.zoneLabels[li].setVisible(false);
         const rest = zones.find(z => z.shape.all);
         this.zoneLine = state.toUpperCase() + (rest ? (rest.prio === 0 ? ': ANYWHERE ' : ': ELSEWHERE ') +
             (ZONE_WORDS[rest.id] || rest.id) : '');
+    },
+
+    // Is any of this zone shape on screen (roughly)?
+    zoneOnScreen(s, v) {
+        if (s.band || s.all) return true;
+        if (s.x1 !== undefined) return Math.max(s.x1, s.x2) + s.r > v.x && Math.min(s.x1, s.x2) - s.r < v.right &&
+            Math.max(s.y1, s.y2) + s.r > v.y && Math.min(s.y1, s.y2) - s.r < v.bottom;
+        if (s.r !== undefined) return s.cx + s.r > v.x && s.cx - s.r < v.right && s.cy + s.r > v.y && s.cy - s.r < v.bottom;
+        return s.x + s.w > v.x && s.x < v.right && s.y + s.h > v.y && s.y < v.bottom;
     },
 };
 
@@ -4270,79 +4341,76 @@ const PatchEggs = {
     },
 
     // Work out what was tapped and react. Returns { id: sticker, handled } or null.
+    // The zone under the finger (eggZones) runs its reaction.
     eggReact(wx, wy) {
-        const J = this.eggJ;
-        const near = (x, y, rx, ry) => Math.abs(wx - x) < rx && Math.abs(wy - y) < ry;
-        const dist = (x, y) => Phaser.Math.Distance.Between(wx, wy, x, y);
+        const z = this.zonesAt(this.eggZones(), wx, wy)[0];
+        return z ? z.run(wx, wy) : null;
+    },
+
+    // Every surprise's tap zone, as data (the ?zones=1 overlay draws this same list). Lower prio
+    // wins; within a prio, the zone the finger is deepest into wins.
+    eggZones() {
+        const J = this.eggJ, Z = [];
+        if (!J) return Z;
+        let order = 0;
+        const add = (id, shape, run, label) => Z.push({ id, prio: order++, shape, run, label });
+        const near = (x, y, rx, ry) => ({ x: x - rx, y: y - ry, w: 2 * rx, h: 2 * ry });
 
         // visitors first: they're in front of the scenery
         const bl = this.eggBalloon;
-        if (bl.state === 'drift' && near(bl.img.x, bl.img.y, 56, 74)) { this.eggBalloonTap(); return { id: 'balloon', handled: true }; }
+        if (bl.state === 'drift') add('balloon', near(bl.img.x, bl.img.y, 56, 74), () => { this.eggBalloonTap(); return { id: 'balloon', handled: true }; });
         const cr = this.eggCrow;
-        if ((cr.state === 'in' || cr.state === 'perched') && near(cr.img.x, cr.img.y - 20, 46, 36)) {
-            this.eggCrowTap(); return { id: 'crow', handled: true };
+        if (cr.state === 'in' || cr.state === 'perched') {
+            add('crow', near(cr.img.x, cr.img.y - 20, 46, 36), () => { this.eggCrowTap(); return { id: 'crow', handled: true }; });
         }
+        const birdPrio = order++;
         for (const b of this.eggBirds) {
-            if ((b.state === 'in' || b.state === 'sit') && near(b.img.x, b.img.y - 14, 38, 32)) {
-                this.eggBirdTap(b); return { id: 'bird', handled: true };
+            if (b.state === 'in' || b.state === 'sit') {
+                Z.push({ id: 'bird', prio: birdPrio, shape: near(b.img.x, b.img.y - 14, 38, 32),
+                    run: () => { this.eggBirdTap(b); return { id: 'bird', handled: true }; } });
             }
         }
         const sq = this.eggSquirrel;
-        if (sq.visible && near(sq.x, sq.y - 30, 46, 46)) { this.eggChitter(); return { id: 'squirrel', handled: true }; }
+        if (sq.visible) add('squirrel', near(sq.x, sq.y - 30, 46, 46), () => { this.eggChitter(); return { id: 'squirrel', handled: true }; });
 
         // the giraffe walks in front of the barn and trees (its own reaction lives in tapScenery)
-        if (this.eggGiraffeAt(wx, wy)) return { id: 'giraffe', handled: false };
+        const g = this.raffe, d = g.dir, y0 = g.img.y, giraffe = () => ({ id: 'giraffe', handled: false });
+        const gp = order++;
+        Z.push({ id: 'giraffe', prio: gp, shape: { x: g.x - d * 20 - 74, y: y0 - 168, w: 148, h: 168 }, run: giraffe });
+        Z.push({ id: 'giraffe', prio: gp, shape: near(g.x + d * 76, y0 - 308, 46, 42), run: giraffe, label: '' });
+        Z.push({ id: 'giraffe', prio: gp, shape: { x1: g.x + d * 20, y1: y0 - 150, x2: g.x + d * 68, y2: y0 - 290, r: 28 }, run: giraffe, label: '' });
 
         // silo: the jack-o'-lantern on top (third tap in a row: it sneezes), ANSEL'S below
-        if (Math.abs(wx - SILO_X) < 95 && wy > SILO_TOP_Y - 150 && wy < SILO_TOP_Y + 20) {
-            return { id: 'jack', handled: this.eggJack() };
-        }
-        if (Math.abs(wx - SILO_X) < 60 && wy >= SILO_TOP_Y + 20 && wy < 1765) { this.eggSign(); return { id: 'sign', handled: true }; }
+        add('jack', { x: SILO_X - 95, y: SILO_TOP_Y - 150, w: 190, h: 170 }, () => ({ id: 'jack', handled: this.eggJack() }));
+        add('sign', { x: SILO_X - 60, y: SILO_TOP_Y + 20, w: 120, h: 1765 - SILO_TOP_Y - 20 }, () => { this.eggSign(); return { id: 'sign', handled: true }; });
 
         // barn: rooster on the roof, owl in the hayloft, animals behind the doors
-        const roo = this.eggRoo;
-        if (near(roo.x, roo.y - 28, 44, 38)) { this.eggRooster(); return { id: 'rooster', handled: true }; }
-        const B = J.barn;
-        if (wx > 368 && wx < 676 && wy > 1464 && wy < 1765) {
-            if (near(B.loft[0], B.loft[1] - 18, 42, 36)) { this.eggOwl(); return { id: 'owl', handled: true }; }
-            if (wy < 1572) { this.eggRooster(); return { id: 'rooster', handled: true, x: roo.x, y: roo.y - 30 }; }
-            return { id: this.eggBarn(), handled: true };
-        }
+        const roo = this.eggRoo, B = J.barn;
+        add('rooster', near(roo.x, roo.y - 28, 44, 38), () => { this.eggRooster(); return { id: 'rooster', handled: true }; });
+        add('owl', near(B.loft[0], B.loft[1] - 18, 42, 36), () => { this.eggOwl(); return { id: 'owl', handled: true }; });
+        add('rooster', { x: 368, y: 1464, w: 308, h: 108 }, () => { this.eggRooster(); return { id: 'rooster', handled: true, x: roo.x, y: roo.y - 30 }; }, 'ROOF');
+        add('barn', { x: 368, y: 1572, w: 308, h: 193 }, () => ({ id: this.eggBarn(), handled: true }));
 
         // sky
-        if (dist(J.sun[0], J.sun[1]) < 100) { this.eggSun(); return { id: 'sun', handled: true }; }
-        if (dist(J.moon[0], J.moon[1]) < 90) { this.eggMoon(); return { id: 'moon', handled: true }; }
+        add('sun', { cx: J.sun[0], cy: J.sun[1], r: 100 }, () => { this.eggSun(); return { id: 'sun', handled: true }; });
+        add('moon', { cx: J.moon[0], cy: J.moon[1], r: 90 }, () => { this.eggMoon(); return { id: 'moon', handled: true }; });
+        const cloudPrio = order++;
         for (const c of this.eggClouds) {
-            if (near(c.x, c.y, c.w / 2 + 14, c.h / 2 + 14)) { this.eggCloud(c); return { id: 'cloud', handled: true, x: c.x, y: c.y }; }
+            Z.push({ id: 'cloud', prio: cloudPrio, shape: near(c.x, c.y, c.w / 2 + 14, c.h / 2 + 14),
+                run: () => { this.eggCloud(c); return { id: 'cloud', handled: true, x: c.x, y: c.y }; } });
         }
 
         // fence posts play notes
-        const P = J.posts;
-        if (wy > P.top - 22 && wy < P.top + 40) {
-            let bi = -1, bd = 34;
-            P.xs.forEach((x, i) => { const d = Math.abs(wx - x); if (d < bd) { bd = d; bi = i; } });
-            if (bi >= 0) { this.eggPost(bi); return { id: 'fence', handled: true, x: P.xs[bi], y: P.top - 10 }; }
-        }
+        const P = J.posts, postPrio = order++;
+        P.xs.forEach((x, i) => Z.push({ id: 'fence', prio: postPrio, shape: { x: x - 34, y: P.top - 22, w: 68, h: 62 },
+            label: '', run: () => { this.eggPost(i); return { id: 'fence', handled: true, x, y: P.top - 10 }; } }));
 
-        if (wy < 790) { this.eggStars(wx, wy); return { id: 'stars', handled: true }; }
-        if (wy > 1478 && wy < 1588) { this.eggHills(wx, wy); return { id: 'flock', handled: true }; }
-        if (wy >= 1588 && wy < 1800) { this.eggTrees(wx); return { id: null, handled: true }; }
+        add('stars', { x: 0, y: 0, w: WORLD_W, h: 790 }, (wx, wy) => { this.eggStars(wx, wy); return { id: 'stars', handled: true }; });
+        add('hills', { x: 0, y: 1478, w: WORLD_W, h: 110 }, (wx, wy) => { this.eggHills(wx, wy); return { id: 'flock', handled: true }; });
+        add('trees', { x: 0, y: 1588, w: WORLD_W, h: 212 }, wx => { this.eggTrees(wx); return { id: null, handled: true }; });
         // the rest of the giraffe's old tap box (tapScenery handles it)
-        const g = this.raffe;
-        if (Math.abs(wx - g.x) < 95 && wy > GIRAFFE_Y - 340 && wy < GIRAFFE_Y - 20) return { id: 'giraffe', handled: false };
-        return null;
-    },
-
-    // Is the giraffe itself (body, neck or head) under the finger?
-    eggGiraffeAt(wx, wy) {
-        const g = this.raffe, d = g.dir, y0 = g.img.y;
-        if (Math.abs(wx - (g.x - d * 20)) < 74 && wy > y0 - 168 && wy < y0) return true;
-        const hx = g.x + d * 76, hy = y0 - 308;
-        if (Math.abs(wx - hx) < 46 && Math.abs(wy - hy) < 42) return true;
-        const sx = g.x + d * 20, sy = y0 - 150, ex = g.x + d * 68, ey = y0 - 290;
-        const L2 = (ex - sx) ** 2 + (ey - sy) ** 2;
-        const t = Phaser.Math.Clamp(((wx - sx) * (ex - sx) + (wy - sy) * (ey - sy)) / L2, 0, 1);
-        return Phaser.Math.Distance.Between(wx, wy, sx + t * (ex - sx), sy + t * (ey - sy)) < 28;
+        add('giraffe', { x: g.x - 95, y: GIRAFFE_Y - 340, w: 190, h: 320 }, giraffe, '');
+        return Z;
     },
 
     // Tap counter: how many times in a row (within EGG_AGAIN) this has been tapped.

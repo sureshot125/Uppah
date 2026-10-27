@@ -4995,7 +4995,7 @@ const HTP_PAGES = [
         { ic: { img: 'pumpkin_golden', s: 0.6 }, t: 'GOLDEN PUMPKINS' },
     ] },
     { title: 'BOOM!', art: 'htpArtBoom', rows: [
-        { p: 'ONCE THE TOWER IS 3 TALL, A BOOM SIGN HANGS ON THE HAY BALE.' },
+        { p: 'ONCE THE TOWER IS 3 TALL, A BOOM SIGN SHOWS UP AT THE FOOT OF THE BALE.' },
         { p: "BOOM BANKS THE TOWER'S POINTS AND KNOCKS IT DOWN. TALLER TOWER, BIGGER BONUS." },
         { p: 'IF IT FALLS FIRST, THOSE POINTS ARE LOST.', c: 'orange' },
         { p: 'ONE MORE, OR CASH IN NOW?', c: 'gold' },
@@ -5003,10 +5003,10 @@ const HTP_PAGES = [
         { desk: true, ic: { keys: ['B'] }, t: 'HOLD B TO BOOM, OR CLICK THE BALE.' },
     ] },
     { title: 'BEAT THE SUNSET', art: 'htpArtDay', rows: [
-        { p: 'A ROUND IS ONE AFTERNOON. THE SKY TURNS GOLD, THEN DUSK.' },
-        { p: 'WHEN THE SUN SETS OR YOUR LIVES RUN OUT, ANSEL BOOMS WHATEVER IS STILL STANDING.', c: 'gold' },
-        { ic: { img: 'pumpkin_unripe', s: 0.75 }, t: 'VINES GROW PUMPKINS: TAP TO PICK, OR WATER.' },
-        { ic: { img: 'leafpile_a', s: 0.55 }, t: 'LEAF PILES HIDE SOME. EMPTY PATCH? TAP FOR MORE!' },
+        { p: 'A ROUND IS ONE AFTERNOON: GOLD, THEN DUSK.' },
+        { p: "AT SUNSET, OR WHEN YOUR LIVES RUN OUT, ANSEL BOOMS WHAT'S STILL STANDING.", c: 'gold' },
+        { ic: { img: 'pumpkin_unripe', s: 0.75 }, t: 'PUMPKINS GROW IN THE VINES. TAP A GREEN ONE TO WATER IT.' },
+        { ic: { img: 'leafpile_a', s: 0.55 }, t: 'LEAF PILES HIDE SOME. NOTHING LEFT? TAP: MORE!' },
         { ic: { img: 'sparkle', n: 2 }, t: 'TAP THE SCENERY, TOO.' },
         { desk: true, ic: { keys: ['P', 'M'] }, t: 'PAUSE, MUTE' },
     ] },
@@ -5677,14 +5677,14 @@ const UIHtp = {
         const tower = this.htpTower(c, keys);
         const homes = tower.items.map(it => ({ x: it.x, y: it.y }));
         const top = this.htpW(c, HAY_X, tower.top);
-        const sp = this.htpW(c, HAY_X, HAY_TOP + 46);
+        const sp = this.htpW(c, HAY_X, GROUND - 24);  // its top edge, at the bale's foot
         const sign = this.add.container(sp.x, sp.y);
         const st = this.htpArtText(c, 0, 0, 'BOOM!', 22, HTP_COL.orange);
         const sv = this.htpArtText(c, 0, 0, '+1,260', 20, HTP_COL.gold);
         const sw = Math.max(st.width, sv.width) + 40, sh = st.height + sv.height + 18;
-        st.setY(-sh / 2 + 12 + st.height / 2);
-        sv.setY(sh / 2 - 12 - sv.height / 2);
-        sign.add([this.add.nineslice(0, 0, 'panel', null, sw, sh, 20, 20, 20, 20), st, sv]);
+        st.setY(12 + st.height / 2);
+        sv.setY(sh - 12 - sv.height / 2);
+        sign.add([this.add.nineslice(0, sh / 2, 'panel', null, sw, sh, 20, 20, 20, 20), st, sv]);
         c.add(sign);
         const walk = (ANSEL_CYCLES.walk && ANSEL_CYCLES.walk.everyday) || [htpHero()];
         const ansel = this.htpAnsel(c, htpHero(), 690);
@@ -5703,7 +5703,7 @@ const UIHtp = {
                 onComplete: () => sign.setAngle(0) });
             ansel.setX(startX);
             this.htpPose(ansel, htpHero());
-            this.htpLater(800, () => this.htpTapAt(hand, sp.x + 30, sp.y + 10));
+            this.htpLater(800, () => this.htpTapAt(hand, sp.x + 30, sp.y + 30));
             this.htpLater(1000, () => {
                 let f = 0;
                 const run = this.time.addEvent({ delay: 80, repeat: 5, callback: () => this.htpPose(ansel, walk[++f % walk.length]) });

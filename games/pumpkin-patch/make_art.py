@@ -1827,37 +1827,29 @@ def arrow():
 
 
 def speaker(on=True):
-    rows = [
-        "....k....." ,
-        "...kwk..k.",
-        "kkkwwk.k.k",
-        "kwwwwk..k.",
-        "kwwwwk.k.k" if on else "kwwwwk.k.k",
-        "kkkwwk....",
-        "...kwk....",
-        "....k.....",
-    ]
-    if not on:
+    """Sound button icon: a speaker facing right. On: two sound waves curving away from it, like ")".
+    Off: an x in their place."""
+    if on:
         rows = [
-            "....k.....",
-            "...kwk....",
-            "kkkwwk.k.k",
-            "kwwwwk..k.",
-            "kwwwwk.k.k",
-            "kkkwwk....",
-            "...kwk....",
-            "....k.....",
+            "....k......",
+            "...kwk...k.",
+            "kkkwwk.k..k",
+            "kwwwwk..k.k",
+            "kwwwwk..k.k",
+            "kkkwwk.k..k",
+            "...kwk...k.",
+            "....k......",
         ]
     else:
         rows = [
-            "....k.....",
-            "...kwk..k.",
-            "kkkwwk.k..",
-            "kwwwwk.k.k",
-            "kwwwwk.k.k",
-            "kkkwwk.k..",
-            "...kwk..k.",
-            "....k.....",
+            "....k......",
+            "...kwk.....",
+            "kkkwwk.k.k.",
+            "kwwwwk..k..",
+            "kwwwwk.k.k.",
+            "kkkwwk.....",
+            "...kwk.....",
+            "....k......",
         ]
     return from_rows(rows, {"k": INK + (255,), "w": hx("#fff3c4")})
 

@@ -124,11 +124,11 @@ const MORE_POOL = [
 const MORE_BATCH = 5;
 
 // ── Growing patch: pumpkins grow in two lanes of the vine rows behind the path ──
-// Plants sprout and grow to a green, unripe pumpkin on their own, then wait for water (left
-// alone, an unripe one ripens only slowly).
-// Tap a ripe one and Ansel (in his straw hat) wades in, tugs it off the vine and carries
-// it back; tap a sprout or an unripe one and he waters it, it ripens in front of him, and
-// he picks it and carries it back in the same trip.
+// A bare spot sprouts, and a sprout grows into a small pumpkin, then medium, large and (left
+// long enough) XL, each bigger stage taking longer. Tap a pumpkin of any size and Ansel (in his
+// straw hat) wades in, picks it and carries it to the bale. Tap a bare spot or a sprout and he
+// waters it: it jumps a stage at once and grows half again as fast until it's picked. Water
+// early, pick big.
 // Gigi's visit: she stands between the two vine rows (the front row hides her feet), at
 // roughly Ansel's height, and jogs rather than sprints.
 const GIGI = { y: 1962, depth: 5, scale: 0.55, speed: 250 };
@@ -141,11 +141,18 @@ const GROW_SPOTS = [
     { lane: 0, x: 1430 }, { lane: 0, x: 1660 },
     { lane: 1, x: 450 }, { lane: 1, x: 700 }, { lane: 1, x: 1290 }, { lane: 1, x: 1545 },
 ];
-// sproutDelay: seconds from a pick to a new sprout; stageTime: sprout to unripe; ripenTime:
-// unripe to ripe without water (slow, so most vine pumpkins get watered; null = only water
-// ripens one); start: each spot's stage when a round begins (0 bare, 1 sprout, 2 unripe, 3 ripe).
-const GROW = { sproutDelay: [4, 8], stageTime: [9, 14], ripenTime: [30, 50], goldenChance: 0.06,
-    start: [2, 1, 3, 2, 1, 2, 2, 1, 3, 2] };
+// sproutDelay: seconds before a bare spot sprouts; grow[i]: seconds from sprout (0), small (1),
+// medium (2) and large (3) to the next size, left alone; watered: a watered plant grows this many
+// times faster until it's picked; goldenChance: a plant growing large is now and then golden
+// instead (it stays that size); start: each spot's stage when a round begins (0 bare, 1 sprout,
+// 2 small, 3 medium, 4 large, 5 XL); moreCooldown: seconds before MORE! works again.
+const GROW = { sproutDelay: [6, 10], grow: [[10, 14], [22, 30], [40, 55], [55, 70]], watered: 1.5,
+    goldenChance: 0.08, start: [2, 1, 3, 0, 1, 2, 3, 1, 2, 0], moreCooldown: 20 };
+// The varieties a vine pumpkin can be at each stage (from PUMPKIN_SPECS, so the size, weight and
+// stacking rules all apply).
+const GROW_SIZES = [null, null, ['pumpkin_gold_s', 'pumpkin_orange_s', 'pumpkin_warty_s'],
+    ['pumpkin_orange_m', 'pumpkin_white_m', 'pumpkin_green_m'], ['pumpkin_orange_l'], ['pumpkin_deep_xl']];
+const GROW_TOP = GROW_SIZES.length - 1;
 const PILES = [
     { key: 'leafpile_b', x: 262,  hides: 'pumpkin_orange_s' },
     { key: 'leafpile_a', x: 1695, hides: 'pumpkin_orange_m' },
@@ -186,6 +193,7 @@ const RULES = {
     kickSpread: 0.6,      // ...and varies +-this share from drop to drop (moderate misses only sometimes fall)
     kickPow: 0.75,        // ...weight ratio to this power
     kickBase: 0.25,       // ...plus this much even when centred
+    heavyKick: 0.5,       // ...and a big pumpkin lands harder: x (weight / a medium's) ^ this, above medium
     tipDelay: 0.6,        // seconds a stack teeters past its tipping point before it goes (short gusts pass)
     windK: 0.03,          // wind leverage: balance shift per unit of wind per px of height
     leverCap: 220,        // px: wind leverage stops growing above this height
@@ -195,10 +203,12 @@ const RULES = {
     warn: 1.4,            // seconds of leaves and whoosh before a gust hits
     windSway: h => 7 + Math.min(h, 1000) * 0.012, // extra px the top visibly sways in a full gust
     hoverLean: 7,         // degrees the hovering pumpkin leans in a full gust
+    hoverHeft: 0.06,      // hover glide speed x (weight / a medium's) ^ this: a big one swings a bit faster
     swayHz: 0.6,          // the tower's springy sway
     swayDamp: 0.2,
     swayPx: h => 12 + Math.min(h, 1400) * 0.03, // top sway (px) at full lean
     points: { perfect: 100, good: 50, ok: 25 },
+    sizePow: 0.6,         // bigger pumpkins score more: points x (weight / a medium's) ^ this, 0.6x to 2.2x
     orderBonus: 25,       // landing on a pumpkin at least as heavy (big at the bottom, small on top)
     combos: [[10, 4], [5, 3], [3, 2]], // perfect streak -> score multiplier
     goldenMult: 3,        // golden pumpkins (it.golden) score this many times more
@@ -283,7 +293,8 @@ const Rules = {
     // rock harder. Even a centred drop jolts a light pumpkin when a heavy one lands on it.
     kick(sup, pc, d, base) {
         const ratio = clampN(pc.m / (sup ? sup.m : RULES.hayMass), 0.25, 4);
-        return RULES.impact * Math.pow(ratio, RULES.kickPow) *
+        const heavy = Math.pow(Math.max(1, pc.m / 1.34), RULES.heavyKick);
+        return RULES.impact * Math.pow(ratio, RULES.kickPow) * heavy *
             (RULES.kickBase + Math.min(1.5, Math.abs(d) / this.supportHalf(sup, base)));
     },
 
@@ -330,14 +341,17 @@ const Rules = {
     boomMult(n) { return 1 + RULES.boomPer * n; },
     boomLives(n) { for (const [h, k] of RULES.boomLives) if (n >= h) return k; return 0; },
     combo(streak) { for (const [n, x] of RULES.combos) if (streak >= n) return x; return 1; },
-    score(grade, stageIdx, streak, ordered, golden) {
-        const mult = (grade === 'perfect' ? this.combo(streak) : 1) * (golden ? RULES.goldenMult : 1);
+    // A big pumpkin scores more (but it's heavy: a slower carry and a risky top).
+    sizeMult(m) { return clampN(Math.pow((m || 1.34) / 1.34, RULES.sizePow), 0.6, 2.2); },
+    score(grade, stageIdx, streak, ordered, golden, m) {
+        const mult = (grade === 'perfect' ? this.combo(streak) : 1) * (golden ? RULES.goldenMult : 1) * this.sizeMult(m);
         return Math.round((RULES.points[grade] + (ordered ? RULES.orderBonus : 0)) * (1 + 0.25 * stageIdx) * mult);
     },
 
-    // Hovering: light pumpkins glide a little faster and get blown further than heavy ones.
+    // Hovering: how a pumpkin's weight changes its glide (RULES.hoverHeft); light ones also get
+    // blown further than heavy ones.
     hoverSpeed(stage, pc) {
-        return stage.speed * clampN(Math.pow(1.34 / pc.m, 0.1), 0.88, 1.12);
+        return stage.speed * clampN(Math.pow(pc.m / 1.34, RULES.hoverHeft), 0.85, 1.2);
     },
     hoverDrift(wind, pc) { return wind * RULES.hoverDrift * clampN(Math.sqrt(1.34 / pc.m), 0.55, 1.7); },
     fallDrift(wind, pc) { return wind * RULES.fallDrift * clampN(Math.sqrt(1.34 / pc.m), 0.55, 1.7); },
@@ -906,6 +920,12 @@ class PatchScene extends Phaser.Scene {
             ANSEL_FRAMES[outfit].forEach(f => this.load.image(`ansel:${outfit}/${f}`, `${ANSEL_ART}${outfit}/${f}.png`));
         }
         this.load.json('ansel_frames', ANSEL_ART + 'frames.json');
+        // his hands over a pumpkin he holds: a layer for each frame that has one (frames.json says)
+        this.load.once('filecomplete-json-ansel_frames', (key, type, data) => {
+            for (const k in data.frames) {
+                if (data.frames[k].front) this.load.image(`ansel:${k}_front`, `${ANSEL_ART}${k}_front.png`);
+            }
+        });
         for (let i = 1; i <= 8; i++) this.load.image('gigi_' + i, `${SHARED}Gigi Running frames/frame_0${i}.png`);
         this.load.image('hoppah_stand', SHARED + 'hoppah_standing.png');
         this.load.image('hoppah_jump', SHARED + 'hoppah_jumping.png');
@@ -1004,15 +1024,17 @@ class PatchScene extends Phaser.Scene {
             it.state = 'ground';
         });
 
-        // Ansel
-        // Ansel (every frame shares one canvas, so one origin: his feet)
+        // Ansel (every frame shares one canvas, so one origin: his feet). front: his hands, drawn
+        // over a pumpkin he's holding (the pumpkin is drawn in front of him).
         const AF = this.anselData = this.cache.json.get('ansel_frames');
         this.ansel = {
-            x: 700, dir: 1, frame: 0, frameT: 0, moving: false, carrying: null,
+            x: 700, dir: 1, frame: 0, frameT: 0, moving: false, carrying: null, lifting: null,
             goal: null, busy: false, pose: 'run', bob: 0, jumpY: 0,
             laneY: 0, depthScale: 1, baseScale: 1, farming: false, walkingLane: false,
             img: this.add.image(700, GROUND, 'ansel:everyday/pick_1').setDepth(20)
                 .setOrigin(AF.footX / AF.w, AF.footY / AF.h),
+            front: this.add.image(700, GROUND, 'ansel:everyday/pick_1').setOrigin(AF.footX / AF.w, AF.footY / AF.h)
+                .setVisible(false),
             shadow: this.add.image(700, GROUND + 4, 'shadow').setDepth(9),
         };
         this.setPose('run');
@@ -1408,29 +1430,30 @@ class PatchScene extends Phaser.Scene {
             onComplete: () => { a.jumpY = 0; } });
     }
 
-    // Is there anything left to fetch: a pumpkin on the path, or a vine pumpkin to pick or water
-    // (not counting pumpkins still hidden in leaves)?
+    // Is there a pumpkin to pick anywhere: on the path, or of any size in the vines (not counting
+    // pumpkins still hidden in leaves)? Bare spots and sprouts can always be watered, so they
+    // don't count here.
     anyLoose() {
         return this.items.some(it => it.body && it.state !== 'tower' && it.state !== 'hidden' && it.state !== 'spent') ||
-            (this.spots || []).some(sp => sp.stage >= 1 && !sp.busy);
+            (this.spots || []).some(sp => sp.stage >= 2 && !sp.busy);
     }
 
+    // MORE!: with no pumpkin to pick anywhere, a tap on empty ground (or on Ansel) makes him shout
+    // for more, and every plant in the patch grows a stage. It needs GROW.moreCooldown seconds
+    // to come back; until then the patch has to grow (or be watered) the slow way.
     more() {
         const a = this.ansel;
         if (a.busy || a.carrying || this.hovering || this.anyLoose()) return;
+        if (this.time.now < (this.moreReadyAt || 0)) { this.anselJump(); return; }
+        this.moreReadyAt = this.time.now + GROW.moreCooldown * 1000;
         a.busy = true;
         this.setPose('cheer');
         Sfx.more();
         this.say('MORE!', 1300, true);
-        // the whole patch grows a stage or two, rippling out from Ansel, but never past unripe:
-        // only water ripens a pumpkin
+        // every plant grows a stage, rippling out from Ansel
         const order = [...this.spots].sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x));
         order.forEach((sp, i) => {
-            this.time.delayedCall(250 + i * 110, () => {
-                if (sp.busy) return;
-                if (sp.stage < 2) this.growSpot(sp);
-                if (sp.stage < 2 && i % 2 === 0) this.growSpot(sp);
-            });
+            this.time.delayedCall(250 + i * 110, () => { if (!sp.busy) this.growSpot(sp); });
         });
         // and tuck a new surprise into any leaf pile that's empty
         for (const pile of this.piles) {
@@ -1777,52 +1800,58 @@ class PatchScene extends Phaser.Scene {
         this.resetPatch();
     }
 
-    // Each round starts with a mix in the vines: some ripe, some green, some sprouts.
+    // Each round starts with a mix in the vines: bare spots, sprouts, small and medium pumpkins.
     resetPatch() {
+        this.moreReadyAt = 0;
         this.spots.forEach((sp, i) => {
             if (sp.img) { this.tweens.killTweensOf(sp.img); sp.img.destroy(); }
-            Object.assign(sp, { stage: 0, t: 0, img: null, key: null, golden: false, busy: false });
+            Object.assign(sp, { stage: 0, t: Phaser.Math.FloatBetween(...GROW.sproutDelay), img: null, key: null,
+                golden: false, busy: false, watered: false });
             const start = GROW.start[i % GROW.start.length];
             for (let k = 0; k < start; k++) this.growSpot(sp, false);
         });
     }
 
+    // Seconds until a plant at its current stage grows again (faster if it has been watered).
+    growTime(sp) {
+        const range = sp.stage === 0 ? GROW.sproutDelay : GROW.grow[sp.stage - 1];
+        if (!range || sp.golden) return Infinity; // full size
+        return Phaser.Math.FloatBetween(...range) / (sp.watered ? GROW.watered : 1);
+    }
+
+    // Grow one stage: bare -> sprout -> small -> medium -> large (now and then golden) -> XL.
+    // It reads calmly: the new size just eases in, no bursts.
     growSpot(sp, fx = true) {
-        if (sp.stage >= 3) return;
+        if (sp.stage >= GROW_TOP || sp.golden) return;
         sp.stage += 1;
         const lane = LANES[sp.lane];
         let key, scale = lane.scale;
         if (sp.stage === 1) { key = 'sprout'; scale *= 1.4; }
-        else if (sp.stage === 2) key = 'pumpkin_unripe';
         else {
-            sp.golden = Math.random() < GROW.goldenChance;
-            sp.key = sp.golden ? 'pumpkin_golden' : Phaser.Utils.Array.GetRandom(MORE_POOL);
+            if (sp.stage === 4 && Math.random() < GROW.goldenChance) sp.golden = true;
+            sp.key = sp.golden ? 'pumpkin_golden' : Phaser.Utils.Array.GetRandom(GROW_SIZES[sp.stage]);
             key = sp.key;
         }
         if (!sp.img) sp.img = this.add.image(sp.x, lane.y + 6, key).setOrigin(0.5, 1).setDepth(lane.depth);
         sp.img.setTexture(key).setScale(scale).setAngle(0);
-        // an unripe pumpkin waits for water (or, if GROW.ripenTime is set, ripens slowly by itself)
-        sp.t = sp.stage === 2 ? (GROW.ripenTime ? Phaser.Math.FloatBetween(...GROW.ripenTime) : Infinity)
-            : Phaser.Math.FloatBetween(...GROW.stageTime);
+        sp.t = this.growTime(sp);
         if (fx) {
-            sp.img.setScale(scale * 0.5);
-            this.tweens.add({ targets: sp.img, scale, duration: 260, ease: 'Back.Out' });
-            this.sparkles.explode(sp.stage === 3 ? 5 : 2, sp.x, lane.y - 20);
-            if (sp.stage === 3) Sfx.pop();
-            if (sp.golden) this.sparkles.explode(12, sp.x, lane.y - 40);
+            this.tweens.killTweensOf(sp.img);
+            sp.img.setScale(scale * (sp.stage === 1 ? 0.5 : 0.85));
+            this.tweens.add({ targets: sp.img, scale, duration: 450, ease: 'Sine.Out' });
         }
     }
 
     updatePatch(dt) {
         if (!this.started) return;
         for (const sp of this.spots) {
-            if (sp.busy || sp.stage >= 3) continue;
+            if (sp.busy) continue;
             sp.t -= dt;
             if (sp.t <= 0) this.growSpot(sp);
         }
         // a golden pumpkin glints now and then so it gets noticed
         for (const sp of this.spots) {
-            if (sp.golden && sp.stage >= 3 && sp.img && Math.random() < dt * 1.5) {
+            if (sp.golden && sp.img && Math.random() < dt * 1.5) {
                 this.sparkles.explode(1, sp.x + Phaser.Math.Between(-35, 35), sp.img.y - sp.img.displayHeight * 0.6);
             }
         }
@@ -1840,21 +1869,24 @@ class PatchScene extends Phaser.Scene {
         return best ? { spot: best, d: bd } : null;
     }
 
+    // The one entry point for a tap on a vine spot: a pumpkin of any size gets picked and carried
+    // to the bale; a bare spot or a sprout gets watered (and Ansel stays at the field's edge).
     harvest(sp) {
         const a = this.ansel;
-        if (a.busy || a.carrying || sp.busy || !sp.img) return;
+        if (a.busy || a.carrying || sp.busy) return;
         const lane = LANES[sp.lane];
         const side = a.x <= sp.x ? -1 : 1;
         let standX = sp.x + side * 78 * lane.scale;
         if (standX < PLAY_L + 40 || standX > PLAY_R - 40) standX = sp.x - side * 78 * lane.scale;
         this.walkTo(standX, () => {
             // claim the spot only on arrival, so a change of mind on the way leaves it free
-            if (sp.busy || !sp.img || a.busy || a.carrying) return;
+            if (sp.busy || a.busy || a.carrying) return;
+            const pick = sp.stage >= 2 && sp.img;
             sp.busy = true;
             a.busy = true;
             this.face(sp.x);
             if (!a.farming) { a.farming = true; this.sparkles.explode(6, a.x, GROUND - HEAD_TOP - 10); }
-            this.enterLane(lane, () => (sp.stage >= 3 ? this.pickFromVine(sp, lane) : this.waterSpot(sp, lane)));
+            this.enterLane(lane, () => (pick ? this.pickFromVine(sp, lane) : this.waterSpot(sp, lane)));
         });
     }
 
@@ -1904,15 +1936,17 @@ class PatchScene extends Phaser.Scene {
             it.golden = golden;
             if (golden) it.heavy = true;
             it.state = 'lifting';
+            a.lifting = it;
             it.img.setScale(ds).setDepth(a.img.depth + 0.1);
             this.tweens.killTweensOf(img);
             img.destroy();
-            sp.img = null; sp.stage = 0; sp.key = null; sp.golden = false; sp.busy = false;
+            sp.img = null; sp.stage = 0; sp.key = null; sp.golden = false; sp.busy = false; sp.watered = false;
             sp.t = Phaser.Math.FloatBetween(...GROW.sproutDelay);
             const carryFrame = this.heavyHold(it) ? 'heavy_1' : 'carry_1';
             const done = () => {
                 it.state = 'carried';
                 a.carrying = it;
+                a.lifting = null;
                 a.frame = 0;
                 this.setPose('run');
                 if (golden) { this.say('GOLDEN!', 1100); Sfx.perfect(3); this.earnLife(RULES.goldenLife, it.img.x, it.img.y, 300); }
@@ -1940,21 +1974,20 @@ class PatchScene extends Phaser.Scene {
         });
     }
 
-    // The 12-frame watering animation (the can and the drops are in the frames). The plant
-    // grows on the pour, all the way to a ripe pumpkin, and he picks it and carries it back
-    // in the same trip.
+    // The 12-frame watering animation (the can and the drops are in the frames). On the pour the
+    // plant jumps a stage (a bare spot sprouts, a sprout becomes a small pumpkin) and from then on
+    // grows twice as fast. He doesn't pick anything: he steps back out to the field's edge,
+    // ready for the next tap.
     waterSpot(sp, lane) {
         const a = this.ansel;
         const step = 85;
         for (let i = 0; i < 12; i++) this.time.delayedCall(i * step, () => this.setPose('water_' + (i + 1)));
         this.time.delayedCall(3 * step, () => Sfx.water());
         this.time.delayedCall(6 * step, () => {
-            while (sp.stage < 2) this.growSpot(sp, false);
+            sp.watered = true;
             this.growSpot(sp);
-            this.say(sp.stage >= 3 ? (sp.golden ? 'GOLDEN!' : 'PUMPKIN!') : 'GROW!', 900);
         });
         this.time.delayedCall(12 * step, () => {
-            if (sp.stage >= 3 && sp.img) { this.pickFromVine(sp, lane); return; }
             sp.busy = false;
             this.setPose('run');
             this.leaveLane(false, () => { a.busy = false; });
@@ -2202,7 +2235,7 @@ class PatchScene extends Phaser.Scene {
         a.shadow.setPosition(a.x, feetY + 4).setScale(0.95 * ak * ds, ak * ds).setAlpha(ak);
 
         // Carried pumpkin: in his hands where this frame's own pumpkin was (on his head, or at
-        // his chest for a heavy one), in front of him with his hands tucked behind it
+        // his chest for a heavy one), drawn in front of him
         if (a.carrying && a.carrying.state === 'carried' && (!a.busy || a.walkingLane)) {
             const p = this.holdPos(a.carrying, a.frameName);
             a.carrying.img.setScale(ds).setDepth(a.img.depth + 0.1);
@@ -2212,6 +2245,15 @@ class PatchScene extends Phaser.Scene {
             if (a.carrying.golden && Math.random() < 0.04) {
                 this.sparkles.explode(1, a.carrying.img.x + Phaser.Math.Between(-30, 30), a.carrying.img.y);
             }
+        }
+        // ...with his hands over it, so it reads as held
+        const held = a.carrying && a.carrying.state === 'carried' ? a.carrying : a.lifting;
+        const fkey = held ? this.anselKey(a.frameName) + '_front' : null;
+        if (fkey && this.textures.exists(fkey)) {
+            a.front.setTexture(fkey).setVisible(true).setPosition(a.img.x, a.img.y)
+                .setScale(a.img.scaleX, a.img.scaleY).setFlipX(a.img.flipX).setDepth(a.img.depth + 0.2);
+        } else {
+            a.front.setVisible(false);
         }
 
         // Hovering item sways above the stack
@@ -2349,7 +2391,7 @@ class PatchScene extends Phaser.Scene {
         // perfect streaks, x3 for golden, plus a bonus for landing on something at least as heavy
         // (big at the bottom, small on top)
         const pts = Rules.score(grade, Rules.stageAt(n - 1), this.streak,
-            Rules.ordered(sup ? pieceOf(sup) : null, pieceOf(it)), it.golden);
+            Rules.ordered(sup ? pieceOf(sup) : null, pieceOf(it)), it.golden, pieceOf(it).m);
         // one popup over the pumpkin: its points
         const num = this.add.text(it.rx, it.topY - 20, '+' + pts, {
             fontFamily: FONT, fontSize: '40px', color: '#ffd35a',
@@ -2483,7 +2525,7 @@ class PatchScene extends Phaser.Scene {
         });
         this.resetPatch();
         this.tweens.killTweensOf(a);
-        a.laneY = 0; a.depthScale = 1; a.walkingLane = false; a.jumpY = 0;
+        a.laneY = 0; a.depthScale = 1; a.walkingLane = false; a.jumpY = 0; a.lifting = null;
         a.img.setDepth(20); a.shadow.setDepth(9);
         this.startRound();
         this.tapGuard = this.time.now + 300;
@@ -3094,7 +3136,7 @@ class PatchScene extends Phaser.Scene {
             }
             if (best) target = { x: best.body.position.x, y: best.body.position.y };
             else {
-                const ripe = this.spots.filter(sp => sp.stage >= 3 && !sp.busy && sp.img)
+                const ripe = this.spots.filter(sp => sp.stage >= 2 && !sp.busy && sp.img)
                     .sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x))[0];
                 if (ripe) target = { x: ripe.x, y: ripe.img.y - ripe.img.displayHeight * 0.4 };
             }
@@ -3280,18 +3322,25 @@ class UIScene extends Phaser.Scene {
         const titleY = portrait ? h * 0.16 : 120;
         T.t1.setPosition(w / 2, titleY);
         T.t2.setPosition(w / 2, titleY + (portrait ? 90 : 70))
-            .setFontSize(portrait ? 46 : 54)
+            .setFontSize(portrait ? 46 : Math.min(54, Math.floor((w - 60) / 13))) // one line, even when narrow
             .setWordWrapWidth(w - 40);
         if (portrait) T.t2.setText('PUMPKIN\nPATCH').setLineSpacing(14);
         else T.t2.setText('PUMPKIN PATCH');
-        const groundY = portrait ? h * 0.74 : 560;
-        T.hero.setPosition(w / 2 - (portrait ? 140 : 150), groundY);
-        const px = w / 2 + (portrait ? 130 : 120);
-        T.p1.setPosition(px, groundY);
-        T.p2.setPosition(px + 2, groundY - 90);
-        T.p3.setPosition(px, groundY - 168);
-        T.how.setPosition(w / 2, portrait ? h - 210 : 598).setWordWrapWidth(w - 60);
-        T.go.setPosition(w / 2, portrait ? h - 80 : 676);
+        // stacked from the bottom so nothing collides on any screen shape: the prompt, then the hint
+        // (however many lines it wraps to), then Ansel and the title pumpkins standing above it
+        T.go.setPosition(w / 2, portrait ? h - 80 : h - 44);
+        T.how.setWordWrapWidth(w - 60);
+        T.how.setPosition(w / 2, T.go.y - 30 - T.how.height / 2);
+        const groundY = Math.min(portrait ? h * 0.74 : 560, T.how.y - T.how.height / 2 - 14);
+        // Ansel and the title pumpkins shrink to fit between the BEST line and the hint
+        if (T.heroBase === undefined) T.heroBase = T.hero.scaleX;
+        const roomTop = T.t2.getBounds().bottom + 52;
+        const k = Phaser.Math.Clamp((groundY - roomTop) / 290, 0.45, 1), kx = Math.max(k, 0.8);
+        T.hero.setScale(T.heroBase * k).setPosition(w / 2 - (portrait ? 140 : 150) * kx, groundY);
+        const px = w / 2 + (portrait ? 130 : 120) * kx;
+        T.p1.setScale(k).setPosition(px, groundY);
+        T.p2.setScale(k).setPosition(px + 2 * k, groundY - 90 * k);
+        T.p3.setScale(k).setPosition(px, groundY - 168 * k);
         this.tweens.killTweensOf(T.hero);
         this.tweens.add({ targets: T.hero, y: groundY - 6, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         if (portrait) this.bannerText.setWordWrapWidth(w - 320); // clear of the BOOM button
@@ -5363,7 +5412,7 @@ const HTP_PAGES = [
     { title: 'BEAT THE SUNSET', art: 'htpArtDay', rows: [
         { p: 'A ROUND IS ONE AFTERNOON: GOLD, THEN DUSK.' },
         { p: "AT SUNSET, OR WHEN YOUR LIVES RUN OUT, ANSEL BOOMS WHAT'S STILL STANDING.", c: 'gold' },
-        { ic: { img: 'pumpkin_unripe', s: 0.75 }, t: 'PUMPKINS GROW IN THE VINES. TAP A GREEN ONE TO WATER IT.' },
+        { ic: { img: 'sprout', s: 1 }, t: 'VINE PUMPKINS GROW BIGGER OVER TIME. TAP ONE TO PICK IT, OR A SPROUT TO WATER IT.' },
         { ic: { img: 'leafpile_a', s: 0.55 }, t: 'LEAF PILES HIDE SOME. NOTHING LEFT? TAP: MORE!' },
         { ic: { img: 'sparkle', n: 2 }, t: 'TAP THE SCENERY, TOO.' },
         { desk: true, ic: { keys: ['P', 'M'] }, t: 'PAUSE, MUTE' },
@@ -5659,7 +5708,7 @@ const UIHtp = {
         H.portrait = portrait;
         H.shade.setSize(w, h);
         H.cw = portrait ? Math.min(w - 28, 692) : Math.min(w - 56, 1184);
-        H.ch = portrait ? Math.min(h - 200, 1340) : h - 32;
+        H.ch = portrait ? Math.min(h - (h < 1100 ? 40 : 200), 1340) : h - 32; // short screens: all the room
         H.root.setPosition(Math.round(w / 2), Math.round(h / 2));
         H.panel.setSize(H.cw, H.ch);
         H.wood.setSize(H.cw - 24, H.ch - 24);
@@ -5733,29 +5782,54 @@ const UIHtp = {
         H.iconW = Math.max(72, ...rows.map(r => r.icon ? r.icon.iw + 22 : 0));
         const innerW = H.cw - 2 * (H.portrait ? 30 : 40);
         const top = -H.ch / 2 + 106, bottom = H.ch / 2 - (H.portrait ? 160 : 104);
-        const avail = bottom - top, gap = 16;
+        const avail = bottom - top;
+        let gap = 16;
         const measure = tw => rows.reduce((s, r) => s + this.htpRowFit(r, tw) + gap, -gap);
+        // Squarer screens wrap the text onto more lines. Rather than let it run into the buttons,
+        // step the text down a little (and tighten the gaps) until the page fits.
+        const STEPS = [[20, 16], [18, 12], [17, 10], [16, 8], [15, 6]];
+        const setSize = ([px, g]) => {
+            gap = g;
+            rows.forEach(r => r.text.setFontSize(px).setLineSpacing(Math.round(px / 2)));
+        };
         let artW, artH, tw, th;
         if (H.portrait) {
             tw = innerW;
-            th = measure(tw);
+            for (const st of STEPS) {
+                setSize(st);
+                th = measure(tw);
+                if (th + 30 + 220 <= avail) break;
+            }
             artW = innerW;
-            artH = Math.max(220, Math.min(Math.round(artW / 1.1), avail - th - 30));
+            // the picture takes what the text leaves; on a short screen it goes, never the words
+            const room = avail - th - 30;
+            artH = room >= 120 ? Math.min(Math.round(artW / 1.1), room) : 0;
             artW = Math.min(artW, Math.round(artH * 1.1));
-            const used = artH + 30 + th, y0 = top + Math.max(0, (avail - used) / 2);
-            this.htpArtBox(pg.art, -artW / 2, y0, artW, artH);
-            this.htpPlaceRows(rows, -tw / 2, y0 + artH + 30, gap);
+            const used = (artH ? artH + 30 : 0) + th, y0 = top + Math.max(0, (avail - used) / 2);
+            if (artH) this.htpArtBox(pg.art, -artW / 2, y0, artW, artH);
+            this.htpPlaceRows(rows, -tw / 2, y0 + (artH ? artH + 30 : 0), gap);
         } else {
-            // give the picture as much room as the text allows
-            for (let f = 0.46; f >= 0.28; f -= 0.02) {
-                artW = Math.round(innerW * f);
-                th = measure(innerW - artW - 32);
-                if (th <= avail) break;
+            // give the picture as much room as the text allows, then shrink the text if needed
+            let fits = false;
+            for (const st of STEPS) {
+                setSize(st);
+                for (let f = 0.46; f >= 0.28; f -= 0.02) {
+                    artW = Math.round(innerW * f);
+                    th = measure(innerW - artW - 32);
+                    if (th <= avail) { fits = true; break; }
+                }
+                if (fits) break;
+            }
+            const x0 = -innerW / 2;
+            if (!fits) {
+                // a very square screen: the text gets the whole width and the picture steps aside
+                th = measure(innerW);
+                this.htpPlaceRows(rows, x0, top + Math.max(0, (avail - th) / 2), gap);
+                return;
             }
             artH = Math.min(avail, Math.round(artW / 1.1));
             artW = Math.round(artH * 1.1);
             th = measure(innerW - artW - 32);
-            const x0 = -innerW / 2;
             this.htpArtBox(pg.art, x0, top + (avail - artH) / 2, artW, artH);
             this.htpPlaceRows(rows, x0 + artW + 32, top + Math.max(0, (avail - th) / 2), gap);
         }

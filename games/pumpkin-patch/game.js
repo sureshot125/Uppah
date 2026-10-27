@@ -3396,6 +3396,9 @@ function boot() {
         width: size.w,
         height: size.h,
         backgroundColor: '#1b130d',
+        // pixel art: nearest-neighbour textures and a crisp canvas when it is stretched to the screen,
+        // so zooming the camera or fitting a phone never smears the art
+        pixelArt: true,
         scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
         physics: { default: 'matter', matter: { enableSleeping: true, debug: false } },
         input: { activePointers: 3 }, // a resting palm can't block a finger; broad contacts are ignored in onTap

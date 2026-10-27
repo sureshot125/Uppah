@@ -538,6 +538,122 @@ def giraffe_frame(phase):
     return outline(img, 0.65)
 
 
+def giraffe_look(blink=False):
+    """Look-around frame where giraffe turns its head to face the screen."""
+    rnd = random.Random(31)
+    Wd, Hd = 56, 88
+    img = Image.new("RGBA", (Wd, Hd), (0, 0, 0, 0))
+    p = img.load()
+    base, line, patch, patch_d, belly = hx("#f2c662"), hx("#f6dc98"), hx("#b9692a"), hx("#94511d"), hx("#f4dfaa")
+    leg_lo, hoof = hx("#efdcaa"), hx("#4a2c18")
+    foot_y = Hd - 4
+
+    seeds = []
+    for gy in range(0, Hd + 6, 6):
+        for gx in range(-3, Wd + 6, 6):
+            seeds.append((gx + (3 if (gy // 6) % 2 else 0) + rnd.uniform(-1.4, 1.4), gy + rnd.uniform(-1.4, 1.4)))
+    def patchy(x, y):
+        ds = sorted((x - sx) ** 2 + (y - sy) ** 2 for sx, sy in seeds)
+        return math.sqrt(ds[1]) - math.sqrt(ds[0]) > 1.0
+
+    mask = {}
+    def disc(cx, cy, r, kind):
+        for y in range(int(cy - r - 1), int(cy + r + 2)):
+            for x in range(int(cx - r - 1), int(cx + r + 2)):
+                if (x - cx) ** 2 + (y - cy) ** 2 <= r * r and 0 <= x < Wd and 0 <= y < Hd:
+                    mask[(x, y)] = kind
+
+    # 4 legs planted stably
+    hip_y = 60
+    for far in (True, False):
+        for hx_ in (13, 30):
+            hipx = hx_ + (2 if far else 0)
+            for y in range(hip_y, foot_y):
+                for w in range(2):
+                    mask[(hipx + w, y)] = "farleg" if far else "leg"
+            for w in range(2):
+                mask[(hipx + w, foot_y)] = "hoof"
+                mask[(hipx + w, foot_y - 1)] = "hoof"
+
+    # body
+    for x in range(8, 36):
+        top = 50 - (x - 8) * 0.18
+        for y in range(int(top), 62):
+            mask[(x, y)] = "belly" if y > 59 else "body"
+    disc(10, 56, 5, "body")
+    disc(33, 53, 6, "body")
+    # tail
+    for k in range(10):
+        mask[(7 - k // 4, 54 + k)] = "tail"
+    mask[(4, 64)] = mask[(5, 64)] = mask[(4, 65)] = "tuft"
+
+    # neck curving slightly towards viewer
+    for i in range(0, 41):
+        t = i / 40
+        cx = 33 + 8 * t
+        cy = 52 - 42 * t
+        disc(cx, cy, 3.4 - 0.8 * t, "neck")
+
+    # head looking front
+    hx0, hy0 = 42, 10
+    for y in range(hy0 - 4, hy0 + 6):
+        for x in range(hx0 - 5, hx0 + 6):
+            if ((x - hx0) / 4.8) ** 2 + ((y - hy0) / 4.8) ** 2 <= 1:
+                mask[(x, y)] = "head"
+
+    # ears on sides
+    for ex in (hx0 - 6, hx0 + 6):
+        ey = hy0 - 2
+        mask[(ex, ey)] = "head"
+        mask[(ex + (1 if ex < hx0 else -1), ey - 1)] = "head"
+
+    # ossicones
+    for ox in (hx0 - 2, hx0 + 2):
+        mask[(ox, hy0 - 5)] = "neck"
+        mask[(ox, hy0 - 6)] = "neck"
+        mask[(ox, hy0 - 7)] = "tuft"
+
+    # paint
+    for (x, y), kind in mask.items():
+        if kind in ("body", "neck"):
+            c = patch if patchy(x, y) else line
+        elif kind == "belly":
+            c = belly
+        elif kind == "head":
+            c = base
+        elif kind == "leg":
+            c = (patch if patchy(x, y) else line) if y < 68 else leg_lo
+        elif kind == "farleg":
+            c = leg_lo
+        elif kind == "hoof":
+            c = hoof
+        elif kind == "tail":
+            c = patch_d
+        else:
+            c = hx("#5a3418")
+        p[x, y] = c
+
+    # Eyes & muzzle
+    if not blink:
+        p[hx0 - 2, hy0 - 1] = INK + (255,)
+        p[hx0 + 2, hy0 - 1] = INK + (255,)
+        p[hx0 - 3, hy0 - 2] = hx("#fffbe0")
+        p[hx0 + 1, hy0 - 2] = hx("#fffbe0")
+    else:
+        p[hx0 - 2, hy0 - 1] = INK + (255,)
+        p[hx0 - 3, hy0 - 1] = INK + (255,)
+        p[hx0 + 2, hy0 - 1] = INK + (255,)
+        p[hx0 + 3, hy0 - 1] = INK + (255,)
+
+    for mx in range(hx0 - 2, hx0 + 3):
+        p[mx, hy0 + 3] = hx("#f4dfaa")
+        p[mx, hy0 + 4] = hx("#f4dfaa")
+    p[hx0 - 1, hy0 + 3] = hx("#8a5a2c")
+    p[hx0 + 1, hy0 + 3] = hx("#8a5a2c")
+
+    return outline(img, 0.65)
+
+
 def background(W=480, H=540, seed=5):
     rnd = random.Random(seed)
     img = Image.new("RGBA", (W, H), hx("#000000"))
@@ -2060,8 +2176,9 @@ def main():
     surprises(bg, front)   # click points and easter eggs (see the surprises section)
     save(silo_pumpkin(False), "silo_pumpkin.png")
     save(silo_pumpkin(True), "silo_pumpkin_wink.png")
-    frames = [giraffe_frame(i * math.pi / 2) for i in range(4)]
-    sheet = Image.new("RGBA", (frames[0].width * 4, frames[0].height), (0, 0, 0, 0))
+    # four walk frames, then look around (facing out) and its blink
+    frames = [giraffe_frame(i * math.pi / 2) for i in range(4)] + [giraffe_look(False), giraffe_look(True)]
+    sheet = Image.new("RGBA", (frames[0].width * len(frames), frames[0].height), (0, 0, 0, 0))
     for i, f in enumerate(frames):
         sheet.alpha_composite(f, (i * f.width, 0))
     save(sheet, "giraffe.png")

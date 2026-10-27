@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Headless balance sim for Ansel's Pumpkin Patch (challenge mode).
 //
-// Loads the <rules> block straight out of game.js (weights, balance, lives, stages, scoring),
-// then plays thousands of rounds with simulated players and prints how far they get, how many
-// lives they earn back, plus fall rates for single drops at fixed offsets.
+// Loads the <rules> block straight out of game.js (weights, balance, wind, lives, stages,
+// scoring), then plays thousands of rounds with simulated players and prints how far they get,
+// how many lives they earn back, how much the wind matters, plus fall rates for single drops.
 // Run:  node games/pumpkin-patch/sim.js [rounds]
 //
 // The fetch-and-carry part of each pumpkin is modelled as a 2.6-4.2 s wait; the hover, tap,
@@ -64,11 +64,11 @@ const pickSmallFirst = (supply) => { // upside-down pyramid: lightest first
     return light;
 };
 
-// Widest offset (px) that still shows a white or gold ring for this drop.
-function goodZone(P, pc, st, assisted) {
+// Widest landing offset (px) that stays steady (lean 0.6 or less with an average wobble).
+function goodZone(P, pc, st, w) {
     let g = 0;
     for (let d = 1; d < 120; d++) {
-        const ok = [d, -d].every(o => ['perfect', 'good'].includes(Rules.aim(P, BASE, pc, o, st, assisted).grade));
+        const ok = [d, -d].every(o => ['perfect', 'good'].includes(Rules.aim(P, BASE, pc, o, st, false, w).grade));
         if (!ok) break;
         g = d;
     }
@@ -76,11 +76,11 @@ function goodZone(P, pc, st, assisted) {
 }
 
 const PLAYERS = {
-    // taps land uniformly anywhere inside the white/gold ring zone ("taps within the good zone");
-    // with probability pPerfect inside the gold (perfect) zone instead
+    // lands uniformly anywhere in the steady zone ("taps within the good zone"); with probability
+    // pPerfect inside the perfect zone instead. Returns the landing offset it aims for.
     zone: pPerfect => () => ({
-        offset({ P, pc, st, assisted }, R) {
-            const zone = R() < pPerfect ? st.perfect * (assisted ? 1.5 : 1) : goodZone(P, pc, st, assisted);
+        offset({ P, pc, st, w }, R) {
+            const zone = R() < pPerfect ? st.perfect : goodZone(P, pc, st, w);
             return (R() * 2 - 1) * zone;
         },
     }),
@@ -89,7 +89,7 @@ const PLAYERS = {
         let at = null;
         return { tap: (h, R) => { if (at === null) at = 0.25 + R() * 2 * h.period; return h.t >= at; } };
     },
-    // a person who aims for the centre with a timing error of sigma seconds (anticipates the crossing)
+    // a person who aims the landing marker at the centre, with a timing error of sigma seconds
     timer: sigma => () => {
         let err = null, crossed = null;
         return {
@@ -109,29 +109,25 @@ const PLAYERS = {
 // ── One round ────────────────────────────────────────────────────────────────
 // opts.bankAt: press BOOM once the tower is this tall (banks its points, knocks it down).
 // opts.clock: false to ignore the sunset clock. opts.wind: false to switch the gusts off.
-// Wind runs on its own random stream and is scenery only (the hovering pumpkin sways with the
-// tower top, and landings are judged against where the tower rests), so rounds come out the
-// same with it on or off; main() checks that.
+// opts.firstRound: true for a player's very first round (the first pumpkins are assisted).
+// Wind runs on its own random stream, so the same round can be replayed with and without it.
 function playRound(makePlayer, pick, R, opts = {}) {
     const bankAt = opts.bankAt || Infinity, clock = opts.clock !== false, maxDrops = opts.maxDrops || 400;
     let P = [], lives = RULES.lives, placed = 0, score = 0, lostPts = 0, streak = 0, tallest = 0, drops = 0, dayT = 0;
-    const counts = { perfect: 0, good: 0, ok: 0, roll: 0, topple: 0, lateTopple: 0, banks: 0, golden: 0 };
+    const counts = { perfect: 0, good: 0, ok: 0, roll: 0, topple: 0, gustTopple: 0, windMiss: 0, windSave: 0, banks: 0, golden: 0,
+        lost: 0, windLost: 0 };
     const earned = { streak: 0, boom: 0, height: 0, golden: 0, capped: 0 };
     const wind = new Wind(rng(opts.windSeed || 4242)), sway = { x: 0, v: 0 }, tip = { tipT: 0 };
     const reachedH = new Set();
     let supply = LAYOUT.map(l => l.key).concat(PILES.map(p => p.hides));
-    let end = null, minLives = lives, maxLivesSeen = lives;
+    let end = null, w = 0;
 
     const earn = (k, why) => {
         const g = Math.max(0, Math.min(k, RULES.maxLives - lives));
         lives += g; earned[why] += g; earned.capped += k - g;
-        maxLivesSeen = Math.max(maxLivesSeen, lives);
     };
-    const lose = n => {
-        lives -= n;
-        minLives = Math.min(minLives, Math.max(0, lives));
-        if (lives <= 0) end = 'lives';
-    };
+    let windFault = false; // is the fall being handled now down to the wind?
+    const lose = n => { lives -= n; counts.lost += n; if (windFault) counts.windLost += n; if (lives <= 0) end = 'lives'; };
     const loseFrom = (at) => { // joint `at` and everything above it fall: their points are lost
         const lost = P.slice(at);
         P = P.slice(0, at);
@@ -144,10 +140,10 @@ function playRound(makePlayer, pick, R, opts = {}) {
     const frame = () => {
         dayT += DT;
         if (clock && dayT >= RULES.day) { end = end || 'dusk'; return; }
-        const w = opts.wind === false ? 0 : wind.update(DT, Rules.windStage(Rules.stageAt(P.length), dayT / RULES.day));
-        const r = Rules.analyze(P, BASE);
+        w = opts.wind === false ? 0 : wind.update(DT, Rules.windStage(Rules.stageAt(P.length), dayT / RULES.day));
+        const r = Rules.analyze(P, BASE, w);
         Rules.swayStep(sway, DT, Rules.swayTarget(r.lean, r.height, w));
-        if (P.length && Rules.tipStep(tip, r.lean, DT)) { counts.lateTopple++; loseFrom(r.at); }
+        if (P.length && Rules.tipStep(tip, r.lean, DT)) { counts.gustTopple++; windFault = true; loseFrom(r.at); windFault = false; }
     };
     const wait = secs => { for (let t = 0; t < secs && !end; t += DT) frame(); };
 
@@ -164,29 +160,38 @@ function playRound(makePlayer, pick, R, opts = {}) {
 
         const player = makePlayer();
         const si = Rules.stageAt(P.length), st = STAGES[si];
-        const assisted = placed < RULES.assisted;
-        const amp = st.amp, speed = Rules.hoverSpeed(st, pc, streak);
-        let u = R() < 0.5 ? 0 : 2 * amp, prev = null, t = 0, off = 0;
-        if (player.offset) { // offset-model player: ~1 s of hovering, then a drop at a chosen offset
+        const assisted = !!opts.firstRound && placed < RULES.assisted;
+        const amp = st.amp, speed = Rules.hoverSpeed(st, pc);
+        let u = R() < 0.5 ? 0 : 2 * amp, drift = 0, prev = null, t = 0, land = 0;
+        if (player.offset) { // offset-model player: ~1 s of hovering, then aims the landing spot
             wait(1);
             if (end) break;
-            off = player.offset({ P, pc, st, assisted }, R);
+            land = player.offset({ P, pc, st, w }, R);
         } else for (;;) {
             frame();
             if (end) break;
             t += DT;
             u += speed * DT;
-            // what the player sees: the hovering pumpkin against the top (they sway together)
-            const o = Rules.tri(u, amp);
+            drift += (Rules.hoverDrift(w, pc) - drift) * (1 - Math.pow(0.05, DT));
+            // what the player watches: the landing marker (hover + its drift + the fall drift)
+            const o = Rules.tri(u, amp) + drift + Rules.fallDrift(w, pc);
             const h = { t, off: o, prev, vel: prev === null ? 0 : (o - prev) / DT, period: 4 * amp / speed };
-            off = o;
+            land = o;
             if (player.tap(h, R) || t > 30) break;
             prev = o;
         }
         if (end) break;
         drops++;
-        const aim = Rules.aim(P, BASE, pc, off, st, assisted);
-        const res = Rules.land(P, BASE, pc, aim.d, { roll: !assisted, topple: !assisted }, R);
+        const r0 = R();
+        const aim = Rules.aim(P, BASE, pc, land, st, assisted, w);
+        const res = Rules.land(P, BASE, pc, aim.d, w, { roll: !assisted, topple: !assisted }, () => r0);
+        windFault = false;
+        if (w) { // would the same drop (same aim, same wobble) have gone the other way without wind?
+            const a0 = Rules.aim(P, BASE, pc, land, st, assisted, 0);
+            const res0 = Rules.land(P, BASE, pc, a0.d, 0, { roll: !assisted, topple: !assisted }, () => r0);
+            if (res.fall !== 'none' && res0.fall === 'none') { counts.windMiss++; windFault = true; }
+            if (res.fall === 'none' && res0.fall !== 'none') counts.windSave++;
+        }
         if (res.fall === 'none') {
             const sup = P[P.length - 1];
             streak = aim.kind === 'perfect' ? streak + 1 : 0;
@@ -195,7 +200,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
             placed++;
             counts[aim.kind]++;
             if (streak && streak % RULES.lifeStreak === 0) earn(1, 'streak');
-            const r = Rules.analyze(P, BASE), above = BALE_H + r.height;
+            const r = Rules.analyze(P, BASE, w), above = BALE_H + r.height;
             for (const hgt of RULES.lifeHeights) if (above >= hgt && !reachedH.has(hgt)) { reachedH.add(hgt); earn(1, 'height'); }
             Rules.swayKick(sway, aim.d >= 0 ? 1 : -1, res.kick, r.height);
         } else if (res.fall === 'roll') {
@@ -208,6 +213,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
             P.push(res.piece);
             loseFrom(res.at);
         }
+        windFault = false;
         tallest = Math.max(tallest, P.length);
         if (!end && P.length >= bankAt) { // BOOM: bank it, knock it down, gather the pumpkins again
             score += Math.round(P.reduce((s, p) => s + p.pts, 0) * Rules.boomMult(P.length));
@@ -220,7 +226,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
         }
     }
     score += P.reduce((s, p) => s + (p.pts || 0), 0); // a tower still standing at the end is banked (no BOOM bonus)
-    return { placed, tallest, score, lostPts, drops, counts, earned, minLives, maxLivesSeen, livesLeft: Math.max(0, lives), end: end || 'drops' };
+    return { placed, tallest, score, lostPts, drops, counts, earned, livesLeft: Math.max(0, lives), end: end || 'drops' };
 }
 
 // ── Reporting ────────────────────────────────────────────────────────────────
@@ -231,29 +237,43 @@ function runMany(rounds, makePlayer, pick, seed, opts) {
     for (let i = 0; i < rounds; i++) res.push(playRound(makePlayer, pick, R, Object.assign({ windSeed: seed * 7919 + i }, opts)));
     return res;
 }
+const p3 = a => [0.1, 0.5, 0.9].map(q => String(pct(a, q)).padStart(3)).join(' ');
 function summarize(name, rounds, makePlayer, pick, seed, opts) {
     const res = runMany(rounds, makePlayer, pick, seed, opts);
     const sorted = k => res.map(r => r[k]).sort((a, b) => a - b);
-    const placed = sorted('placed'), tallest = sorted('tallest'), score = sorted('score');
-    const mean = a => (a.reduce((s, v) => s + v, 0) / a.length);
-    const per = k => (res.reduce((s, r) => s + r.earned[k], 0) / rounds).toFixed(2);
+    const sum = k => res.reduce((s, r) => s + r.counts[k], 0);
+    const drops = res.reduce((s, r) => s + r.drops, 0);
+    const lives = res.reduce((s, r) => s + r.earned.streak + r.earned.boom + r.earned.height + r.earned.golden, 0) / rounds;
     const dusk = res.filter(r => r.end === 'dusk').length / rounds;
-    const p3 = a => [0.1, 0.5, 0.9].map(q => String(pct(a, q)).padStart(3)).join(' ');
+    const pc = k => (sum(k) / drops * 100).toFixed(0).padStart(2) + '%';
     console.log(
-        `${name.padEnd(30)} stacked ${p3(placed)}  tallest ${p3(tallest)}  score p50 ${String(pct(score, 0.5)).padStart(6)}` +
-        `  sunset ${(dusk * 100).toFixed(0).padStart(3)}%  lives earned/rd: streak ${per('streak')} boom ${per('boom')} height ${per('height')}` +
-        ` golden ${per('golden')} (wasted at cap ${per('capped')})  lives left at end p50 ${pct(sorted('livesLeft'), 0.5)}`);
+        `${name.padEnd(30)} stacked ${p3(sorted('placed'))}  tallest ${p3(sorted('tallest'))}  score p50 ${String(pct(sorted('score'), 0.5)).padStart(6)}` +
+        `  sunset ${(dusk * 100).toFixed(0).padStart(3)}%  lives earned/rd ${lives.toFixed(1)}` +
+        `  | per drop: perfect ${pc('perfect')} good ${pc('good')} wobbly ${pc('ok')} roll ${pc('roll')} topple ${pc('topple')}`);
     return res;
 }
 
-// Single drops at fixed offsets onto a fixed stack: how often does it fall?
-function fallRate(stackKeys, dropKey, d, trials = 4000, seed = 7) {
+// How much does the wind matter? Same players, same seeds, gusts on vs off.
+function windReport(name, rounds, makePlayer, seed) {
+    const on = runMany(rounds, makePlayer, pickRandom, seed), off = runMany(rounds, makePlayer, pickRandom, seed, { wind: false });
+    const sum = (res, k) => res.reduce((s, r) => s + r.counts[k], 0);
+    const drops = on.reduce((s, r) => s + r.drops, 0);
+    const med = (res, k) => pct(res.map(r => r[k]).sort((a, b) => a - b), 0.5);
+    console.log(
+        `${name.padEnd(30)} lost pumpkins due to wind ${(sum(on, 'windLost') / Math.max(1, sum(on, 'lost')) * 100).toFixed(0).padStart(3)}%` +
+        `  drops it tipped into a fall ${(sum(on, 'windMiss') / drops * 100).toFixed(1).padStart(4)}% (and saved ${(sum(on, 'windSave') / drops * 100).toFixed(1)}%)` +
+        `  gust topples/round ${(sum(on, 'gustTopple') / rounds).toFixed(2)}  stacked p50 ${med(on, 'placed')} with wind, ${med(off, 'placed')} without`);
+}
+
+// Single drops at fixed offsets onto a fixed stack, in a given wind: how often does it fall?
+function fallRate(stackKeys, dropKey, d, wind = 0, trials = 4000, seed = 7) {
     const R = rng(seed);
     const P = [];
     for (const k of stackKeys) P.push(Object.assign(piece(k), { x: 0 }));
     let falls = 0;
     for (let i = 0; i < trials; i++) {
-        const res = Rules.land(P, BASE, piece(dropKey), d, { roll: true, topple: true }, R);
+        const w = wind ? (R() < 0.5 ? -wind : wind) : 0;
+        const res = Rules.land(P, BASE, piece(dropKey), d, w, { roll: true, topple: true }, R);
         if (res.fall !== 'none') falls++;
     }
     return falls / trials;
@@ -261,55 +281,46 @@ function fallRate(stackKeys, dropKey, d, trials = 4000, seed = 7) {
 
 if (require.main === module) {
     const N = +process.argv[2] || 2000;
-    console.log(`Rounds per player: ${N}. stacked = pumpkins that stayed on this round; tallest = tallest tower;`);
-    console.log('columns are p10 p50 p90. score = banked points (towers still standing at the end are banked).\n');
-
-    // Wind is scenery: the same rounds with gusts on and off must come out identical.
-    const players = [
-        ['random tapper', PLAYERS.random, 1], ['timing sd 150ms (casual)', PLAYERS.timer(0.15), 2],
-        ['good-zone tapper (decent)', PLAYERS.zone(0), 11], ['timing sd 70ms (good)', PLAYERS.timer(0.07), 4],
-        ['timing sd 45ms (expert)', PLAYERS.timer(0.045), 5],
-    ];
-    let windDiff = 0, windLosses = 0;
-    for (const [, mk, seed] of players) {
-        const a = runMany(300, mk, pickRandom, seed), b = runMany(300, mk, pickRandom, seed, { wind: false });
-        a.forEach((r, i) => {
-            if (r.placed !== b[i].placed || r.score !== b[i].score || r.counts.roll !== b[i].counts.roll ||
-                r.counts.topple !== b[i].counts.topple) windDiff++;
-            windLosses += r.counts.lateTopple;
-        });
-    }
-    console.log(`Wind check (300 rounds x 5 players, gusts on vs off): rounds that differ ${windDiff}; topples while no pumpkin was landing ${windLosses}.\n`);
+    console.log(`Rounds per player: ${N} (a returning player: no assisted pumpkins). stacked = pumpkins that stayed`);
+    console.log('on this round; tallest = tallest tower; columns are p10 p50 p90; score = banked points.\n');
 
     console.log('Never pressing BOOM, 3-minute afternoon:');
     summarize('random tapper', N, PLAYERS.random, pickRandom, 1);
     summarize('timing sd 150ms (casual)', N, PLAYERS.timer(0.15), pickRandom, 2);
     summarize('timing sd 100ms', N, PLAYERS.timer(0.10), pickRandom, 3);
-    summarize('good-zone tapper (decent)', N, PLAYERS.zone(0), pickRandom, 11);
     summarize('timing sd 70ms (good)', N, PLAYERS.timer(0.07), pickRandom, 4);
     summarize('timing sd 45ms (expert)', N, PLAYERS.timer(0.045), pickRandom, 5);
-    summarize('90% perfect-zone (near-perf)', N, PLAYERS.zone(0.9), pickRandom, 13);
+    summarize('timing sd 25ms (near-perfect)', N, PLAYERS.timer(0.025), pickRandom, 6);
+    summarize('steady-zone tapper', N, PLAYERS.zone(0), pickRandom, 11);
+    summarize('first round, casual (assisted)', N, PLAYERS.timer(0.15), pickRandom, 2, { firstRound: true });
+
+    console.log('\nWind (same rounds with gusts on and off):');
+    windReport('random tapper', N, PLAYERS.random, 1);
+    windReport('timing sd 150ms (casual)', N, PLAYERS.timer(0.15), 2);
+    windReport('timing sd 70ms (good)', N, PLAYERS.timer(0.07), 4);
+    windReport('timing sd 45ms (expert)', N, PLAYERS.timer(0.045), 5);
 
     console.log('\nPressing BOOM at a given height:');
-    for (const b of [6, 8, 10, 12, 15]) summarize(`  good-zone, BOOM at ${b}`, N, PLAYERS.zone(0), pickRandom, 21, { bankAt: b });
-    for (const b of [8, 10, 14]) summarize(`  casual 150ms, BOOM at ${b}`, N, PLAYERS.timer(0.15), pickRandom, 23, { bankAt: b });
+    for (const b of [6, 8, 10, 14]) summarize(`  good 70ms, BOOM at ${b}`, N, PLAYERS.timer(0.07), pickRandom, 21, { bankAt: b });
     for (const b of [10, 14, 18]) summarize(`  expert 45ms, BOOM at ${b}`, N, PLAYERS.timer(0.045), pickRandom, 22, { bankAt: b });
 
-    console.log('\nOrdering (good-zone player, never BOOM):');
-    summarize('  random order', N, PLAYERS.zone(0), pickRandom, 8);
-    summarize('  big first (pyramid)', N, PLAYERS.zone(0), pickBigFirst, 8);
-    summarize('  small first (upside down)', N, PLAYERS.zone(0), pickSmallFirst, 8);
+    console.log('\nOrdering (good 70ms, never BOOM):');
+    summarize('  random order', N, PLAYERS.timer(0.07), pickRandom, 8);
+    summarize('  big first (pyramid)', N, PLAYERS.timer(0.07), pickBigFirst, 8);
+    summarize('  small first (upside down)', N, PLAYERS.timer(0.07), pickSmallFirst, 8);
 
     const support = k => (RULES.topFlat * (SPECS[k].w + 1) * 2).toFixed(1);
-    const row = (label, stack, drop) => {
+    const row = (label, stack, drop, wind) => {
         const offs = [0, 8, 16, 20, 24, 28, 32, 40, 56];
-        console.log(label.padEnd(44) + offs.map(d => `${String(d).padStart(2)}px ${(fallRate(stack, drop, d) * 100).toFixed(0).padStart(3)}%`).join('  '));
+        console.log(label.padEnd(44) + offs.map(d => `${String(d).padStart(2)}px ${(fallRate(stack, drop, d, wind) * 100).toFixed(0).padStart(3)}%`).join('  '));
     };
-    console.log('\nFall rate of one drop at a given offset from the centre of the pumpkin below (wind makes no difference):');
+    console.log('\nFall rate of one drop landing a given distance from the centre of the pumpkin below:');
     console.log(`(support flat half-widths: orange_m ${support('pumpkin_orange_m')} px, gold_s ${support('pumpkin_gold_s')} px, deep_xl ${support('pumpkin_deep_xl')} px)`);
-    row('medium on 3 mediums', ['pumpkin_orange_m', 'pumpkin_orange_m', 'pumpkin_orange_m'], 'pumpkin_orange_m');
-    row('HEAVY on light: deep_xl onto gold_s', ['pumpkin_orange_l', 'pumpkin_gold_s'], 'pumpkin_deep_xl');
-    row('light on HEAVY: gold_s onto deep_xl', ['pumpkin_orange_l', 'pumpkin_deep_xl'], 'pumpkin_gold_s');
+    const M3 = ['pumpkin_orange_m', 'pumpkin_orange_m', 'pumpkin_orange_m'];
+    row('medium on 3 mediums, calm', M3, 'pumpkin_orange_m', 0);
+    row('medium on 3 mediums, gust 0.5', M3, 'pumpkin_orange_m', 0.5);
+    row('HEAVY on light: deep_xl onto gold_s', ['pumpkin_orange_l', 'pumpkin_gold_s'], 'pumpkin_deep_xl', 0);
+    row('light on HEAVY: gold_s onto deep_xl', ['pumpkin_orange_l', 'pumpkin_deep_xl'], 'pumpkin_gold_s', 0);
 }
 
 module.exports = { lib, playRound, fallRate, PLAYERS, rng };

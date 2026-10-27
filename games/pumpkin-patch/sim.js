@@ -21,12 +21,17 @@ const SPECS = grab(/const PUMPKIN_SPECS = (\{[\s\S]*?\n\});/);
 const LAYOUT = grab(/const LAYOUT = (\[[\s\S]*?\n\]);/);
 const POOL = grab(/const MORE_POOL = (\[[\s\S]*?\]);/);
 const PILES = grab(/const PILES = (\[[\s\S]*?\n\]);/);
-const GOLDEN_CHANCE = +src.match(/goldenChance: ([\d.]+)/)[1];  // share of vine pumpkins that grow golden
+const GROW = grab(/const GROW = (\{[\s\S]*?\});/);              // vine growth (sprout, unripe, ripe)
+const GROW_SPOTS = grab(/const GROW_SPOTS = (\[[\s\S]*?\n\]);/);
+const HAY_X = +src.match(/const HAY_X = (\d+)/)[1];
+const [WALK, HEAVY_WALK] = src.match(/const WALK_SPEED = (\d+), HEAVY_SPEED = (\d+)/).slice(1).map(Number);
 const BALE_H = +src.match(/HAY_H = (\d+)/)[1];                  // the hay bale's height (heights are from the ground)
 const { RULES, STAGES, Rules, Wind } = lib;
 // Try tunings without editing game.js:  SIM_RULES='{"impact":0.5}' SIM_STAGES='[{"speed":160},...]' node sim.js
 if (process.env.SIM_RULES) Object.assign(RULES, JSON.parse(process.env.SIM_RULES));
 if (process.env.SIM_STAGES) JSON.parse(process.env.SIM_STAGES).forEach((o, i) => Object.assign(STAGES[i], o));
+if (process.env.SIM_GROW) Object.assign(GROW, JSON.parse(process.env.SIM_GROW));          // e.g. '{"ripenTime":[40,60]}'
+if (process.env.SIM_PATH) LAYOUT.splice(+process.env.SIM_PATH);                           // keep only the first N path pumpkins
 
 const DT = 1 / 60;
 const BASE = { x: 0, half: RULES.hayHalf };
@@ -43,26 +48,48 @@ function rng(seed) { // mulberry32
 }
 const gauss = R => Math.sqrt(-2 * Math.log(R() + 1e-12)) * Math.cos(2 * Math.PI * R());
 const piece = key => { const s = SPECS[key]; return Rules.piece(key, (s.w + 1) * 4, (s.h + 1) * 4, 0); };
+const isHeavy = key => key === 'pumpkin_golden' || (SPECS[key].w + 1) * 4 >= 26 * 4;
+
+// ── The patch: path pumpkins, leaf piles and vine spots, with the game's timings (seconds) ──
+// pick/toss: Ansel's pick-up and toss; lane/leave: wading into and out of a vine row; water: the
+// 12-frame pour at 85 ms; vinePick: tug it off the vine and lift it; more: the MORE! cheer;
+// think: the player choosing what to tap next.
+const T = { pick: 0.56, pickHeavy: 0.68, toss: 0.5, lane: 0.42, water: 12 * 0.085, vinePick: 0.76,
+    vinePickHeavy: 0.89, leave: 0.61, leaveHeavy: 1.1, dive: 0.52, more: 2.1, think: 0.4 };
+const uni = (R, [a, b]) => a + (b - a) * R();
+function makePatch(R) {
+    const patch = {
+        path: LAYOUT.map(l => ({ key: l.key, x: l.x })),
+        piles: PILES.map(p => ({ x: p.x, hides: p.hides })),
+        spots: GROW_SPOTS.map(g => ({ x: g.x, stage: 0, t: 0, key: null, golden: false })),
+    };
+    patch.spots.forEach((sp, i) => { for (let k = 0; k < GROW.start[i % GROW.start.length]; k++) grow(sp, R); });
+    return patch;
+}
+function grow(sp, R) {
+    if (sp.stage >= 3) return;
+    sp.stage += 1;
+    if (sp.stage === 3) {
+        sp.golden = R() < GROW.goldenChance;
+        sp.key = sp.golden ? 'pumpkin_golden' : POOL[Math.floor(R() * POOL.length)];
+    }
+    sp.t = sp.stage === 2 ? (GROW.ripenTime ? uni(R, GROW.ripenTime) : Infinity) : uni(R, GROW.stageTime);
+}
+// What the player can tap: pumpkins on the path, vine pumpkins to pick or water, leaf piles.
+function options(patch) {
+    const o = [];
+    patch.path.forEach((p, i) => o.push({ kind: 'path', i, x: p.x }));
+    patch.spots.forEach((sp, i) => { if (sp.stage >= 1) o.push({ kind: sp.stage >= 3 ? 'ripe' : 'water', i, x: sp.x }); });
+    patch.piles.forEach((p, i) => { if (p.hides) o.push({ kind: 'pile', i, x: p.x }); });
+    return o;
+}
 
 // ── Players ──────────────────────────────────────────────────────────────────
 // tap(): called every frame while hovering with the current offset from the target;
 // returns true to drop now. pick(): which pumpkin to fetch next.
-const pickRandom = (supply, P, R) => Math.floor(R() * supply.length);
-const pickBigFirst = (supply, P) => { // heaviest that isn't heavier than the top, else the lightest
-    const top = P[P.length - 1];
-    let best = -1, bm = -1, light = 0;
-    supply.forEach((k, i) => {
-        const m = piece(k).m;
-        if ((!top || m <= top.m * 1.05) && m > bm) { bm = m; best = i; }
-        if (m < piece(supply[light]).m) light = i;
-    });
-    return best >= 0 ? best : light;
-};
-const pickSmallFirst = (supply) => { // upside-down pyramid: lightest first
-    let light = 0;
-    supply.forEach((k, i) => { if (piece(k).m < piece(supply[light]).m) light = i; });
-    return light;
-};
+// Which thing the player taps next: anything in sight at random, or whatever is nearest Ansel.
+const pickRandom = (opts, ax, R) => opts[Math.floor(R() * opts.length)];
+const pickNearest = (opts, ax) => opts.reduce((b, o) => (Math.abs(o.x - ax) < Math.abs(b.x - ax) ? o : b));
 
 // Widest landing offset (px) that stays steady (lean 0.6 or less with an average wobble).
 function goodZone(P, pc, st, w) {
@@ -115,11 +142,12 @@ function playRound(makePlayer, pick, R, opts = {}) {
     const bankAt = opts.bankAt || Infinity, clock = opts.clock !== false, maxDrops = opts.maxDrops || 400;
     let P = [], lives = RULES.lives, placed = 0, score = 0, lostPts = 0, streak = 0, tallest = 0, drops = 0, dayT = 0;
     const counts = { perfect: 0, good: 0, ok: 0, roll: 0, topple: 0, gustTopple: 0, windMiss: 0, windSave: 0, banks: 0, golden: 0,
-        lost: 0, windLost: 0 };
+        lost: 0, windLost: 0, more: 0, fromPath: 0, fromRipe: 0, fromWatered: 0, lateTrips: 0, lateVine: 0, tripTime: 0, trips: 0 };
     const earned = { streak: 0, boom: 0, height: 0, golden: 0, capped: 0 };
     const wind = new Wind(rng(opts.windSeed || 4242)), sway = { x: 0, v: 0 }, tip = { tipT: 0 };
     const reachedH = new Set();
-    let supply = LAYOUT.map(l => l.key).concat(PILES.map(p => p.hides));
+    const patch = makePatch(R);
+    let ax = 700; // Ansel's x
     let end = null, w = 0;
 
     const earn = (k, why) => {
@@ -131,7 +159,8 @@ function playRound(makePlayer, pick, R, opts = {}) {
     const loseFrom = (at) => { // joint `at` and everything above it fall: their points are lost
         const lost = P.slice(at);
         P = P.slice(0, at);
-        supply = supply.concat(lost.map(p => p.key));
+        // they tumble onto the path beside the bale, to be picked up again
+        for (const p of lost) patch.path.push({ key: p.key, x: HAY_X + (R() < 0.5 ? -1 : 1) * (120 + 160 * R()) });
         lostPts += lost.reduce((s, p) => s + (p.pts || 0), 0);
         streak = 0;
         tip.tipT = 0;
@@ -141,6 +170,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
         dayT += DT;
         if (clock && dayT >= RULES.day) { end = end || 'dusk'; return; }
         w = opts.wind === false ? 0 : wind.update(DT, Rules.windStage(Rules.stageAt(P.length), dayT / RULES.day));
+        for (const sp of patch.spots) { if (sp.stage < 3 && !sp.busy && (sp.t -= DT) <= 0) grow(sp, R); }
         const r = Rules.analyze(P, BASE, w);
         Rules.swayStep(sway, DT, Rules.swayTarget(r.lean, r.height, w));
         if (P.length && Rules.tipStep(tip, r.lean, DT)) { counts.gustTopple++; windFault = true; loseFrom(r.at); windFault = false; }
@@ -148,12 +178,45 @@ function playRound(makePlayer, pick, R, opts = {}) {
     const wait = secs => { for (let t = 0; t < secs && !end; t += DT) frame(); };
 
     while (!end && drops < maxDrops) {
-        wait(2.6 + 1.6 * R()); // fetch, carry, toss
-        if (end) break;
-        if (!supply.length) { // a fresh batch from the vines: now and then a golden one
-            supply = Array.from({ length: 5 }, () => (R() < GOLDEN_CHANCE ? 'pumpkin_golden' : POOL[Math.floor(R() * POOL.length)]));
+        // ── fetch: tap something, Ansel walks there, picks or waters, and carries it to the bale ──
+        const opts2 = options(patch);
+        if (!opts2.length) { // nothing to fetch: MORE! grows the patch (never past unripe) and refills the piles
+            counts.more++;
+            wait(T.more);
+            patch.spots.forEach((sp, i) => { if (sp.stage < 2) grow(sp, R); if (sp.stage < 2 && i % 2 === 0) grow(sp, R); });
+            patch.piles.forEach(p => { if (!p.hides) p.hides = POOL[Math.floor(R() * POOL.length)]; });
+            continue;
         }
-        const key = supply.splice(pick(supply, P, R), 1)[0];
+        const o = pick(opts2, ax, R);
+        let key, source, cost = T.think + Math.abs(o.x - ax) / WALK;
+        if (o.kind === 'pile') { // dive in: the hidden pumpkin pops out onto the path
+            const pile = patch.piles[o.i];
+            patch.path.push({ key: pile.hides, x: pile.x + 60 });
+            pile.hides = null;
+            wait(cost + T.dive);
+            ax = pile.x;
+            continue;
+        }
+        if (o.kind === 'path') {
+            key = patch.path.splice(o.i, 1)[0].key;
+            source = 'fromPath';
+            cost += isHeavy(key) ? T.pickHeavy : T.pick;
+        } else {
+            const sp = patch.spots[o.i];
+            sp.busy = true;
+            cost += T.lane;
+            if (sp.stage < 3) { cost += T.water; while (sp.stage < 3) grow(sp, R); source = 'fromWatered'; } else source = 'fromRipe';
+            key = sp.key;
+            cost += (isHeavy(key) ? T.vinePickHeavy + T.leaveHeavy : T.vinePick + T.leave);
+            Object.assign(sp, { stage: 0, key: null, golden: false, busy: false, t: uni(R, GROW.sproutDelay) });
+        }
+        const stand = HAY_X + (o.x <= HAY_X ? -1 : 1) * 175;
+        cost += Math.abs(o.x - stand) / (isHeavy(key) ? HEAVY_WALK : WALK) + T.toss;
+        if (dayT > 60) { counts.lateTrips++; if (source !== 'fromPath') counts.lateVine++; }
+        counts.trips++; counts.tripTime += cost;
+        wait(cost);
+        ax = stand;
+        if (end) break;
         const pc = piece(key);
         const golden = key === 'pumpkin_golden';
         if (golden) { counts.golden++; earn(RULES.goldenLife, 'golden'); } // harvesting it
@@ -199,13 +262,14 @@ function playRound(makePlayer, pick, R, opts = {}) {
             P.push(res.piece);
             placed++;
             counts[aim.kind]++;
+            counts[source]++;
             if (streak && streak % RULES.lifeStreak === 0) earn(1, 'streak');
             const r = Rules.analyze(P, BASE, w), above = BALE_H + r.height;
             for (const hgt of RULES.lifeHeights) if (above >= hgt && !reachedH.has(hgt)) { reachedH.add(hgt); earn(1, 'height'); }
             Rules.swayKick(sway, aim.d >= 0 ? 1 : -1, res.kick, r.height);
         } else if (res.fall === 'roll') {
             counts.roll++;
-            supply.push(pc.key);
+            patch.path.push({ key: pc.key, x: HAY_X + (R() < 0.5 ? -1 : 1) * (120 + 160 * R()) });
             streak = 0;
             lose(1);
         } else {
@@ -215,10 +279,9 @@ function playRound(makePlayer, pick, R, opts = {}) {
         }
         windFault = false;
         tallest = Math.max(tallest, P.length);
-        if (!end && P.length >= bankAt) { // BOOM: bank it, knock it down, gather the pumpkins again
+        if (!end && P.length >= bankAt) { // BOOM: bank it and knock it down (those pumpkins are spent)
             score += Math.round(P.reduce((s, p) => s + p.pts, 0) * Rules.boomMult(P.length));
             earn(Rules.boomLives(P.length), 'boom');
-            supply = supply.concat(P.map(p => p.key));
             P = [];
             counts.banks++;
             sway.x = sway.v = 0;
@@ -247,10 +310,14 @@ function summarize(name, rounds, makePlayer, pick, seed, opts) {
     const lives = res.reduce((s, r) => s + r.earned.streak + r.earned.boom + r.earned.height + r.earned.golden, 0) / rounds;
     const dusk = res.filter(r => r.end === 'dusk').length / rounds;
     const pc = k => (sum(k) / drops * 100).toFixed(0).padStart(2) + '%';
+    const stacked = sum('fromPath') + sum('fromRipe') + sum('fromWatered');
     console.log(
         `${name.padEnd(30)} stacked ${p3(sorted('placed'))}  tallest ${p3(sorted('tallest'))}  score p50 ${String(pct(sorted('score'), 0.5)).padStart(6)}` +
         `  sunset ${(dusk * 100).toFixed(0).padStart(3)}%  lives earned/rd ${lives.toFixed(1)}` +
-        `  | per drop: perfect ${pc('perfect')} good ${pc('good')} wobbly ${pc('ok')} roll ${pc('roll')} topple ${pc('topple')}`);
+        `  | watered ${(sum('fromWatered') / stacked * 100).toFixed(0).padStart(2)}% of stacked (ripe vine ${(sum('fromRipe') / stacked * 100).toFixed(0)}%,` +
+        ` path ${(sum('fromPath') / stacked * 100).toFixed(0)}%)  vine trips after 1 min ${(sum('lateVine') / Math.max(1, sum('lateTrips')) * 100).toFixed(0)}%` +
+        `  trip ${(sum('tripTime') / Math.max(1, sum('trips'))).toFixed(1)}s  MORE!/rd ${(sum('more') / rounds).toFixed(2)}` +
+        `  | per drop: perfect ${pc('perfect')} roll ${pc('roll')} topple ${pc('topple')}`);
     return res;
 }
 
@@ -305,10 +372,10 @@ if (require.main === module) {
     for (const b of [6, 8, 10, 14]) summarize(`  good 70ms, BOOM at ${b}`, N, PLAYERS.timer(0.07), pickRandom, 21, { bankAt: b });
     for (const b of [10, 14, 18]) summarize(`  expert 45ms, BOOM at ${b}`, N, PLAYERS.timer(0.045), pickRandom, 22, { bankAt: b });
 
-    console.log('\nOrdering (good 70ms, never BOOM):');
-    summarize('  random order', N, PLAYERS.timer(0.07), pickRandom, 8);
-    summarize('  big first (pyramid)', N, PLAYERS.timer(0.07), pickBigFirst, 8);
-    summarize('  small first (upside down)', N, PLAYERS.timer(0.07), pickSmallFirst, 8);
+    console.log('\nPlayers who always fetch whatever is nearest Ansel:');
+    summarize('  casual 150ms, nearest', N, PLAYERS.timer(0.15), pickNearest, 2);
+    summarize('  good 70ms, nearest', N, PLAYERS.timer(0.07), pickNearest, 4);
+    summarize('  good 70ms, nearest, BOOM at 8', N, PLAYERS.timer(0.07), pickNearest, 21, { bankAt: 8 });
 
     const support = k => (RULES.topFlat * (SPECS[k].w + 1) * 2).toFixed(1);
     const row = (label, stack, drop, wind) => {
@@ -324,4 +391,4 @@ if (require.main === module) {
     row('light on HEAVY: gold_s onto deep_xl', ['pumpkin_orange_l', 'pumpkin_deep_xl'], 'pumpkin_gold_s', 0);
 }
 
-module.exports = { lib, playRound, fallRate, PLAYERS, rng };
+module.exports = { lib, playRound, fallRate, PLAYERS, rng, GROW, LAYOUT, pickRandom, pickNearest };

@@ -225,7 +225,8 @@ function playRound(makePlayer, pick, R, opts = {}) {
             wait(2.5);
         }
     }
-    score += P.reduce((s, p) => s + (p.pts || 0), 0); // a tower still standing at the end is banked (no BOOM bonus)
+    // every round ends in a BOOM: a tower still standing at the end is banked with the height bonus
+    if (P.length) score += Math.round(P.reduce((s, p) => s + (p.pts || 0), 0) * Rules.boomMult(P.length));
     return { placed, tallest, score, lostPts, drops, counts, earned, livesLeft: Math.max(0, lives), end: end || 'drops' };
 }
 

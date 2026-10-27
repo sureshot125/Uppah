@@ -78,13 +78,16 @@ const ANSEL_CYCLES = {
 const ANSEL_POSES = {
     stand: 'pick_1',     // idle
     bend: 'pick_2', grab: 'pick_3', tug1: 'tug_1', tug2: 'tug_2', heave: 'heave', toss: 'toss',
-    cheer: 'toss',       // milestones, tapping Ansel, MORE!, sunset (no cheer art yet)
+    cheer: 'pick_1',     // milestones (YAY!), tapping Ansel, MORE!: standing, empty-handed, with a hop
+                         // (the toss frame looked like holding an invisible pumpkin; no cheer art yet)
     boom: 'toss',        // the tower blows: his happiest face, arms up (no celebration art yet)
     shove: 'pick_2',     // the BOOM shove: leaning in, arms out (no bale-shove art yet)
     dive: 'pick_3',      // into a leaf pile (no dive art yet)
     scoop: 'pick_3',     // scooping up Hoppah (no bunny-grab art yet)
     hug: 'heavy_1',      // cuddling Hoppah at his chest (no bunny-hug art yet)
     dizzy: 'dizzy',      // the standing frame plus pixel stars (no dizzy art yet)
+    hero: 'pick_1',      // title and end card: standing, empty-handed (never the arms-up holding
+                         // pose); swap in the cheering/celebration frame when that art arrives
 };
 const HEAD_TOP = 255;    // feet → top of his cap, walk frames (the straw hat is a few px taller)
 const WALK_SPEED = 480, HEAVY_SPEED = 340;
@@ -125,6 +128,9 @@ const MORE_BATCH = 5;
 // ── Growing patch: pumpkins grow in two lanes of the vine rows behind the path ──
 // Tap a ripe one and Ansel (in his straw hat) wades in, tugs it off the vine and
 // carries it back; tap an unripe one and he waters it so it grows.
+// Gigi's visit: she stands between the two vine rows (the front row hides her feet), at
+// roughly Ansel's height, and jogs rather than sprints.
+const GIGI = { y: 1962, depth: 5, scale: 0.55, speed: 250 };
 const LANES = [
     { y: 1930, scale: 0.8, depth: 4 },   // back row
     { y: 1994, scale: 0.9, depth: 6 },   // front row
@@ -1031,7 +1037,9 @@ class PatchScene extends Phaser.Scene {
         }).setDepth(63);
 
         // Gigi cameo actor
-        this.gigi = this.add.image(-400, GROUND, 'gigi_1').setOrigin(0.5, 1 - 37 / 496).setDepth(18).setVisible(false);
+        // Gigi visits from the back of the patch, between the vine rows: small enough to be part of the
+        // scene, never a giant running across the front of the screen.
+        this.gigi = this.add.image(-400, GIGI.y, 'gigi_1').setOrigin(0.5, 1 - 37 / 496).setDepth(GIGI.depth).setVisible(false);
         this.gigiState = null;
 
         // Physics events → sounds
@@ -2059,6 +2067,7 @@ class PatchScene extends Phaser.Scene {
         const height = Math.round(GROUND - top.y);
         const sup = stack.items[n - 2] || null;
         this.placed += 1;
+        if (n > this.tallest) this.tallestTower = this.snapTower(stack);
         this.tallest = Math.max(this.tallest, n);
         this.ui.setCount(n);
 
@@ -2176,6 +2185,7 @@ class PatchScene extends Phaser.Scene {
         this.firstRound = !loadFlag('played');
         saveFlag('played');
         this.placed = 0; this.score = 0; this.lives = RULES.lives; this.tallest = 0; this.dayT = 0;
+        this.tallestTower = null;
         this.streak = 0; this.gusts = 0; this.duskSaid = false;
         this.reached.clear();
         this.lifeHeights = new Set();
@@ -2241,18 +2251,53 @@ class PatchScene extends Phaser.Scene {
             this.ghost.setVisible(false);
             this.looseDrop(it);
         }
-        for (const st of this.stacks) { this.score += st.unbanked; for (const it of st.items) it.pts = 0; }
-        this.ui.setScore(this.score);
+        // Every round ends in a BOOM: whatever is still standing is banked with the full height
+        // bonus, so there's never a reason to cash in just before sunset. (Pumpkins that already
+        // fell took their points with them.)
+        const booms = this.stacks.filter(st => st.items.length > 0)
+            .map(st => ({ st, pts: Math.round(st.unbanked * Rules.boomMult(st.items.length)) }));
+        const finalBoom = booms.reduce((sum, b) => sum + b.pts, 0);
+        this.score += finalBoom;
         const newBest = this.score > (this.best.score || 0);
         if (newBest) { this.best.score = this.score; saveBest(this.best); }
         if (reason === 'dusk') this.ui.banner('SUNSET!');
-        this.time.delayedCall(900, () => {
+        const wait = booms.length ? 700 : 0;
+        if (booms.length) {
+            this.time.delayedCall(wait, () => {
+                this.ui.setScore(this.score);
+                this.ui.banner('BOOM! +' + finalBoom);
+                this.say('BOOM!', 900, true);
+                if (!a.carrying) {
+                    a.busy = true;
+                    this.anselBoomFace();
+                    this.time.delayedCall(1000, () => { a.busy = false; });
+                }
+                for (const b of booms) {
+                    const top = b.st.top();
+                    this.popText(b.st.x, top.y - 30, '+' + b.pts, '#ffd35a', 44);
+                    this.sparkles.explode(40, b.st.x, top.y);
+                    this.blowUp(b.st);
+                }
+                this.time.delayedCall(250, () => Sfx.fanfare());
+            });
+        } else this.ui.setScore(this.score);
+        this.time.delayedCall(wait + 1100, () => {
             if (!a.busy && !a.carrying) this.setPose(reason === 'dusk' ? 'cheer' : 'dizzy');
             this.say(reason === 'dusk' ? 'NIGHT NIGHT!' : 'UH OH!', 1600);
-            if (reason === 'dusk') Sfx.fanfare(); else Sfx.lose();
+            if (reason !== 'dusk') Sfx.lose();
+            else if (!booms.length) Sfx.fanfare();
         });
-        this.time.delayedCall(2200, () => this.ui.showEnd({
+        this.time.delayedCall(wait + 2300, () => this.ui.showEnd({
             reason, tallest: this.tallest, score: this.score, best: this.best.score, newBest,
+            finalBoom, tower: this.tallestTower,
+        }));
+    }
+
+    // A picture of a tower for the end card: each pumpkin's sprite and where it sat on the bale.
+    snapTower(stack) {
+        return stack.items.map(it => ({
+            key: it.img.texture.key, oy: it.img.originY, angle: it.img.angle,
+            dx: it.img.x - stack.x, dy: it.img.y - HAY_TOP,
         }));
     }
 
@@ -2701,9 +2746,12 @@ class PatchScene extends Phaser.Scene {
         const top = this.towerTop();
         this.burst.explode(30, top.x, top.y);
         this.time.delayedCall(900, () => {
-            if (!this.ansel.busy && !this.ansel.carrying) {
+            const a = this.ansel;
+            if (!a.busy && !a.carrying) {
                 this.setPose('cheer');
-                this.time.delayedCall(700, () => { if (!this.ansel.busy) this.setPose('run'); });
+                this.tweens.add({ targets: a, jumpY: 30, duration: 150, ease: 'Quad.Out', yoyo: true, repeat: 1,
+                    onComplete: () => { a.jumpY = 0; } });
+                this.time.delayedCall(700, () => { if (!a.busy) this.setPose('run'); });
             }
             this.say('YAY!', 900);
         });
@@ -2718,8 +2766,9 @@ class PatchScene extends Phaser.Scene {
         const stopX = fromLeft ? v.x + v.width * 0.16 : v.right - v.width * 0.16;
         this.gigiState = { phase: 'in', t: 0, frame: 0, dir: fromLeft ? 1 : -1,
             stopX: Phaser.Math.Clamp(stopX, PLAY_L + 100, PLAY_R - 100) };
-        this.gigi.setVisible(true).setScale(0.95).setFlipX(!fromLeft);
-        this.gigi.x = fromLeft ? v.x - 200 : v.right + 200;
+        this.gigi.setVisible(true).setScale(GIGI.scale).setFlipX(!fromLeft).setAlpha(0).setY(GIGI.y);
+        this.gigi.x = fromLeft ? v.x - 80 : v.right + 80;
+        this.tweens.add({ targets: this.gigi, alpha: 1, duration: 500 });
     }
 
     updateGigi(dt) {
@@ -2728,34 +2777,35 @@ class PatchScene extends Phaser.Scene {
         g.t += dt;
         const run = () => {
             g.frameT = (g.frameT || 0) + dt;
-            if (g.frameT > 0.08) { g.frameT = 0; g.frame = (g.frame + 1) % 8; }
+            if (g.frameT > 0.11) { g.frameT = 0; g.frame = (g.frame + 1) % 8; }
             this.gigi.setTexture('gigi_' + (g.frame + 1));
         };
         if (g.phase === 'in') {
             run();
-            this.gigi.x += g.dir * 520 * dt;
+            this.gigi.x += g.dir * GIGI.speed * dt;
             if ((g.dir > 0 && this.gigi.x >= g.stopX) || (g.dir < 0 && this.gigi.x <= g.stopX)) {
                 g.phase = 'cheer'; g.t = 0; g.frame = 0;
                 this.gigi.setTexture('gigi_1');
-                this.gigiSay = this.add.text(this.gigi.x, GROUND - 420, 'WOW, ANSEL!', {
-                    fontFamily: FONT, fontSize: '26px', color: '#fff6e0', stroke: INK, strokeThickness: 8,
+                const headY = GIGI.y - this.gigi.displayHeight * (1 - 37 / 496);
+                this.gigiSay = this.add.text(this.gigi.x, headY - 30, 'WOW, ANSEL!', {
+                    fontFamily: FONT, fontSize: '22px', color: '#fff6e0', stroke: INK, strokeThickness: 7,
                 }).setOrigin(0.5).setDepth(61).setScale(this.textScale);
-                this.tweens.add({ targets: this.gigiSay, y: GROUND - 445, duration: 400, yoyo: true, repeat: 3 });
+                this.tweens.add({ targets: this.gigiSay, y: headY - 46, duration: 400, yoyo: true, repeat: 3 });
             }
         } else if (g.phase === 'cheer') {
-            this.gigi.y = GROUND - Math.abs(Math.sin(g.t * 9)) * 26;
+            this.gigi.y = GIGI.y - Math.abs(Math.sin(g.t * 7)) * 12;
             if (g.t > 2.8) {
                 g.phase = 'out'; g.t = 0;
-                this.gigi.y = GROUND;
+                this.gigi.y = GIGI.y;
                 this.gigi.setFlipX(g.dir > 0);
                 g.dir = -g.dir;
                 if (this.gigiSay) { this.gigiSay.destroy(); this.gigiSay = null; }
             }
         } else if (g.phase === 'out') {
             run();
-            this.gigi.x += g.dir * 520 * dt;
+            this.gigi.x += g.dir * GIGI.speed * dt;
             const v = this.cameras.main.worldView;
-            if (this.gigi.x < v.x - 300 || this.gigi.x > v.right + 300) {
+            if (this.gigi.x < v.x - 150 || this.gigi.x > v.right + 150) {
                 this.gigi.setVisible(false);
                 this.gigiState = null;
             }
@@ -2903,7 +2953,7 @@ class UIScene extends Phaser.Scene {
         T.t2 = this.add.text(0, 0, 'PUMPKIN PATCH', {
             fontFamily: FONT, fontSize: '54px', color: '#ff9a3a', stroke: INK, strokeThickness: 12, align: 'center',
         }).setOrigin(0.5);
-        T.hero = this.add.image(0, 0, 'ansel:everyday/toss').setOrigin(0.5, 1);
+        T.hero = this.add.image(0, 0, 'ansel:everyday/' + ANSEL_POSES.hero).setOrigin(0.5, 1);
         T.p1 = this.add.image(0, 0, 'pumpkin_deep_xl').setOrigin(0.5, 1);
         T.p2 = this.add.image(0, 0, 'pumpkin_orange_l').setOrigin(0.5, 1);
         T.p3 = this.add.image(0, 0, 'pumpkin_white_m').setOrigin(0.5, 1);
@@ -2976,7 +3026,7 @@ class UIScene extends Phaser.Scene {
         T.how.setPosition(w / 2, portrait ? h - 210 : 598).setWordWrapWidth(w - 60);
         T.go.setPosition(w / 2, portrait ? h - 80 : 676);
         this.tweens.killTweensOf(T.hero);
-        this.tweens.add({ targets: T.hero, y: groundY - 12, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        this.tweens.add({ targets: T.hero, y: groundY - 6, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         if (portrait) this.bannerText.setWordWrapWidth(w - 320); // clear of the BOOM button
         this.layoutChallenge(w, h, portrait);
     }
@@ -3126,7 +3176,8 @@ class UIScene extends Phaser.Scene {
         E.rows = this.add.text(0, 0, '', Object.assign(txt(24, '#fff6e0', 7), { lineSpacing: 18 })).setOrigin(0, 0.5);
         E.best = this.add.text(0, 0, 'NEW BEST!', txt(22, '#ffd35a', 8)).setOrigin(0.5);
         E.go = this.add.text(0, 0, DESKTOP ? 'SPACE TO PLAY AGAIN' : 'TAP TO PLAY AGAIN', txt(24, '#fff6e0', 8)).setOrigin(0.5);
-        E.root.add([E.shade, E.panel, E.wood, E.title, E.hero, E.rows, E.best, E.go]);
+        E.tower = this.add.container(0, 0); // the round's tallest tower, on a little hay bale
+        E.root.add([E.shade, E.panel, E.wood, E.title, E.tower, E.hero, E.rows, E.best, E.go]);
         this.tweens.add({ targets: E.go, alpha: 0.35, duration: 600, yoyo: true, repeat: -1 });
         this.tweens.add({ targets: E.best, scale: 1.12, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         this.endSparkles = this.add.particles(0, 0, 'sparkle', {
@@ -3145,24 +3196,28 @@ class UIScene extends Phaser.Scene {
         const E = this.end, cxm = w / 2, cym = h / 2;
         E.shade.setSize(w, h);
         if (portrait) {
-            const pw = Math.min(w - 40, 640), ph = 760;
+            const pw = Math.min(w - 40, 640), ph = 800;
             E.panel.setSize(pw, ph).setPosition(cxm, cym);
             E.wood.setSize(pw - 24, ph - 24).setPosition(cxm, cym);
             E.title.setPosition(cxm, cym - ph / 2 + 70).setFontSize(44);
-            E.hero.setPosition(cxm, cym - 40).setScale(0.77);
-            E.rows.setPosition(cxm - 200, cym + 90);
-            E.best.setPosition(cxm, cym + 220);
-            E.go.setPosition(cxm, cym + ph / 2 - 60);
+            // Ansel stands beside his tallest tower
+            E.hero.setPosition(cxm - 130, cym - 20).setScale(0.77);
+            E.towerSpot = { x: cxm + 140, y: cym - 20, maxH: 300, maxW: 220 };
+            E.rows.setPosition(cxm - 220, cym + 120);
+            E.best.setPosition(cxm, cym + 255);
+            E.go.setPosition(cxm, cym + ph / 2 - 55);
         } else {
-            const pw = 620, ph = Math.min(h - 60, 520);
+            const pw = Math.min(w - 80, 820), ph = Math.min(h - 60, 520);
             E.panel.setSize(pw, ph).setPosition(cxm, cym);
             E.wood.setSize(pw - 24, ph - 24).setPosition(cxm, cym);
             E.title.setPosition(cxm, cym - ph / 2 + 60).setFontSize(40);
-            E.hero.setPosition(cxm - 180, cym + 120).setScale(0.65);
-            E.rows.setPosition(cxm - 90, cym - 10);
-            E.best.setPosition(cxm + 90, cym + 110);
+            E.hero.setPosition(cxm - pw / 2 + 120, cym + 130).setScale(0.65);
+            E.towerSpot = { x: cxm + pw / 2 - 120, y: cym + 130, maxH: ph - 190, maxW: 190 };
+            E.rows.setPosition(cxm - 175, cym - 20);
+            E.best.setPosition(cxm, cym + 120);
             E.go.setPosition(cxm, cym + ph / 2 - 50);
         }
+        if (this.endShown && this.endTower) this.drawEndTower(this.endTower);
     }
 
     // The HUD: count, score and three pumpkin lives; streaks show as sparkles and pitch.
@@ -3259,8 +3314,13 @@ class UIScene extends Phaser.Scene {
     showEnd(info) {
         const E = this.end;
         E.title.setText(info.reason === 'dusk' ? 'SUNSET!' : info.reason === 'topple' ? 'TOWER DOWN!' : 'UH OH!');
-        E.hero.setTexture(this.patch.anselKey(info.reason === 'dusk' ? ANSEL_POSES.cheer : ANSEL_POSES.dizzy));
-        E.rows.setText('SCORE   ' + info.score + '\nTALLEST ' + info.tallest + '\nBEST    ' + info.best);
+        E.hero.setTexture(this.patch.anselKey(info.reason === 'dusk' ? ANSEL_POSES.hero : ANSEL_POSES.dizzy));
+        const rows = [];
+        if (info.finalBoom) rows.push('LAST BOOM +' + info.finalBoom);
+        rows.push('SCORE     ' + info.score, 'TALLEST   ' + info.tallest, 'BEST      ' + info.best);
+        E.rows.setText(rows.join('\n'));
+        this.endTower = info.tower || null;
+        this.drawEndTower(this.endTower);
         E.best.setVisible(info.newBest);
         E.go.setVisible(false);
         this.pauseBtn.setVisible(false);
@@ -3281,6 +3341,26 @@ class UIScene extends Phaser.Scene {
             this.endReady = true;
             E.go.setVisible(true);
         });
+    }
+
+    // The round's tallest tower, rebuilt from its sprites on a small hay bale and scaled to fit.
+    drawEndTower(tower) {
+        const E = this.end, C = E.tower, spot = E.towerSpot;
+        C.removeAll(true);
+        if (!tower || !tower.length || !spot) return;
+        const baleH = 96, src = k => this.textures.get(k).getSourceImage();
+        let top = 0, half = 84;
+        for (const p of tower) {
+            const im = src(p.key);
+            top = Math.min(top, p.dy - p.oy * im.height);
+            half = Math.max(half, Math.abs(p.dx) + im.width / 2);
+        }
+        const k = Math.min(1, spot.maxH / (baleH - top), spot.maxW / (2 * half));
+        C.setPosition(spot.x, spot.y).setScale(k);
+        C.add(this.add.image(0, 0, 'haybale').setOrigin(0.5, 1));
+        for (const p of tower) {
+            C.add(this.add.image(p.dx, p.dy - baleH + 4, p.key).setOrigin(0.5, p.oy).setAngle(p.angle));
+        }
     }
 
     hideEnd() {

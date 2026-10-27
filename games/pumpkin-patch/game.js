@@ -5,17 +5,22 @@
 // carries them on his head, and tosses them onto a hay-bale tower (UPPAH!).
 // Tap again to drop the swaying pumpkin onto the stack; he counts each one.
 // Every tap gets a reaction (pumpkins hop, Ansel jumps, trees drop leaves,
-// Hoppah the bunny boings), and a little hand shows what to tap — no reading. Pumpkins that land
-// well lock into the tower; ones that roll off can be picked up again.
+// Hoppah the bunny boings), and a little hand shows what to tap — no reading.
+// Stacking is honest: where you drop is where it lands, and a pumpkin (or the whole
+// stack) goes over if its weight leans past the joint below. Heavy-on-light rocks hard,
+// autumn gusts sway the tower, and points ride on the tower until BOOM banks them.
+// Three dropped pumpkins or sunset ends the round. Toddler mode (title screen) keeps the
+// original gentle game with nothing to lose. Pumpkins that fall can be picked up again.
 // Leaf piles hide surprise pumpkins. When the patch runs out, tap and Ansel
-// shouts MORE! and a fresh batch tumbles in. When the tower is big, tap it
-// (or press DOWN beside it) to knock it all down.
+// shouts MORE! and a fresh batch tumbles in.
 //
 // Controls
 //   Touch / mouse : tap a pumpkin (he fetches and lifts it), tap again to drop,
-//                   tap leaf piles, Ansel, trees or the bunny, tap the tower to topple it,
+//                   the red BOOM button banks and knocks down the tower,
+//                   tap leaf piles, Ansel, trees or the bunny (toddler mode: tap the tower to topple it),
 //                   tap anywhere for MORE! when the patch is empty
-//   Keyboard      : ←/→ walk · ↓ pick up / dive / knock down · ↑ or Space uppah / more
+//   Keyboard      : ←/→ walk · ↓ pick up / dive / BOOM beside the tower · ↑ or Space uppah / drop /
+//                   more / play again · B BOOM · T toddler mode (title, end card) · M mute
 //
 // Built on Phaser 3 (MIT) with Matter.js physics.
 // ═════════════════════════════════════════════════════════════════════════════
@@ -52,16 +57,15 @@ const RUN_SCALE = HEAD_PX / POSES.run.headSrc;
 const HEAD_TOP = Math.round((343 - 27) * RUN_SCALE); // feet → top of hair, run frames
 const WALK_SPEED = 380, HEAVY_SPEED = 270;
 
-// Drop timing. The swaying pumpkin glides back and forth at a steady speed (like
-// Stack). Everything tightens as the tower grows, and an adaptive "level" speeds up
-// after perfect drops and slows down after misses, so a toddler and a grown-up both
-// get a fair challenge.
+// Toddler mode drop timing (the original gentle rules; challenge mode uses STAGES below).
+// The swaying pumpkin glides back and forth at a steady speed (like Stack). Everything
+// tightens as the tower grows, and an adaptive "level" speeds up after perfect drops and
+// slows down after misses. Drops are pulled toward the centre (goodKeep/okKeep).
 const TIMING = {
     perfectZone: n => Math.max(18, 36 - n * 1.2),      // px from centre that snaps perfect
     goodFactor: 2.2,                                     // good zone = perfect zone x this
     goodKeep: 0.3,                                       // good drops keep 30% of their miss
     okKeep: n => Math.min(0.8, 0.45 + n * 0.03),         // wide drops keep most of it
-    nestle: n => Math.max(0.4, 0.78 - n * 0.025),        // share of the pumpkin below that "catches"
     amp: n => Math.min(60 + n * 7, 170),                 // sway half-width
     speed: (n, level) => Math.min(560, 170 + level * 26 + n * 8), // px per second
     levelUp: { perfect: 1, good: 0.25, ok: -0.75, miss: -1.5 },
@@ -132,6 +136,225 @@ const MILESTONES = [
     { h: 1300, text: 'TOUCHING THE SKY!' },
     { h: 1750, text: 'TO THE MOON!', gigi: true },
 ];
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CHALLENGE RULES: pumpkin weights, tower balance, wind, stages and scoring.
+// Pure logic with no Phaser in it: `sim.js` loads this exact block to tune the
+// game headless (node games/pumpkin-patch/sim.js). Keep it self-contained.
+// <rules>
+const RULES = {
+    lives: 3,             // pumpkins you can lose (rolled off or knocked off) before the round ends
+    lifeEvery: 5,         // a perfect streak of this many wins a lost pumpkin back
+    assisted: 2,          // the first pumpkins of a round are pulled toward centre and can't fall
+    assistKeep: 0.4,      // ...keeping this share of their miss
+    topFlat: 0.9,         // share of a pumpkin's half-width it can land on (its centre past that rolls off)
+    botFlat: 0.8,         // share of its own half-width a pumpkin stands on
+    hayHalf: 76,          // flat top of the hay bale (half-width, px)
+    hayMass: 20,          // the bale never rocks
+    impact: 0.5,          // landing wobble: grows with (weight / weight below) and how far off-centre
+    kickSpread: 0.6,      // ...and varies +-this share from drop to drop (moderate misses only sometimes fall)
+    kickPow: 0.75,        // ...weight ratio to this power
+    kickBase: 0.25,       // ...plus this much even when centred
+    tipDelay: 0.3,        // seconds a stack teeters past its tipping point before it goes (gusts can pass)
+    windK: 0.05,          // wind leverage: balance shift per unit of wind per px of height
+    leverCap: 320,        // px: wind leverage stops growing above this height
+    hoverDrift: 32,       // px a full gust pushes a medium hovering pumpkin (light ones further)
+    warn: 1.4,            // seconds of leaves and whoosh before a gust hits
+    swayHz: 0.6,          // the tower's springy sway
+    swayDamp: 0.2,
+    swayPx: h => 12 + Math.min(h, 1400) * 0.03, // top sway (px) at full lean
+    points: { perfect: 100, good: 50, ok: 25 },
+    orderBonus: 25,       // landing on a pumpkin at least as heavy (big at the bottom, small on top)
+    combos: [[10, 4], [5, 3], [3, 2]], // perfect streak -> score multiplier
+    goldenMult: 3,        // golden pumpkins (it.golden) score this many times more
+    boomMin: 3,           // the BOOM button shows up once the tower is this tall
+    boomPer: 0.2,         // BOOM banks the tower's points x (1 + this x pumpkins in it)
+    sail: 1,              // a crooked stack catches more wind: push x (1 + sail x its lean)
+    fallDrift: 24,        // px a full gust pushes a medium pumpkin while it falls (aim upwind!)
+    day: 180,             // seconds from afternoon to sunset (the round's clock)
+    duskWind: 0.3,        // gusts get this much stronger by sunset, even on short towers
+};
+// How heavy each variety is for its size (a medium orange pumpkin = 1). Weight = heft x size.
+const HEFT = {
+    pumpkin_deep_xl: 1.5, pumpkin_orange_l: 1.25, pumpkin_green_m: 1.1, pumpkin_white_m: 1.05,
+    pumpkin_orange_m: 1, pumpkin_warty_s: 0.85, pumpkin_orange_s: 0.8, pumpkin_gold_s: 0.7,
+    pumpkin_golden: 1.35, // the rare golden one: worth x3, but heavy
+};
+// Difficulty stages, by how many pumpkins are on the tower now (BOOM starts you over at CALM).
+// amp/speed: hover sway half-width (px) and glide speed (px/s); perfect: snap-to-centre zone
+// (px); wind: gust strength (plus RULES.duskWind toward sunset); gap: calm seconds between gusts.
+const STAGES = [
+    { at: 0,  name: 'CALM',   amp: 34,  speed: 135, perfect: 22, wind: 0,    gap: [8, 11] },
+    { at: 4,  name: 'BREEZY', amp: 42,  speed: 150, perfect: 12, wind: 0.35, gap: [7, 10] },
+    { at: 8,  name: 'WINDY',  amp: 56,  speed: 170, perfect: 10, wind: 0.5,  gap: [5, 8] },
+    { at: 13, name: 'GUSTY',  amp: 72,  speed: 190, perfect: 9,  wind: 0.65, gap: [4, 7] },
+    { at: 20, name: 'STORMY', amp: 90,  speed: 215, perfect: 8,  wind: 0.8,  gap: [3.5, 6] },
+    { at: 30, name: 'WILD WIND', amp: 104, speed: 240, perfect: 7, wind: 1,  gap: [3, 5] },
+];
+
+const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+const Rules = {
+    stageAt(placed) {
+        let i = 0;
+        while (i + 1 < STAGES.length && placed >= STAGES[i + 1].at) i++;
+        return i;
+    },
+
+    // A stack piece: body size in px, weight m and wind sail a (same units). heft overrides
+    // the variety's HEFT (1 = a medium orange pumpkin).
+    piece(key, w, h, x, heft) {
+        heft = heft || HEFT[key] || 1;
+        const a = w * h / 4000;
+        return { key, x: x || 0, w, h, a, m: a * heft, heft };
+    },
+
+    // Gusts for a tower at stage si, `dusk` (0..1) of the way to sunset.
+    windStage(si, dusk) {
+        const st = STAGES[si];
+        return { wind: st.wind + RULES.duskWind * clampN(dusk || 0, 0, 1), gap: st.gap };
+    },
+
+    supportHalf(sup, base) { return sup ? RULES.topFlat * sup.w / 2 : base.half; },
+
+    // Balance of every joint, bottom first. Joint i is piece i resting on the piece below (or
+    // the hay): the weight of everything from i up has to sit over the patch where the two flat
+    // faces touch. Wind pushes sideways with leverage that grows with the height and sail of
+    // what's above, and weight resists it; a crooked stack catches more of it (RULES.sail).
+    // per[i].L: 0 = centred, +-1 = on the edge, beyond = tips.
+    analyze(P, base, wind) {
+        const n = P.length, per = new Array(n), yb = new Array(n);
+        let y = 0;
+        for (let i = 0; i < n; i++) { yb[i] = y; y += P[i].h; }
+        let M = 0, MX = 0, A = 0, AY = 0, lean = 0, at = -1;
+        for (let i = n - 1; i >= 0; i--) {
+            const p = P[i];
+            M += p.m; MX += p.m * p.x; A += p.a; AY += p.a * (yb[i] + p.h / 2);
+            const sx = i ? P[i - 1].x : base.x, sh = this.supportHalf(i ? P[i - 1] : null, base);
+            const bh = RULES.botFlat * p.w / 2;
+            const lo = Math.max(p.x - bh, sx - sh), hi = Math.min(p.x + bh, sx + sh);
+            const push = (wind || 0) * RULES.windK * Math.min(AY / A - yb[i], RULES.leverCap) * A / M;
+            let L;
+            if (hi - lo < 1) L = p.x >= sx ? 9 : -9;
+            else {
+                const half = (hi - lo) / 2, still = (MX / M - (lo + hi) / 2) / half;
+                L = still + push / half * (1 + RULES.sail * Math.min(1.5, Math.abs(still)));
+            }
+            per[i] = { L, lo, hi, y: yb[i] };
+            if (Math.abs(L) > Math.abs(lean)) { lean = L; at = i; }
+        }
+        return { lean, at, per, height: y };
+    },
+
+    // How hard a landing rocks the stack: heavier than what it lands on, and further off-centre,
+    // rock harder. Even a centred drop jolts a light pumpkin when a heavy one lands on it.
+    kick(sup, pc, d, base) {
+        const ratio = clampN(pc.m / (sup ? sup.m : RULES.hayMass), 0.25, 4);
+        return RULES.impact * Math.pow(ratio, RULES.kickPow) *
+            (RULES.kickBase + Math.min(1.5, Math.abs(d) / this.supportHalf(sup, base)));
+    },
+
+    // Land pc at offset d from the centre of the top of stack P (does not change P).
+    // opts: { roll, topple } say which falls are allowed; rand() in 0..1 varies the wobble.
+    // fall: 'none' | 'roll' (only the new one goes) | 'topple' (joint `at` and everything above).
+    land(P, base, pc, d, wind, opts, rand) {
+        const sup = P[P.length - 1] || null;
+        const q = Object.assign({}, pc, { x: (sup ? sup.x : base.x) + d });
+        const Q = P.concat([q]), r = this.analyze(Q, base, wind);
+        const kick = opts.topple ? this.kick(sup, q, d, base) * (1 - RULES.kickSpread + 2 * RULES.kickSpread * rand()) : 0;
+        // it rocks toward the side it landed on (a centred one sags the way the stack already leans)
+        const dir = d > 0 ? 1 : d < 0 ? -1 : r.lean >= 0 ? 1 : -1;
+        let peak = 0, at = -1, M = 0;
+        for (let i = Q.length - 1; i >= 0; i--) {
+            M += Q[i].m;
+            const L = r.per[i].L + dir * kick * q.m / M;   // lower joints rock by its share of the weight
+            if (Math.abs(L) > Math.abs(peak)) { peak = L; at = i; }
+        }
+        const top = Q.length - 1;
+        let fall = 'none';
+        if (Math.abs(r.per[top].L) > 1 && (opts.roll || opts.topple)) { fall = 'roll'; at = top; peak = r.per[top].L; }
+        else if (opts.topple && Math.abs(peak) > 1) fall = at === top ? 'roll' : 'topple';
+        return { fall, at, peak, kick, x: q.x, piece: q, analysis: r };
+    },
+
+    // Challenge-mode drop for a tap `off` px from the target: where it lands and how it grades.
+    aim(P, base, pc, off, stage, assisted, wind) {
+        const perfect = Math.abs(off) <= stage.perfect * (assisted ? 1.5 : 1);
+        let d = perfect ? 0 : off;
+        if (assisted && !perfect) {
+            const sh = this.supportHalf(P[P.length - 1], base);
+            d = clampN(off * RULES.assistKeep, -0.5 * sh, 0.5 * sh);
+        }
+        const res = this.land(P, base, pc, d, wind, { roll: !assisted, topple: !assisted }, () => 0.5);
+        const L = Math.abs(res.peak);
+        // kind: how it scores if it stays on; grade: what the ring shows ('miss' = it will fall)
+        const kind = perfect ? 'perfect' : L > 0.6 || res.fall !== 'none' ? 'ok' : 'good';
+        return { grade: res.fall !== 'none' ? 'miss' : kind, kind, d, peak: res.peak, fall: res.fall };
+    },
+
+    ordered(sup, pc) { return !sup || pc.m <= sup.m * 1.05; },
+    boomMult(n) { return 1 + RULES.boomPer * n; },
+    combo(streak) { for (const [n, x] of RULES.combos) if (streak >= n) return x; return 1; },
+    score(grade, stageIdx, streak, ordered, golden) {
+        const mult = (grade === 'perfect' ? this.combo(streak) : 1) * (golden ? RULES.goldenMult : 1);
+        return Math.round((RULES.points[grade] + (ordered ? RULES.orderBonus : 0)) * (1 + 0.25 * stageIdx) * mult);
+    },
+
+    // Hovering: light pumpkins glide faster and get blown further than heavy ones.
+    hoverSpeed(stage, pc, streak) {
+        return stage.speed * clampN(Math.pow(1.34 / pc.m, 0.1), 0.88, 1.12) * (1 + 0.03 * Math.min(streak, 10));
+    },
+    hoverDrift(wind, pc) { return wind * RULES.hoverDrift * clampN(Math.sqrt(1.34 / pc.m), 0.55, 1.7); },
+    fallDrift(wind, pc) { return wind * RULES.fallDrift * clampN(Math.sqrt(1.34 / pc.m), 0.55, 1.7); },
+    tri(u, amp) { const P = 4 * amp, v = ((u % P) + P) % P; return v < 2 * amp ? -amp + v : 3 * amp - v; },
+
+    // The tower's sway is a damped spring whose rest point follows its lean (and the wind).
+    swayStep(s, dt, target) {
+        const w = 2 * Math.PI * RULES.swayHz;
+        s.v += (-w * w * (s.x - target) - 2 * RULES.swayDamp * w * s.v) * dt;
+        s.x += s.v * dt;
+    },
+    swayTarget(lean, height) { return clampN(lean, -1.4, 1.4) * RULES.swayPx(height); },
+    swayKick(s, dir, kick, height) { s.v += dir * kick * RULES.swayPx(height) * 2 * Math.PI * RULES.swayHz; },
+
+    // Past the tipping point for tipDelay seconds (a short gust can pass) and it goes.
+    tipStep(st, lean, dt) {
+        st.tipT = Math.abs(lean) > 1 ? st.tipT + dt : Math.max(0, st.tipT - 2 * dt);
+        return st.tipT >= RULES.tipDelay;
+    },
+};
+
+// Autumn gusts: calm, then ~1.4 s of warning (leaves, whoosh), then a gust that ramps up,
+// flutters and dies away. Gusts tend to alternate sides, so the tower rocks back and forth.
+class Wind {
+    constructor(rand) { this.rand = rand || Math.random; this.reset(); }
+    reset() { this.phase = 'calm'; this.t = 0; this.wait = 2.5; this.dir = 1; this.v = 0; this.peak = 0; this.len = 0; }
+    update(dt, stage) {
+        const R = this.rand;
+        this.t += dt;
+        if (this.phase === 'calm') {
+            this.v *= Math.pow(0.15, dt);
+            if (stage.wind > 0 && this.t >= this.wait) {
+                this.phase = 'warn'; this.t = 0;
+                this.dir = R() < 0.65 ? -this.dir : this.dir;
+                this.peak = stage.wind * (0.75 + 0.25 * R());
+                this.len = 1.8 + 1.7 * R();
+            }
+        } else if (this.phase === 'warn') {
+            this.v = this.dir * this.peak * 0.15 * Math.min(1, this.t / RULES.warn);
+            if (this.t >= RULES.warn) { this.phase = 'gust'; this.t = 0; }
+        } else {
+            const env = this.t < 0.5 ? this.t / 0.5 : Math.max(0, Math.min(1, (this.len - this.t) / 0.8));
+            this.v = this.dir * this.peak * Math.max(0.15, env) * (1 + 0.12 * Math.sin(this.t * 7.3));
+            if (this.t >= this.len) {
+                this.phase = 'calm'; this.t = 0;
+                this.wait = stage.gap[0] + (stage.gap[1] - stage.gap[0]) * R();
+            }
+        }
+        return this.v;
+    }
+}
+// </rules>
 
 const FONT = '"Press Start 2P", monospace';
 const INK = '#2b1810';
@@ -395,6 +618,64 @@ const Sfx = {
             this._tone('triangle', f / 2, f / 2, i === 3 ? 0.45 : 0.12, 0.18, now + i * 0.11);
         });
     },
+
+    // ── Challenge mode sounds ──
+    // a gust: band-passed noise that swells and dies away (strength 0..1, seconds)
+    wind(strength, dur) {
+        if (!this.ctx) return;
+        const c = this.ctx, now = c.currentTime;
+        const src = c.createBufferSource();
+        src.buffer = this.noiseBuf; src.loop = true;
+        const f = c.createBiquadFilter();
+        f.type = 'bandpass'; f.Q.value = 0.8;
+        f.frequency.setValueAtTime(320, now);
+        f.frequency.linearRampToValueAtTime(650 + 550 * strength, now + dur * 0.4);
+        f.frequency.linearRampToValueAtTime(380, now + dur);
+        const g = c.createGain();
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(0.04 + 0.22 * strength, now + dur * 0.35);
+        g.gain.linearRampToValueAtTime(0.0001, now + dur);
+        src.connect(f); f.connect(g); g.connect(this.master);
+        src.start(now, Math.random() * 0.5); src.stop(now + dur + 0.05);
+    },
+
+    // wooden creak of a wobbly stack: lower for heavier pumpkins
+    creak(weight) {
+        if (!this.ctx) return;
+        const c = this.ctx, now = c.currentTime;
+        const base = Math.max(70, 150 - weight * 14);
+        const o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(base, now);
+        o.frequency.linearRampToValueAtTime(base * 1.25, now + 0.12);
+        o.frequency.linearRampToValueAtTime(base * 0.9, now + 0.32);
+        f.type = 'bandpass'; f.frequency.value = base * 4; f.Q.value = 6;
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(0.2, now + 0.04);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+        o.connect(f); f.connect(g); g.connect(this.master);
+        o.start(now); o.stop(now + 0.38);
+    },
+
+    crash() {
+        this.boom();
+        this.crunch();
+    },
+
+    // round over: a little falling tune
+    lose() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        [523.25, 440, 349.23, 261.63].forEach((f, i) =>
+            this._tone('triangle', f, f * 0.97, i === 3 ? 0.5 : 0.16, 0.2, now + i * 0.17));
+    },
+
+    // a lost pumpkin won back
+    bonus() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        [659.25, 987.77, 1318.5].forEach((f, i) => this._tone('square', f, f, 0.07, 0.08, now + i * 0.06));
+    },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -402,11 +683,57 @@ const MB = () => Phaser.Physics.Matter.Matter.Body;
 const MSleep = () => Phaser.Physics.Matter.Matter.Sleeping;
 
 function loadBest() {
-    try { return JSON.parse(localStorage.getItem('uppah.pumpkinpatch.best')) || { count: 0, height: 0 }; }
-    catch (e) { return { count: 0, height: 0 }; }
+    const none = { count: 0, height: 0, score: 0 };
+    try { return Object.assign(none, JSON.parse(localStorage.getItem('uppah.pumpkinpatch.best')) || {}); }
+    catch (e) { return none; }
 }
 function saveBest(b) {
     try { localStorage.setItem('uppah.pumpkinpatch.best', JSON.stringify(b)); } catch (e) {}
+}
+// Toddler mode (no wind, nothing can fall, no game over), remembered between visits.
+function loadToddler() {
+    try { return localStorage.getItem('uppah.pumpkinpatch.toddler') === '1'; } catch (e) { return false; }
+}
+function saveToddler(on) {
+    try { localStorage.setItem('uppah.pumpkinpatch.toddler', on ? '1' : '0'); } catch (e) {}
+}
+
+// The windsock's pole stands just behind the fence, right of the bale (WINDSOCK_POLE: the
+// pole's x within its sprite frame, as a share of the frame width).
+const WINDSOCK_X = HAY_X + 230, WINDSOCK_Y = 1886, WINDSOCK_POLE = 2 / 34;
+
+// One tower on one hay bale. All per-tower state lives here, so more bales is a small change:
+// make more Stacks and point PatchScene.activeStack at the one Ansel is building.
+class Stack {
+    constructor(x, half, topY) {
+        this.x = x;                  // bale centre
+        this.base = { x, half };     // the bale's flat top, for Rules.analyze / Rules.land
+        this.topY = topY;            // y of the bale's top surface
+        this.items = [];             // pumpkins in the tower, bottom first
+        this.sway = { x: 0, v: 0 };  // springy sway of the top (px)
+        this.tip = { tipT: 0 };      // seconds spent past its tipping point
+        this.balance = null;         // last Rules.analyze() of it
+        this.danger = 0;             // 0..1: how close it is to going over
+        this.creakT = 0;
+        this.wobblySaid = false;
+    }
+    get stageIdx() { return Rules.stageAt(this.items.length); }
+    // points riding on the tower: lost if it falls, banked x Rules.boomMult by BOOM
+    get unbanked() { let s = 0; for (const it of this.items) s += it.pts || 0; return s; }
+    pieces() { return this.items.map(pieceOf); }
+    // top surface y, x where it is now (swaying), rx where it rests
+    top() {
+        const t = this.items[this.items.length - 1];
+        if (!t || !t.body) return { y: this.topY, x: this.x, rx: this.x, half: HAY_W / 2, it: null };
+        return { y: t.topY, x: t.body.position.x, rx: t.rx, half: t.bw / 2, it: t };
+    }
+}
+
+// A pumpkin as the rules see it (size, weight, resting x). it.heft overrides the variety's weight.
+function pieceOf(it) {
+    if (!it.pc) it.pc = Rules.piece(it.key, it.bw, it.bh, 0, it.heft);
+    it.pc.x = it.rx !== undefined ? it.rx : 0;
+    return it.pc;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -430,6 +757,9 @@ class PatchScene extends Phaser.Scene {
         art.forEach(k => this.load.image(k, ART + k + '.png'));
         this.load.spritesheet('leaves', ART + 'leaves.png', { frameWidth: 28, frameHeight: 28 });
         this.load.spritesheet('giraffe', ART + 'giraffe.png', { frameWidth: 224, frameHeight: 352 });
+        // challenge HUD art (make_art.py: boom_button, windsock)
+        this.load.spritesheet('boom_button', ART + 'boom_button.png', { frameWidth: 120, frameHeight: 108 });
+        this.load.spritesheet('windsock', ART + 'windsock.png', { frameWidth: 136, frameHeight: 288 });
     }
 
     create() {
@@ -595,6 +925,7 @@ class PatchScene extends Phaser.Scene {
         this.scene.launch('ui');
         this.ui = this.scene.get('ui');
         this.events.once('shutdown', () => this.matter.world.off('collisionstart'));
+        this.initChallenge();
     }
 
     // ── Items ───────────────────────────────────────────────────────────────
@@ -616,7 +947,7 @@ class PatchScene extends Phaser.Scene {
     addBody(it, x, y, angle) {
         const opts = {
             friction: 1, frictionStatic: 2.2, frictionAir: 0.015, restitution: 0.02,
-            density: 0.0016, slop: 0.04, sleepThreshold: 45, label: 'item',
+            density: 0.0016 * (HEFT[it.key] || 1), slop: 0.04, sleepThreshold: 45, label: 'item',
         };
         // Squat pumpkin outline with a flat bottom and a flattish top (real pumpkins sit
         // on a flat base with a dimpled top), so a slightly crooked drop still stays put.
@@ -640,15 +971,14 @@ class PatchScene extends Phaser.Scene {
         if (it.body) { this.matter.world.remove(it.body); it.body = null; }
     }
 
-    towerTop() {
-        let top = HAY_TOP, x = HAY_X, half = HAY_W / 2;
-        for (const it of this.tower) {
-            if (it.body && it.body.bounds.min.y < top) {
-                top = it.body.bounds.min.y; x = it.body.position.x; half = it.bw / 2;
-            }
-        }
-        return { y: top, x, half };
-    }
+    // The towers (one per hay bale) and the one Ansel is building; this.tower is its pumpkins.
+    get stacks() { return this._stacks || (this._stacks = [new Stack(HAY_X, RULES.hayHalf, HAY_TOP)]); }
+    get stack() { return this.stacks[this.activeStack || 0]; }
+    get tower() { return this.stack.items; }
+    set tower(v) { this.stack.items = v; }
+
+    // Top of the stack: y of its top surface, x where it is now (swaying), rx its resting x.
+    towerTop(stack) { return (stack || this.stack).top(); }
 
     // ── Ansel ───────────────────────────────────────────────────────────────
     setPose(pose) {
@@ -726,7 +1056,7 @@ class PatchScene extends Phaser.Scene {
 
     placeOnTower() {
         const a = this.ansel;
-        if (!a.carrying || a.busy) return;
+        if (!a.carrying || a.busy || this.roundOver) return;
         this.walkTo(this.standSpot(HAY_X, 175), () => {
             const it = a.carrying;
             if (!it) return;
@@ -738,7 +1068,7 @@ class PatchScene extends Phaser.Scene {
             const top = this.towerTop();
             // the sway starts at the far edge on Ansel's side, so you wait for it to come over
             const side = a.x < top.x ? -1 : 1;
-            this.hoverAmp = TIMING.amp(this.tower.length);
+            this.hoverAmp = this.hoverStart(it);
             const hx = top.x + side * this.hoverAmp, hy = top.y - it.bh / 2 - 120;
             it.state = 'hover';
             a.carrying = null;
@@ -758,23 +1088,23 @@ class PatchScene extends Phaser.Scene {
 
     drop() {
         const it = this.hovering;
-        if (!it) return;
+        if (!it || this.dropping) return;
         this.hovering = null;
         this.ghost.setVisible(false);
+        // Where it lands is decided now, from where it is over the (swaying) top: a perfect
+        // drop snaps to centre; otherwise it keeps its miss (pulled in only for the first
+        // pumpkins and in toddler mode). updateDrop() then drops it there and landDrop()
+        // decides whether it stays, wobbles or goes over.
         const top = this.towerTop();
-        // grade the timing: perfect snaps dead-centre, good gets pulled most of the way in,
-        // a wide drop keeps most of its miss and may roll off
-        const off = it.img.x - top.x;
-        it.grade = this.gradeDrop(off);
-        it.perfect = it.grade === 'perfect';
-        const x = top.x + off * this.dropKeep(it.grade);
-        this.addBody(it, x, it.img.y, it.perfect ? 0 : Phaser.Math.DegToRad(it.img.angle * 0.5));
-        it.state = 'falling';
-        it.fromDrop = true; // only things Ansel drops can join the tower
+        const plan = this.planDrop(it, it.img.x - top.x);
+        it.grade = plan.kind;
+        it.state = 'dropping';
+        this.dropping = { it, plan, stack: this.stack, x0: it.img.x, y0: it.img.y, a0: it.img.angle, vy: 0 };
         Sfx.down();
         this.say('DOWN!', 800);
     }
 
+    // Toddler mode grading (the original gentle rules): see TIMING.
     gradeDrop(off) {
         const zone = TIMING.perfectZone(this.tower.length);
         const d = Math.abs(off);
@@ -817,35 +1147,18 @@ class PatchScene extends Phaser.Scene {
         });
     }
 
+    // Ansel walks over and knocks the tower down (tap the tower in toddler mode, or Down beside
+    // it): the same BOOM as the HUD button, so in challenge mode it banks the tower first.
     knockDown() {
-        const a = this.ansel;
-        if (a.busy || a.carrying || this.tower.length < 2 || this.hovering) return;
-        this.walkTo(this.standSpot(HAY_X, 150), () => {
-            this.face(HAY_X);
+        const a = this.ansel, stack = this.stack;
+        if (a.busy || a.carrying || this.hovering || this.dropping || !this.canBoom(stack)) return;
+        this.walkTo(this.standSpot(stack.x, 150), () => {
+            this.face(stack.x);
             a.busy = true;
             this.setPose('down');
             this.say('BOOM!', 900);
             this.time.delayedCall(200, () => {
-                Sfx.boom();
-                this.cameras.main.shake(380, 0.012);
-                const top = this.towerTop();
-                this.burst.explode(40, HAY_X, HAY_TOP);
-                const dirAway = a.x < HAY_X ? 1 : -1;
-                for (const it of this.tower) {
-                    MB().setStatic(it.body, false);
-                    MSleep().set(it.body, false);
-                    const k = (GROUND - it.body.position.y) / 200;
-                    MB().setVelocity(it.body, { x: dirAway * (6 + Math.random() * 7) + (Math.random() - 0.5) * 8,
-                                                y: -6 - Math.random() * 7 - k });
-                    MB().setAngularVelocity(it.body, (Math.random() - 0.5) * 0.3);
-                    it.state = 'falling';
-                    it.airT = 0;
-                }
-                this.tower = [];
-                this.reached.clear();
-                this.streak = 0;
-                this.wobbleAmp = 0;
-                this.ui.setCount(0);
+                if (!this.boom(stack)) { a.busy = false; this.setPose('run'); return; }
                 this.time.delayedCall(450, () => this.setPose('dizzy'));
                 this.time.delayedCall(1500, () => { Sfx.more(); this.say('MORE!'); });
                 this.time.delayedCall(1700, () => { a.busy = false; this.setPose('run'); });
@@ -890,14 +1203,15 @@ class PatchScene extends Phaser.Scene {
     begin() {
         if (this.started) return;
         this.started = true;
+        this.startRound();
         this.tapGuard = this.time.now + 300; // the "tap to play" tap is not a game tap
         Sfx.init();
         this.time.delayedCall(300, () => this.say('PUMPKINS!', 1500));
     }
 
     onTap(p) {
-        if (!this.started || this.time.now < (this.tapGuard || 0)) return;
-        if (this.ui.hitButton(p)) return;
+        if (!this.started || this.roundOver || this.time.now < (this.tapGuard || 0)) return;
+        if (this.ui.hitButton(p) || this.ui.hitBoom(p)) return;
         // toddler palm guard: ignore a second tap that lands almost instantly
         if (this.time.now - this.lastTapAt < 120) return;
         this.lastTapAt = this.time.now;
@@ -961,7 +1275,7 @@ class PatchScene extends Phaser.Scene {
             return;
         }
         const top = this.towerTop();
-        if (this.tower.length >= 2 && Math.abs(wx - HAY_X) < 140 && wy > top.y - 60 && wy < GROUND) {
+        if (this.toddler && this.tower.length >= 2 && Math.abs(wx - HAY_X) < 140 && wy > top.y - 60 && wy < GROUND) {
             this.knockDown(); return;
         }
         if (!this.anyLoose()) { this.more(); return; }
@@ -1008,12 +1322,17 @@ class PatchScene extends Phaser.Scene {
 
     // ── Growing patch ───────────────────────────────────────────────────────
     createPatch() {
-        this.spots = GROW_SPOTS.map((g, i) => {
-            const sp = { ...g, stage: 0, t: 0, img: null, key: null, golden: false, busy: false };
-            // start with a mix: some ripe, some green, some sprouts
+        this.spots = GROW_SPOTS.map(g => ({ ...g, stage: 0, t: 0, img: null, key: null, golden: false, busy: false }));
+        this.resetPatch();
+    }
+
+    // Each round starts with a mix in the vines: some ripe, some green, some sprouts.
+    resetPatch() {
+        this.spots.forEach((sp, i) => {
+            if (sp.img) { this.tweens.killTweensOf(sp.img); sp.img.destroy(); }
+            Object.assign(sp, { stage: 0, t: 0, img: null, key: null, golden: false, busy: false });
             const start = [3, 2, 3, 1, 2, 3, 2, 1, 3, 2][i % 10];
             for (let k = 0; k < start; k++) this.growSpot(sp, false);
-            return sp;
         });
     }
 
@@ -1289,10 +1608,17 @@ class PatchScene extends Phaser.Scene {
         const code = e.code;
         if (code === 'KeyM') { this.ui.toggleSound(); return; }
         if (!this.started) {
+            if (code === 'KeyT') { this.ui.toggleToddler(); return; }
             if (['Space', 'Enter', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyS'].includes(code)) this.ui.startGame();
             return;
         }
+        if (this.roundOver) {
+            if (code === 'KeyT') this.ui.toggleToddler();
+            else if (['Space', 'Enter', 'ArrowUp', 'KeyW'].includes(code)) this.ui.retry();
+            return;
+        }
         const a = this.ansel;
+        if (code === 'KeyB') { this.boomPress(); return; }
         const isUp = code === 'ArrowUp' || code === 'KeyW' || code === 'Space';
         const isDown = code === 'ArrowDown' || code === 'KeyS';
         if (!isUp && !isDown) return;
@@ -1315,7 +1641,7 @@ class PatchScene extends Phaser.Scene {
         for (const pile of this.piles) {
             if (Math.abs(pile.x - a.x) < 150) { this.dive(pile); return; }
         }
-        if (this.tower.length >= 2 && Math.abs(a.x - HAY_X) < 260) { this.knockDown(); return; }
+        if (this.canBoom() && Math.abs(a.x - this.stack.x) < 260) { this.knockDown(); return; }
         if (!this.anyLoose()) this.more();
     }
 
@@ -1430,82 +1756,44 @@ class PatchScene extends Phaser.Scene {
             this.hoverT += dt;
             const it = this.hovering;
             const top = this.towerTop();
-            const amp = this.hoverAmp;
-            // steady glide back and forth (a triangle wave), readable like Stack's sliding block
-            this.hoverU += TIMING.speed(this.tower.length, this.level) * dt;
-            const P = 4 * amp, u = ((this.hoverU % P) + P) % P;
-            const off = u < 2 * amp ? -amp + u : 3 * amp - u;
+            // steady glide back and forth (a triangle wave), readable like Stack's sliding block;
+            // gusts push it downwind (little ones further) while the stack top sways under it
+            this.hoverU += this.hoverSpeed(it) * dt;
+            const off = Rules.tri(this.hoverU, this.hoverAmp);
+            const drift = this.toddler ? 0 : Rules.hoverDrift(this.windV, pieceOf(it));
+            this.hoverDrift = Phaser.Math.Linear(this.hoverDrift || 0, drift, 1 - Math.pow(0.05, dt));
             const targetY = top.y - it.bh / 2 - 110;
-            it.img.x = this.hoverBaseX + off;
+            it.img.x = this.hoverBaseX + off + this.hoverDrift;
             it.img.y = Phaser.Math.Linear(it.img.y, targetY + Math.sin(this.hoverT * 5) * 5, 0.15);
-            it.img.angle = Math.sin(this.hoverT * 3) * 4;
-            this.hoverBaseX = Phaser.Math.Linear(this.hoverBaseX, top.x, 0.05);
-            // landing ring on top of the stack: gold = perfect, white = good, faint = wide
-            const grade = this.gradeDrop(it.img.x - top.x);
-            const perfect = grade === 'perfect';
-            this.hoverGrade = grade;
-            this.ghost.setVisible(true)
-                .setPosition(top.x + (it.img.x - top.x) * this.dropKeep(grade), top.y + 6)
-                .setScale((it.bw / 128) * (perfect ? 1.15 : 1), perfect ? 1.15 : 1)
-                .setTint(perfect ? 0xffc93a : 0xffffff)
-                .setAlpha(perfect ? 1 : grade === 'good' ? 0.8 : 0.35 + Math.sin(time / 120) * 0.1);
+            it.img.angle = Math.sin(this.hoverT * 3) * 4 + this.hoverDrift * 0.2;
+            this.hoverBaseX = Phaser.Math.Linear(this.hoverBaseX, top.rx, 0.05);
+            // landing ring on top of the stack shows what a tap now would do
+            const plan = this.planDrop(it, it.img.x - top.x);
+            this.hoverGrade = plan.grade;
+            this.showRing(it, top, plan, time);
         }
 
-        // Tower wobble (visual only): springy sway that grows toward the top and dies down
-        this.wobbleT += dt;
-        this.wobbleAmp *= Math.pow(0.3, dt);
-        const st = this.towerTop();
-        const stackTop = st.y;
-        this.stackTopX = st.x;
-        this.stackTopHalf = st.half;
-        const stackH = Math.max(1, HAY_TOP - stackTop);
+        // Wind, the tower's balance and sway, tipping, and the pumpkin being dropped
+        this.updateChallenge(dt, time);
 
-        // Sync physics items → sprites, and decide what joins the tower
+        // Sync physics items -> sprites (tower pieces' static bodies already carry their sway)
         for (const it of this.items) {
             if (!it.body) { it.shadow.setVisible(false); continue; }
             it.img.x = it.body.position.x;
             it.img.y = it.body.position.y;
             it.img.rotation = it.body.angle;
-            if (it.state === 'tower' || it.body.isStatic) {
-                const f = Phaser.Math.Clamp((HAY_TOP - it.body.position.y) / stackH, 0, 1);
-                const sway = Math.sin(this.wobbleT * 8) * this.wobbleAmp * Math.pow(f, 1.3);
-                it.img.x += sway;
-                it.img.rotation += sway * 0.004;
-                continue;
-            }
+            if (it.state === 'tower' || it.body.isStatic) continue;
             // contact shadow, shrinking as the pumpkin rises off the ground
             const k = Phaser.Math.Clamp(1 - (GROUND - it.body.bounds.max.y) / 450, 0.25, 1);
             it.shadow.setVisible(true).setPosition(it.body.position.x, GROUND + 3)
                 .setScale((it.bw / 136) * k, k).setAlpha(k);
             it.airT += dt;
-            // Toddler "nestle": a dropped pumpkin whose middle is over the one below settles
-            // in instead of rolling off (damped slide and spin, gentle pull to centre).
-            if (it.fromDrop && it.body.bounds.max.y >= stackTop - 6 &&
-                Math.abs(it.body.position.x - this.stackTopX) < this.stackTopHalf * TIMING.nestle(this.tower.length)) {
-                const b = it.body;
-                MB().setAngularVelocity(b, b.angularVelocity * 0.6);
-                MB().setVelocity(b, { x: b.velocity.x * 0.6 + (this.stackTopX - b.position.x) * 0.02, y: b.velocity.y });
-                MB().setAngle(b, b.angle * 0.9);
-            }
             const v = Math.hypot(it.body.velocity.x, it.body.velocity.y);
             const resting = it.body.isSleeping || (v < 0.3 && Math.abs(it.body.angularVelocity) < 0.02);
             it.settleT = resting ? it.settleT + dt : 0;
             if (it.settleT > 0.35) {
-                const bottom = it.body.bounds.max.y;
-                const onStack = bottom < HAY_TOP + 8 && Math.abs(it.body.position.x - HAY_X) < 260;
-                if (onStack && it.fromDrop) {
-                    this.lockIntoTower(it);
-                } else if (it.state === 'falling') {
-                    it.state = 'ground';
-                    if (it.fromDrop) {
-                        // rolled off the stack: the perfect run is over and the sway eases off
-                        this.streak = 0;
-                        this.ui.setStreak(0);
-                        this.bumpLevel('miss');
-                        Sfx.uhoh();
-                        this.say('UH OH!', 900);
-                    }
-                }
+                // things that fell (off the stack, out of a leaf pile, out of the sky) are loose again
+                if (it.state === 'falling') it.state = 'ground';
                 it.fromDrop = false;
             }
         }
@@ -1539,56 +1827,74 @@ class PatchScene extends Phaser.Scene {
         this.updateCamera(dt);
     }
 
-    lockIntoTower(it) {
-        const prevTop = this.towerTop();
-        MB().setStatic(it.body, true);
-        it.state = 'tower';
-        it.shadow.setVisible(false);
-        this.tower.push(it);
-        const top = this.towerTop();
+    // A dropped pumpkin landed and stayed on (it is already in the stack): count it, score it.
+    lockIntoTower(it, stack) {
+        stack = stack || this.stack;
+        const n = stack.items.length;
+        const top = stack.top();
         const height = Math.round(GROUND - top.y);
-        const n = this.tower.length;
+        const sup = stack.items[n - 2] || null;
+        this.placed += 1;
+        this.tallest = Math.max(this.tallest, n);
         this.ui.setCount(n);
-        // squash, and set the whole stack wobbling (more if it landed off-centre)
-        this.tweens.add({ targets: it.img, scaleX: 1.16, scaleY: 0.86, duration: 100, yoyo: true, ease: 'Quad.Out' });
-        const off = Math.abs(it.body.position.x - prevTop.x);
-        this.wobbleAmp = Math.min(22, this.wobbleAmp + 4 + off * 0.12);
 
         // count it out loud: "ONE!" "TWO!" ... with a climbing note
         Sfx.count(n);
         this.say((n <= COUNT_WORDS.length ? COUNT_WORDS[n - 1] : String(n)) + '!', 1000);
-        const num = this.add.text(it.body.position.x, it.body.bounds.min.y - 20, String(n), {
-            fontFamily: FONT, fontSize: '56px', color: '#fff6e0', stroke: INK, strokeThickness: 12,
-        }).setOrigin(0.5, 1).setDepth(62).setScale(0.4 * this.textScale);
-        this.tweens.add({ targets: num, scale: this.textScale, duration: 220, ease: 'Back.Out' });
-        this.tweens.add({ targets: num, y: num.y - 90, alpha: 0, delay: 500, duration: 700, onComplete: () => num.destroy() });
 
         // perfect drops sparkle, and a run of them climbs in pitch (like Stack)
         const grade = it.grade || 'ok';
         if (grade === 'perfect') {
             this.streak += 1;
-            this.sparkles.explode(10 + Math.min(10, this.streak * 2), it.body.position.x, it.body.bounds.min.y);
+            this.sparkles.explode(10 + Math.min(10, this.streak * 2), it.rx, it.topY);
             this.time.delayedCall(140, () => Sfx.perfect(this.streak));
             if (TIMING.combos.includes(this.streak)) {
                 this.time.delayedCall(420, () => {
                     Sfx.fanfare();
-                    this.ui.banner('PERFECT x' + this.streak + '!');
-                    this.sparkles.explode(30, it.body ? it.body.position.x : HAY_X, top.y);
+                    this.ui.banner(this.toddler ? 'PERFECT x' + this.streak + '!'
+                        : this.streak + ' IN A ROW! x' + Rules.combo(this.streak));
+                    this.sparkles.explode(30, it.body ? it.body.position.x : stack.x, top.y);
                 });
             }
         } else {
             this.streak = 0;
             if (grade === 'good') {
-                this.sparkles.explode(4, it.body.position.x, it.body.bounds.min.y);
+                this.sparkles.explode(4, it.rx, it.topY);
                 this.time.delayedCall(120, () => Sfx.good());
             }
         }
+        if (it.golden) this.sparkles.explode(16, it.rx, it.ry);
         this.bumpLevel(grade);
+        // points ride on the tower until BOOM banks them: by grade, more higher up, x2/x3/x4 for
+        // perfect streaks, x3 for golden, plus a bonus for landing on something at least as heavy
+        // (big at the bottom, small on top)
+        const pts = this.toddler ? 0 : Rules.score(grade, Rules.stageAt(n - 1), this.streak,
+            Rules.ordered(sup ? pieceOf(sup) : null, pieceOf(it)), it.golden);
+        // one popup over the pumpkin: its number in toddler mode, its points (gold) otherwise
+        const num = this.add.text(it.rx, it.topY - 20, this.toddler ? String(n) : '+' + pts, {
+            fontFamily: FONT, fontSize: this.toddler ? '56px' : '40px', color: this.toddler ? '#fff6e0' : '#ffd35a',
+            stroke: INK, strokeThickness: 12,
+        }).setOrigin(0.5, 1).setDepth(62).setScale(0.4 * this.textScale);
+        this.tweens.add({ targets: num, scale: this.textScale, duration: 220, ease: 'Back.Out' });
+        this.tweens.add({ targets: num, y: num.y - 90, alpha: 0, delay: 500, duration: 700, onComplete: () => num.destroy() });
         this.ui.setStreak(this.streak);
         it.perfect = false;
         it.grade = null;
-        if (this.tower.length > this.best.count || height > this.best.height) {
-            this.best = { count: Math.max(this.best.count, this.tower.length), height: Math.max(this.best.height, height) };
+
+        if (!this.toddler) {
+            it.pts = pts;
+            // a run of perfect drops wins back a lost pumpkin
+            if (grade === 'perfect' && this.streak % RULES.lifeEvery === 0 && this.lives < RULES.lives) {
+                this.lives += 1;
+                this.ui.setLives(this.lives, false);
+                this.time.delayedCall(700, () => Sfx.bonus());
+            }
+            if (stack.stageIdx > Rules.stageAt(n - 1)) this.onStage(stack.stageIdx);
+        }
+
+        if (stack.items.length > this.best.count || height > this.best.height) {
+            this.best.count = Math.max(this.best.count, stack.items.length);
+            this.best.height = Math.max(this.best.height, height);
             saveBest(this.best);
             this.ui.setBest(this.best.count);
         }
@@ -1600,6 +1906,512 @@ class PatchScene extends Phaser.Scene {
             }
         }
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CHALLENGE ROUND: honest landings, tower balance and sway, wind, tipping,
+    // BOOM banking, lives, the sunset clock, round over and retry.
+    // The numbers live in the <rules> block; per-tower state lives in Stack.
+    // ═════════════════════════════════════════════════════════════════════════
+    initChallenge() {
+        this.toddler = loadToddler();
+        this.wind = new Wind();
+        this.windV = 0;
+        this.windDir = 1;
+        this.tipGroups = [];
+        this.dropping = null;
+        this.hoverDrift = 0;
+        this.roundOver = false;
+        this.placed = 0; this.score = 0; this.lives = RULES.lives; this.tallest = 0; this.dayT = 0;
+        // leaves streaming across the view with the wind: they start ~1.4 s before a gust hits
+        const view = () => this.cameras.main.worldView;
+        this.windLeaves = this.add.particles(0, 0, 'leaves', {
+            frame: [0, 1, 2, 3, 4, 5, 6, 7],
+            x: { onEmit: () => { const v = view(); return this.windDir > 0 ? v.x - 30 : v.right + 30; } },
+            y: { onEmit: () => { const v = view(); return v.y + Math.random() * v.height * 0.9; } },
+            speedX: { onEmit: () => this.windDir * (420 + Math.random() * 380) * (0.6 + Math.abs(this.windV)) / this.camZoom },
+            speedY: { min: -50, max: 70 },
+            lifespan: 3800,
+            rotate: { start: 0, end: 720 },
+            scale: { min: 0.9, max: 1.4 },
+            frequency: 90,
+            emitting: false,
+        }).setDepth(33);
+
+        // ── Windsock: on a wooden pole planted behind the fence beside the bale, where you
+        // can see it while aiming. It streams, droops and flaps with the real wind. ──
+        this.windsock = this.add.sprite(WINDSOCK_X, WINDSOCK_Y, 'windsock', 0)
+            .setOrigin(WINDSOCK_POLE, 1).setDepth(2);
+    }
+
+    updateWindsock() {
+        const ph = this.wind.phase, s = Math.abs(this.windV);
+        const lvl = this.toddler ? 0 : ph === 'warn' ? Math.max(1, s < 0.3 ? 1 : 2) : s < 0.06 ? 0 : s < 0.3 ? 1 : s < 0.6 ? 2 : 3;
+        const flap = lvl > 0 && Math.floor(this.time.now / (lvl === 3 ? 90 : 150)) % 2 === 1;
+        const left = (ph === 'warn' ? this.wind.dir : this.windV) < 0;
+        this.windsock.setFrame(lvl * 2 + (flap ? 1 : 0)).setFlipX(left)
+            .setOrigin(left ? 1 - WINDSOCK_POLE : WINDSOCK_POLE, 1);
+    }
+
+    startRound() {
+        this.roundOver = false;
+        this.placed = 0; this.score = 0; this.lives = RULES.lives; this.tallest = 0; this.dayT = 0;
+        this.streak = 0; this.level = 0; this.gusts = 0; this.duskSaid = false;
+        this.reached.clear();
+        this.wind.reset();
+        this.windV = 0;
+        for (const st of this.stacks) {
+            st.sway.x = 0; st.sway.v = 0; st.tip.tipT = 0; st.danger = 0;
+        }
+        if (this.ui && this.ui.ready) this.ui.newRound(this.toddler);
+    }
+
+    // Tap-to-retry from the end card: a fresh patch and empty bales.
+    resetRound() {
+        const a = this.ansel;
+        if (a.busy) { this.time.delayedCall(150, () => this.resetRound()); return; }
+        this.hovering = null;
+        this.dropping = null;
+        this.tipGroups = [];
+        this.ghost.setVisible(false);
+        for (const it of this.items) {
+            this.tweens.killTweensOf(it.img);
+            this.removeBody(it);
+            it.img.destroy();
+            it.shadow.destroy();
+        }
+        this.items = [];
+        for (const st of this.stacks) st.items = [];
+        a.carrying = null;
+        a.goal = null;
+        this.pending = null;
+        this.setPose('run');
+        for (const pile of this.piles) {
+            pile.hidden = this.makeItem(pile.hides, pile.x, GROUND - 40);
+            pile.hidden.state = 'hidden';
+            pile.hidden.img.setVisible(false);
+        }
+        LAYOUT.forEach(s => {
+            const it = this.makeItem(s.key, s.x, GROUND - 60);
+            this.addBody(it, s.x, GROUND - it.bh / 2 - 2, 0);
+            it.state = 'ground';
+        });
+        this.resetPatch();
+        this.tweens.killTweensOf(a);
+        a.laneY = 0; a.depthScale = 1; a.walkingLane = false;
+        a.img.setDepth(20); a.shadow.setDepth(9);
+        this.can.setVisible(false);
+        this.startRound();
+        this.tapGuard = this.time.now + 300;
+        this.time.delayedCall(300, () => this.say('PUMPKINS!', 1500));
+    }
+
+    // The round ends when three pumpkins have fallen ('lives', or 'topple' if a stack came down),
+    // or at sunset ('dusk'). Towers still standing are banked (without the BOOM bonus).
+    endRound(reason) {
+        if (this.roundOver || this.toddler) return;
+        this.roundOver = true;
+        const a = this.ansel;
+        this.pending = null;
+        a.goal = null;
+        this.hand.setVisible(false);
+        if (this.hovering) {
+            const it = this.hovering;
+            this.hovering = null;
+            this.ghost.setVisible(false);
+            this.looseDrop(it);
+        }
+        for (const st of this.stacks) { this.score += st.unbanked; for (const it of st.items) it.pts = 0; }
+        this.ui.setScore(this.score);
+        const newBest = this.score > (this.best.score || 0);
+        if (newBest) { this.best.score = this.score; saveBest(this.best); }
+        if (reason === 'dusk') this.ui.banner('SUNSET!');
+        this.time.delayedCall(900, () => {
+            if (!a.busy && !a.carrying) this.setPose(reason === 'dusk' ? 'up' : 'dizzy');
+            this.say(reason === 'dusk' ? 'NIGHT NIGHT!' : 'UH OH!', 1600);
+            if (reason === 'dusk') Sfx.fanfare(); else Sfx.lose();
+        });
+        this.time.delayedCall(2200, () => this.ui.showEnd({
+            reason, tallest: this.tallest, score: this.score, best: this.best.score, newBest,
+        }));
+    }
+
+    loseLives(n) {
+        if (this.toddler || this.roundOver) return;
+        this.lives = Math.max(0, this.lives - n);
+        this.ui.setLives(this.lives, true);
+        if (this.lives <= 0) this.endRound(n > 1 ? 'topple' : 'lives');
+    }
+
+    canBoom(stack) {
+        stack = stack || this.stack;
+        return this.started && !this.roundOver && stack.items.length >= (this.toddler ? 2 : RULES.boomMin);
+    }
+
+    // BOOM: bank the tower's points x the height bonus, then knock it all down. Toddler mode: just fun.
+    boom(stack) {
+        stack = stack || this.stack;
+        if (!this.canBoom(stack)) return false;
+        const n = stack.items.length;
+        if (!this.toddler) {
+            const pts = Math.round(stack.unbanked * Rules.boomMult(n));
+            this.score += pts;
+            this.ui.setScore(this.score);
+            this.ui.banner('BOOM! +' + pts);
+            this.popText(stack.x, stack.top().y - 30, '+' + pts, '#ffd35a', 44);
+            this.sparkles.explode(40, stack.x, stack.top().y);
+            this.time.delayedCall(250, () => Sfx.fanfare());
+        }
+        this.blowUp(stack);
+        return true;
+    }
+
+    // The HUD's BOOM button: Ansel cheers from wherever he is.
+    boomPress() {
+        if (!this.boom()) return;
+        const a = this.ansel;
+        this.say('BOOM!', 900);
+        if (!a.busy && !a.carrying) {
+            a.busy = true;
+            this.setPose('up');
+            this.time.delayedCall(650, () => { a.busy = false; this.setPose('run'); });
+        }
+    }
+
+    // The tower goes flying (no lives lost: it was on purpose) and the pumpkins land in the patch.
+    blowUp(stack) {
+        Sfx.boom();
+        this.cameras.main.shake(380, 0.012);
+        this.burst.explode(40, stack.x, stack.topY);
+        const dirAway = this.ansel.x < stack.x ? 1 : -1;
+        for (const it of stack.items) {
+            MB().setStatic(it.body, false);
+            MSleep().set(it.body, false);
+            const k = (GROUND - it.body.position.y) / 200;
+            MB().setVelocity(it.body, { x: dirAway * (6 + Math.random() * 7) + (Math.random() - 0.5) * 8,
+                                        y: -6 - Math.random() * 7 - k });
+            MB().setAngularVelocity(it.body, (Math.random() - 0.5) * 0.3);
+            it.state = 'falling';
+            it.airT = 0;
+            it.pts = 0;
+            it.rock = null;
+        }
+        stack.items = [];
+        stack.tip.tipT = 0;
+        stack.sway.v += dirAway * 30;
+        this.reached.clear();
+        this.streak = 0;
+        this.ui.setStreak(0);
+        this.ui.setCount(0);
+    }
+
+    onStage(si) {
+        this.ui.banner(STAGES[si].name + '!');
+        Sfx.wind(0.35, 1.4);
+        // the first gust of a new stage comes soon, so you feel it
+        if (this.wind.phase === 'calm') this.wind.t = Math.max(this.wind.t, this.wind.wait - 2.5);
+    }
+
+    // Sway width when a pumpkin is tossed up (called from placeOnTower).
+    hoverStart(it) {
+        this.hoverDrift = 0;
+        return this.toddler ? TIMING.amp(this.tower.length) : STAGES[this.stack.stageIdx].amp;
+    }
+
+    hoverSpeed(it) {
+        if (this.toddler) return TIMING.speed(this.tower.length, this.level);
+        return Rules.hoverSpeed(STAGES[this.stack.stageIdx], pieceOf(it), this.streak);
+    }
+
+    // What a drop now would do, for a pumpkin `off` px from the top's centre: { grade, kind, d }.
+    // In challenge mode it also drifts downwind as it falls, so you aim upwind.
+    planDrop(it, off) {
+        if (this.toddler) {
+            const grade = this.gradeDrop(off);
+            return { grade, kind: grade, d: off * this.dropKeep(grade) };
+        }
+        const stack = this.stack, pc = pieceOf(it);
+        return Rules.aim(stack.pieces(), stack.base, pc, off + Rules.fallDrift(this.windV, pc),
+            STAGES[stack.stageIdx], this.placed < RULES.assisted, this.windV);
+    }
+
+    // Landing ring: gold = perfect, white = steady, orange = wobbly, flashing red = it will fall.
+    showRing(it, top, plan, time) {
+        const g = plan.grade, perfect = g === 'perfect';
+        let tint, alpha;
+        if (this.toddler) {
+            tint = perfect ? 0xffc93a : 0xffffff;
+            alpha = perfect ? 1 : g === 'good' ? 0.8 : 0.35 + Math.sin(time / 120) * 0.1;
+        } else {
+            tint = perfect ? 0xffc93a : g === 'good' ? 0xffffff : g === 'ok' ? 0xffa040 : 0xff4a3a;
+            alpha = perfect ? 1 : g === 'good' ? 0.85 : g === 'ok' ? 0.85 : 0.55 + Math.sin(time / 70) * 0.3;
+        }
+        this.ghost.setVisible(true)
+            .setPosition(top.x + plan.d, top.y + 6)
+            .setScale((it.bw / 128) * (perfect ? 1.15 : 1), perfect ? 1.15 : 1)
+            .setTint(tint)
+            .setAlpha(alpha);
+    }
+
+    updateChallenge(dt, time) {
+        this.updateClock(dt);
+        this.updateWind(dt);
+        this.updateDrop(dt);
+        for (const st of this.stacks) this.updateTower(st, dt);
+        this.updateTipping(dt);
+        this.updateWindsock();
+        if (this.ui && this.ui.ready) {
+            const st = this.stack;
+            this.ui.setBoom(this.canBoom(st), st.danger, this.toddler ? 0 : Math.round(st.unbanked * Rules.boomMult(st.items.length)));
+            this.ui.setDusk(this.toddler ? 0 : Math.min(1, this.dayT / RULES.day));
+        }
+    }
+
+    // Afternoon to sunset: the round's clock. Gusts get stronger toward dusk.
+    updateClock(dt) {
+        if (!this.started || this.roundOver || this.toddler) return;
+        this.dayT += dt;
+        const left = RULES.day - this.dayT;
+        if (left <= 30 && !this.duskSaid) {
+            this.duskSaid = true;
+            this.ui.banner('SUNSET SOON!');
+        }
+        if (left <= 0) this.endRound('dusk');
+    }
+
+    updateWind(dt) {
+        const live = this.started && !this.roundOver && !this.toddler;
+        const before = this.wind.phase;
+        if (live) {
+            let si = 0;
+            for (const st of this.stacks) si = Math.max(si, st.stageIdx);
+            this.windV = this.wind.update(dt, Rules.windStage(si, this.dayT / RULES.day));
+        } else {
+            this.windV *= Math.pow(0.1, dt);
+        }
+        const ph = this.wind.phase;
+        if (live && ph !== before) {
+            if (ph === 'warn') {
+                // telegraph: a rising whoosh and leaves, ~1.4 s before it hits
+                Sfx.wind(0.3 * this.wind.peak, RULES.warn + 0.5);
+                if (!this.bubble.visible && (this.gusts === 0 || Math.random() < 0.3)) this.say('WINDY!', 900);
+                this.gusts += 1;
+            } else if (ph === 'gust') {
+                Sfx.wind(this.wind.peak, this.wind.len + 0.4);
+            }
+        }
+        const s = Math.abs(this.windV);
+        if (live && (s > 0.03 || ph === 'warn')) {
+            this.windDir = ph === 'calm' ? Math.sign(this.windV) || 1 : this.wind.dir;
+            this.windLeaves.setFrequency(ph === 'warn' ? 70 : Math.max(16, 110 - 150 * s));
+            if (!this.windLeaves.emitting) this.windLeaves.start();
+        } else if (this.windLeaves.emitting) {
+            this.windLeaves.stop();
+        }
+    }
+
+    // The dropped pumpkin falls onto the top of the stack, sliding (and drifting) to where it lands.
+    updateDrop(dt) {
+        const D = this.dropping;
+        if (!D) return;
+        const it = D.it, top = D.stack.top();
+        const landY = top.y - it.bh / 2;
+        D.vy += 2600 * dt;
+        it.img.y = Math.min(landY, it.img.y + D.vy * dt);
+        const k = Phaser.Math.Clamp((it.img.y - D.y0) / Math.max(1, landY - D.y0), 0, 1);
+        it.img.x = Phaser.Math.Linear(D.x0, top.x + D.plan.d, 1 - (1 - k) * (1 - k));
+        it.img.angle = D.a0 * (1 - k);
+        if (it.img.y >= landY) {
+            this.dropping = null;
+            this.landDrop(it, D.plan, D.stack);
+        }
+    }
+
+    // It touched down: the rules decide whether it stays, and whether it (or the stack) goes over.
+    landDrop(it, plan, stack) {
+        const top = stack.top(), sup = top.it;
+        if (this.roundOver) { this.looseDrop(it); return; }
+        const safe = !this.toddler && this.placed < RULES.assisted;
+        const opts = this.toddler ? { roll: true, topple: false } : safe ? { roll: false, topple: false } : { roll: true, topple: true };
+        const res = Rules.land(stack.pieces(), stack.base, pieceOf(it), plan.d,
+            this.toddler ? 0 : this.windV, opts, Math.random);
+        this.placeStatic(stack, it, res.x, top.y);
+        this.landFx(stack, it, sup, res);
+        if (res.fall === 'none') { this.lockIntoTower(it, stack); return; }
+        this.startTip(stack, res.at, res.peak >= 0 ? 1 : -1, res.analysis.per[res.at]);
+    }
+
+    // Put a pumpkin on a stack as a static body whose bottom sits on bottomY.
+    placeStatic(stack, it, x, bottomY) {
+        this.removeBody(it);
+        this.addBody(it, x, bottomY - it.bh / 2, 0);
+        const b = it.body;
+        MB().setStatic(b, true);
+        MB().setPosition(b, { x, y: b.position.y + (bottomY - b.bounds.max.y) });
+        it.rx = x;
+        it.ry = b.position.y;
+        it.topY = b.bounds.min.y;
+        it.state = 'tower';
+        it.fromDrop = false;
+        it.rock = null;
+        it.pts = 0;
+        it.shadow.setVisible(false);
+        it.img.setPosition(x, it.ry).setAngle(0);
+        stack.items.push(it);
+    }
+
+    // Thud by weight, squash the one below (more if this one is heavier), rock and sway.
+    landFx(stack, it, sup, res) {
+        const m = pieceOf(it).m;
+        const ratio = sup ? m / pieceOf(sup).m : 0.3;
+        Sfx.thunk(it.bw / 4, 2 + m * 1.6);
+        this.dust.explode(Math.min(12, 3 + Math.round(m * 2)), it.rx, it.ry + it.bh / 2);
+        this.tweens.add({ targets: it.img, scaleX: 1.16, scaleY: 0.86, duration: 100, yoyo: true, ease: 'Quad.Out' });
+        if (sup) {
+            const sq = Math.min(0.24, 0.05 * ratio);
+            this.tweens.add({ targets: sup.img, scaleX: 1 + sq * 0.8, scaleY: 1 - sq, duration: 90 + 20 * Math.min(ratio, 4), yoyo: true, ease: 'Quad.Out' });
+            if (ratio > 1.5) this.cameras.main.shake(140, Math.min(0.008, 0.0025 * ratio));
+        }
+        const dir = res.x >= (sup ? sup.rx : stack.x) ? 1 : -1;
+        const height = stack.balance ? stack.balance.height : 0;
+        if (!this.toddler) {
+            it.rock = { amp: dir * Math.min(0.3, 0.04 + res.kick * 0.3), t: 0 };
+            Rules.swayKick(stack.sway, dir, Math.max(0.04, res.kick), height);
+            if (res.kick > 0.3 || Math.abs(res.peak) > 0.7) this.time.delayedCall(90, () => Sfx.creak(m));
+        } else {
+            Rules.swayKick(stack.sway, dir, 0.08, height);
+        }
+    }
+
+    // Each frame: balance (with the wind), the springy sway, trembling when it's close,
+    // and tipping once it has been past its tipping point for a moment.
+    updateTower(stack, dt) {
+        const P = stack.pieces();
+        const r = stack.balance = Rules.analyze(P, stack.base, this.toddler ? 0 : this.windV);
+        Rules.swayStep(stack.sway, dt, Rules.swayTarget(this.toddler ? r.lean * 0.3 : r.lean, r.height));
+        const danger = this.toddler || !P.length || this.roundOver ? 0 : Phaser.Math.Clamp((Math.abs(r.lean) - 0.7) / 0.3, 0, 1);
+        stack.danger = danger;
+        const H = Math.max(1, r.height);
+        for (const it of stack.items) {
+            const h = stack.topY - it.ry;
+            const f = Math.pow(Phaser.Math.Clamp(h / H, 0, 1), 1.3);
+            let dx = stack.sway.x * f;
+            if (danger) dx += (Math.random() - 0.5) * 5 * danger * f;
+            let ang = 1.3 * stack.sway.x * f / Math.max(60, h);
+            if (it.rock) {
+                it.rock.t += dt;
+                const k = Math.exp(-it.rock.t * 3.2);
+                ang += it.rock.amp * k * Math.sin(it.rock.t * 15);
+                if (k < 0.02) it.rock = null;
+            }
+            MB().setPosition(it.body, { x: it.rx + dx, y: it.ry });
+            MB().setAngle(it.body, ang);
+        }
+        if (danger > 0) {
+            stack.creakT -= dt;
+            if (stack.creakT <= 0) {
+                Sfx.creak(P[P.length - 1].m);
+                stack.creakT = 1.1 - 0.5 * danger;
+            }
+            if (!stack.wobblySaid && danger > 0.4) {
+                stack.wobblySaid = true;
+                if (!this.ansel.busy) this.say('WOBBLY!', 900);
+            }
+        } else {
+            stack.creakT = 0;
+            stack.wobblySaid = false;
+        }
+        if (!this.toddler && !this.roundOver && P.length && Rules.tipStep(stack.tip, r.lean, dt)) {
+            this.startTip(stack, r.at, r.lean >= 0 ? 1 : -1, r.per[r.at]);
+        }
+    }
+
+    // Joint `at` gave way: everything from there up teeters over the edge for a moment, then
+    // goes fully physical and tumbles into the patch (where it can be picked up again).
+    // Its unbanked points are lost, and each pumpkin that falls costs a life.
+    startTip(stack, at, dir, joint) {
+        const pieces = stack.items.splice(at);
+        if (!pieces.length) return;
+        stack.tip.tipT = 0;
+        const sway0 = pieces[0].body.position.x - pieces[0].rx;
+        const G = { pieces, dir, t: 0, dur: 0.3, px: (dir > 0 ? joint.hi : joint.lo) + sway0, py: stack.topY - joint.y };
+        let lost = 0;
+        for (const p of pieces) {
+            lost += p.pts || 0;
+            p.pts = 0;
+            p.state = 'tipping';
+            p.rock = null;
+            p.tip0 = { x: p.body.position.x, y: p.body.position.y, a: p.body.angle };
+        }
+        this.tipGroups.push(G);
+        this.streak = 0;
+        this.ui.setStreak(0);
+        this.bumpLevel('miss');
+        if (stack === this.stack) this.ui.setCount(stack.items.length);
+        if (lost && !this.toddler) this.popText(G.px, G.py - 40, '-' + lost, '#ff6a50', 34);
+        if (pieces.length === 1) {
+            Sfx.uhoh();
+            this.say('UH OH!', 900);
+        } else {
+            Sfx.creak(pieceOf(pieces[0]).m);
+            this.time.delayedCall(220, () => { Sfx.crash(); this.cameras.main.shake(380, 0.01); });
+            this.burst.explode(16, G.px, G.py);
+            this.say('OH NO!', 1100);
+        }
+        this.loseLives(pieces.length);
+    }
+
+    updateTipping(dt) {
+        for (let g = this.tipGroups.length - 1; g >= 0; g--) {
+            const G = this.tipGroups[g];
+            G.t += dt;
+            const k = Math.min(1, G.t / G.dur);
+            const th = G.dir * 0.32 * k * k;
+            const c = Math.cos(th), s = Math.sin(th);
+            for (const p of G.pieces) {
+                if (!p.body) continue;
+                const rx = p.tip0.x - G.px, ry = p.tip0.y - G.py;
+                MB().setPosition(p.body, { x: G.px + rx * c - ry * s, y: G.py + rx * s + ry * c });
+                MB().setAngle(p.body, p.tip0.a + th);
+            }
+            if (k >= 1) {
+                this.tipGroups.splice(g, 1);
+                this.releaseTip(G);
+            }
+        }
+    }
+
+    releaseTip(G) {
+        const w = G.dir * 2 * 0.32 / G.dur; // rad/s at the end of the teeter
+        for (const p of G.pieces) {
+            if (!p.body) continue;
+            MB().setStatic(p.body, false);
+            MSleep().set(p.body, false);
+            const rx = p.body.position.x - G.px, ry = p.body.position.y - G.py;
+            // carry on rotating about the pivot (Matter velocities are per 60 Hz step)
+            MB().setVelocity(p.body, { x: (-w * ry) / 60 + G.dir * 0.8, y: (w * rx) / 60 });
+            MB().setAngularVelocity(p.body, w / 60);
+            p.state = 'falling';
+            p.fromDrop = false;
+            p.airT = 0;
+            p.settleT = 0;
+        }
+    }
+
+    // Let a pumpkin that was in the air fall as an ordinary physics body.
+    looseDrop(it) {
+        this.addBody(it, it.img.x, it.img.y, Phaser.Math.DegToRad(it.img.angle));
+        it.state = 'falling';
+        it.fromDrop = false;
+    }
+
+    popText(x, y, text, color, size) {
+        const t = this.add.text(x, y, text, {
+            fontFamily: FONT, fontSize: size + 'px', color, stroke: INK, strokeThickness: 8,
+        }).setOrigin(0.5, 1).setDepth(62).setScale(0.4 * this.textScale);
+        this.tweens.add({ targets: t, scale: this.textScale, duration: 200, ease: 'Back.Out' });
+        this.tweens.add({ targets: t, y: y - 80 * this.textScale, alpha: 0, delay: 650, duration: 650, onComplete: () => t.destroy() });
+    }
+    // ── end CHALLENGE ROUND ──────────────────────────────────────────────────
 
     celebrate(m) {
         Sfx.fanfare();
@@ -1674,7 +2486,7 @@ class PatchScene extends Phaser.Scene {
         const a = this.ansel;
         let target = null;
         const learning = this.tower.length < 2;
-        if (this.started && (learning || this.idleT > HINT_IDLE) && !a.busy) {
+        if (this.started && !this.roundOver && (learning || this.idleT > HINT_IDLE) && !a.busy) {
             if (this.hovering) {
                 const top = this.towerTop();
                 target = { x: top.x, y: top.y + 8, timing: true };
@@ -1810,6 +2622,8 @@ class UIScene extends Phaser.Scene {
         this.title.add([T.shade, T.t1, T.t2, T.hero, T.p1, T.p2, T.p3, T.how, T.go]);
         this.title.setDepth(100);
 
+        this.createChallengeUI();
+
         this.layout(this.scale.width, this.scale.height);
         this.scale.on('resize', size => {
             this.cameras.main.setSize(size.width, size.height);
@@ -1818,8 +2632,12 @@ class UIScene extends Phaser.Scene {
 
         this.input.on('pointerdown', p => {
             if (this.hitButton(p)) { this.toggleSound(); return; }
-            if (!this.patch.started) this.startGame();
+            if (this.todBtn.visible && this.hitToddler(p)) { this.toggleToddler(); return; }
+            if (!this.patch.started) { this.startGame(); return; }
+            if (this.hitBoom(p)) { this.pressBoom(); return; }
+            if (this.endShown) this.retry();
         });
+        this.ready = true;
     }
 
     // Place the HUD and title for the current screen shape (landscape or portrait).
@@ -1849,6 +2667,8 @@ class UIScene extends Phaser.Scene {
         T.go.setPosition(w / 2, portrait ? h - 80 : 660);
         this.tweens.killTweensOf(T.hero);
         this.tweens.add({ targets: T.hero, y: groundY - 12, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        if (portrait) this.bannerText.setWordWrapWidth(w - 320); // clear of the BOOM button
+        this.layoutChallenge(w, h, portrait);
     }
 
     setStreak(n) {
@@ -1882,13 +2702,262 @@ class UIScene extends Phaser.Scene {
         this.tweens.add({ targets: this.countText, scale: 1.35, duration: 110, yoyo: true });
     }
 
-    setBest(n) { this.bestText.setText('BEST ' + n); }
+    setBest(n) {
+        this.bestCount = n;
+        this.bestText.setText('BEST ' + (this.toddler ? n : this.patch.best.score || 0));
+    }
 
+    // Banners queue up so a stage name, a milestone and a combo don't overwrite each other.
     banner(text) {
+        const now = this.time.now, at = Math.max(now, this.bannerFree || 0);
+        this.bannerFree = at + 1400;
+        if (at > now) this.time.delayedCall(at - now, () => this.showBanner(text));
+        else this.showBanner(text);
+    }
+
+    showBanner(text) {
         this.bannerText.setText(text).setAlpha(1).setScale(0.3);
         this.tweens.killTweensOf(this.bannerText);
         this.tweens.add({ targets: this.bannerText, scale: 1, duration: 380, ease: 'Back.Out' });
         this.tweens.add({ targets: this.bannerText, alpha: 0, duration: 500, delay: 2200 });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CHALLENGE HUD: score and what's riding on the tower, lives, sunset clock,
+    // windsock, balance meter, the BOOM button, the end card, toddler toggle.
+    // ═════════════════════════════════════════════════════════════════════════
+    createChallengeUI() {
+        const txt = (size, color, stroke) => ({ fontFamily: FONT, fontSize: size + 'px', color, stroke: INK, strokeThickness: stroke });
+        this.toddler = this.patch.toddler;
+        this.bestCount = this.patch.best.count;
+
+        // dusk: the whole view warms then dims toward sunset (multiplied over the world, under the HUD)
+        this.sky = this.add.rectangle(0, 0, 10, 10, 0xffffff).setOrigin(0).setDepth(-10)
+            .setBlendMode(Phaser.BlendModes.MULTIPLY).setVisible(false);
+
+        // count panel extras (challenge mode): banked score and three pumpkin lives
+        this.scoreText = this.add.text(112, 86, '', txt(16, '#ffd35a', 6)).setOrigin(0, 0.5);
+        this.lifeIcons = [0, 1, 2].map(i => this.add.image(60 + i * 40, 128, 'icon_pumpkin').setScale(0.55));
+
+        // the BOOM button: banks the tower x the height bonus, then knocks it down
+        this.boomBtn = this.add.container(0, 0).setVisible(false);
+        this.boomImg = this.add.sprite(0, 0, 'boom_button', 0);
+        this.boomLabel = this.add.text(0, 50, 'BOOM!', txt(20, '#fff6e0', 7)).setOrigin(0.5, 0);
+        this.boomValue = this.add.text(0, 78, '', txt(16, '#ffd35a', 6)).setOrigin(0.5, 0); // what it would bank now
+        this.boomBtn.add([this.boomImg, this.boomLabel, this.boomValue]);
+        this.boomOn = false;
+
+        // end card
+        const E = this.end = {};
+        E.root = this.add.container(0, 0).setDepth(120).setVisible(false);
+        E.shade = this.add.rectangle(0, 0, 10, 10, 0x1b130d, 0.72).setOrigin(0);
+        E.panel = this.add.nineslice(0, 0, 'panel', null, 560, 480, 20, 20, 20, 20);
+        // big panels tile the sign's planks instead of stretching its grain
+        const ptex = this.textures.get('panel');
+        if (!ptex.has('planks')) ptex.add('planks', 0, 12, 8, 48, 48);
+        E.wood = this.add.tileSprite(0, 0, 500, 420, 'panel', 'planks');
+        E.title = this.add.text(0, 0, '', txt(40, '#ff9a3a', 10)).setOrigin(0.5);
+        E.hero = this.add.image(0, 0, 'ansel_dizzy').setOrigin(0.5, 1);
+        E.rows = this.add.text(0, 0, '', Object.assign(txt(20, '#fff6e0', 6), { lineSpacing: 16 })).setOrigin(0, 0.5);
+        E.best = this.add.text(0, 0, 'NEW BEST!', txt(22, '#ffd35a', 8)).setOrigin(0.5);
+        E.go = this.add.text(0, 0, 'TAP TO PLAY AGAIN', txt(20, '#fff6e0', 8)).setOrigin(0.5);
+        E.root.add([E.shade, E.panel, E.wood, E.title, E.hero, E.rows, E.best, E.go]);
+        this.tweens.add({ targets: E.go, alpha: 0.35, duration: 600, yoyo: true, repeat: -1 });
+        this.tweens.add({ targets: E.best, scale: 1.12, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        this.endSparkles = this.add.particles(0, 0, 'sparkle', {
+            lifespan: { min: 500, max: 900 }, speed: { min: 120, max: 320 }, angle: { min: 0, max: 360 },
+            scale: { start: 1.6, end: 0 }, rotate: { start: 0, end: 180 }, emitting: false,
+        }).setDepth(125);
+        this.endShown = false;
+        this.endReady = false;
+
+        // toddler mode toggle (title and end card only, so little fingers can't hit it mid-game)
+        this.todBtn = this.add.container(0, 0).setDepth(126);
+        this.todBg = this.add.nineslice(0, 0, 'panel', null, 320, 56, 20, 20, 20, 20).setOrigin(0, 0);
+        this.todText = this.add.text(160, 29, '', txt(13, '#fff6e0', 5)).setOrigin(0.5);
+        this.todBtn.add([this.todBg, this.todText]);
+        this.setMode(this.toddler);
+    }
+
+    layoutChallenge(w, h, portrait) {
+        // BOOM sits under the sound button, clear of the patch where pumpkins lie
+        this.boomBtn.setPosition(w - 82, 186);
+        this.boomBase = { x: w - 82, y: 186 };
+        this.sky.setSize(w, h);
+        this.todBtn.setPosition(20, 20);
+        // end card
+        const E = this.end, cxm = w / 2, cym = h / 2;
+        E.shade.setSize(w, h);
+        if (portrait) {
+            const pw = Math.min(w - 40, 640), ph = 760;
+            E.panel.setSize(pw, ph).setPosition(cxm, cym);
+            E.wood.setSize(pw - 24, ph - 24).setPosition(cxm, cym);
+            E.title.setPosition(cxm, cym - ph / 2 + 70).setFontSize(44);
+            E.hero.setPosition(cxm, cym - 40).setScale(0.5);
+            E.rows.setPosition(cxm - 190, cym + 90);
+            E.best.setPosition(cxm, cym + 220);
+            E.go.setPosition(cxm, cym + ph / 2 - 60);
+        } else {
+            const pw = 620, ph = Math.min(h - 60, 520);
+            E.panel.setSize(pw, ph).setPosition(cxm, cym);
+            E.wood.setSize(pw - 24, ph - 24).setPosition(cxm, cym);
+            E.title.setPosition(cxm, cym - ph / 2 + 60).setFontSize(40);
+            E.hero.setPosition(cxm - 180, cym + 120).setScale(0.42);
+            E.rows.setPosition(cxm - 70, cym - 10);
+            E.best.setPosition(cxm + 90, cym + 110);
+            E.go.setPosition(cxm, cym + ph / 2 - 50);
+        }
+    }
+
+    // Toddler mode: the original panel (count, best, perfect-streak stars) and nothing at stake.
+    // Challenge mode: count, score and three pumpkin lives; streaks show as sparkles and pitch.
+    setMode(toddler) {
+        this.toddler = toddler;
+        this.scoreText.setVisible(!toddler);
+        this.lifeIcons.forEach(ic => ic.setVisible(!toddler));
+        this.bestText.setVisible(toddler);
+        this.stars.forEach(st => st.setVisible(toddler));
+        this.streakText.setVisible(toddler);
+        this.sky.setVisible(!toddler);
+        this.panel.setSize(toddler ? 230 : 236, toddler ? 132 : 156);
+        this.countText.setY(toddler ? 52 : 42);
+        this.setBest(this.bestCount);
+        this.t.how.setText(toddler ? 'TAP A PUMPKIN · TAP AGAIN TO DROP IT'
+            : "TAP A PUMPKIN · TAP AGAIN TO DROP IT · DON'T LET IT FALL · BOOM TO BANK IT");
+        this.todText.setText('TODDLER MODE: ' + (toddler ? 'ON' : 'OFF'));
+        this.todText.setColor(toddler ? '#ffd35a' : '#fff6e0');
+    }
+
+    toggleToddler() {
+        if (this.patch.started && !this.endShown) return;
+        const on = !this.patch.toddler;
+        this.patch.toddler = on;
+        saveToddler(on);
+        this.setMode(on);
+        Sfx.init();
+        Sfx.pop();
+        this.tweens.add({ targets: this.todBtn, scale: 1.08, duration: 90, yoyo: true });
+    }
+
+    hitToddler(p) {
+        return this.todBtn.visible && p.x >= 20 && p.x <= 340 && p.y >= 20 && p.y <= 76;
+    }
+
+    newRound(toddler) {
+        this.setMode(toddler);
+        this.hideEnd();
+        this.countText.setText('0');
+        this.setScore(0);
+        this.setLives(RULES.lives, false);
+        this.setStreak(0);
+        this.boomOn = false;
+        this.boomBtn.setVisible(false);
+        this.todBtn.setVisible(false);
+    }
+
+    setScore(n) { this.scoreText.setText('SCORE ' + n); }
+
+    setLives(n, lost) {
+        this.lifeIcons.forEach((ic, i) => {
+            const on = i < n;
+            ic.setAlpha(on ? 1 : 0.3).setTint(on ? 0xffffff : 0x5a4a3a);
+            if (lost && i === n) {
+                this.tweens.add({ targets: ic, scale: 0.85, duration: 90, yoyo: true, repeat: 2 });
+                this.cameras.main.flash(120, 120, 20, 10);
+            } else if (!lost && on && i === n - 1) {
+                this.tweens.add({ targets: ic, scale: 0.8, duration: 140, yoyo: true });
+            }
+        });
+    }
+
+    // value: points it would bank right now (0 in toddler mode: it's just fun there)
+    setBoom(avail, danger, value) {
+        const v = value ? '+' + value : '';
+        if (v !== this.boomValue.text) this.boomValue.setText(v);
+        if (avail !== this.boomOn) {
+            this.boomOn = avail;
+            this.tweens.killTweensOf(this.boomBtn);
+            if (avail) {
+                this.boomBtn.setVisible(true).setScale(0.3);
+                this.tweens.add({ targets: this.boomBtn, scale: 1, duration: 320, ease: 'Back.Out' });
+            } else {
+                this.boomBtn.setVisible(false);
+            }
+        }
+        if (avail && danger > 0) {
+            const k = 1 + 0.08 * Math.sin(this.time.now / 70) * danger;
+            this.boomImg.setScale(k);
+        } else {
+            this.boomImg.setScale(1);
+        }
+    }
+
+    hitBoom(p) {
+        if (!this.boomBtn.visible || !this.boomBase) return false;
+        const b = this.boomBase;
+        return p.x > b.x - 70 && p.x < b.x + 70 && p.y > b.y - 60 && p.y < b.y + 105;
+    }
+
+    pressBoom() {
+        if (!this.boomBtn.visible) return;
+        this.boomImg.setFrame(1);
+        this.time.delayedCall(160, () => this.boomImg.setFrame(0));
+        this.patch.boomPress();
+    }
+
+    // Afternoon -> golden hour -> dusk: the round's clock is the light. sky stops: [at, colour]
+    setDusk(d) {
+        if (Math.abs(d - (this.duskShown ?? -1)) < 0.002) return;
+        this.duskShown = d;
+        const stops = [[0, 0xffffff], [0.5, 0xfff2dc], [0.8, 0xffc898], [1, 0x9c88c4]];
+        let i = 0;
+        while (i < stops.length - 2 && d > stops[i + 1][0]) i++;
+        const [a0, c0] = stops[i], [a1, c1] = stops[i + 1];
+        const t = Phaser.Math.Clamp((d - a0) / (a1 - a0), 0, 1);
+        const ch = (c, sh) => (c >> sh) & 255;
+        const mix = sh => Math.round(ch(c0, sh) + (ch(c1, sh) - ch(c0, sh)) * t);
+        this.sky.setFillStyle((mix(16) << 16) | (mix(8) << 8) | mix(0));
+    }
+
+    showEnd(info) {
+        const E = this.end;
+        E.title.setText(info.reason === 'dusk' ? 'SUNSET!' : info.reason === 'topple' ? 'TOWER DOWN!' : 'UH OH!');
+        E.hero.setTexture(info.reason === 'dusk' ? 'ansel_up' : 'ansel_dizzy');
+        E.rows.setText('SCORE   ' + info.score + '\nTALLEST ' + info.tallest + '\nBEST    ' + info.best);
+        E.best.setVisible(info.newBest);
+        E.go.setVisible(false);
+        E.root.setVisible(true).setAlpha(0);
+        this.tweens.add({ targets: E.root, alpha: 1, duration: 300 });
+        this.endShown = true;
+        this.endReady = false;
+        this.boomBtn.setVisible(false);
+        this.boomOn = false;
+        this.setBest(this.bestCount);
+        if (info.newBest) {
+            this.time.delayedCall(350, () => {
+                Sfx.fanfare();
+                this.endSparkles.explode(40, E.best.x, E.best.y);
+            });
+        }
+        // a short pause so a tap meant for the game doesn't skip the card
+        this.time.delayedCall(900, () => {
+            this.endReady = true;
+            E.go.setVisible(true);
+            this.todBtn.setVisible(true);
+        });
+    }
+
+    hideEnd() {
+        this.end.root.setVisible(false);
+        this.endShown = false;
+        this.endReady = false;
+    }
+
+    retry() {
+        if (!this.endShown || !this.endReady) return;
+        this.hideEnd();
+        this.todBtn.setVisible(false);
+        this.patch.resetRound();
     }
 }
 

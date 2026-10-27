@@ -17,12 +17,14 @@
 // shouts MORE! and a fresh batch tumbles in.
 //
 // Controls
-//   Touch / mouse : tap a pumpkin (he fetches and lifts it), tap again to drop,
-//                   tap the hay bale (its BOOM sign) to bank and knock down the tower,
-//                   tap leaf piles, Ansel, trees, the bunny and the scenery for surprises,
-//                   tap anywhere for MORE! when the patch is empty
-//   Keyboard      : ←/→ walk · ↓ pick up / dive / BOOM beside the tower · ↑ or Space uppah / drop /
-//                   more / play again · B BOOM · M mute
+//   Touch / mouse : tap a pumpkin (he fetches it and lifts it over the tower), then tap
+//                   anywhere to drop it; tap a sprout or bare vine spot to water it;
+//                   tap the hay bale or its BOOM plank to bank and knock down the tower;
+//                   tap leaf piles, Ansel, trees, the bunny and the scenery for surprises;
+//                   tap empty ground for MORE! when there's nothing to pick.
+//                   Single taps only; what a tap does in each state: PatchScene.tapZones()
+//   Keyboard      : ←/→ walk · ↓ pick up / water / dive · ↑ or Space drop / more / play again ·
+//                   hold B BOOM · M mute (the walk back with a pumpkin ignores ←/→, ↑ and ↓)
 //
 // Built on Phaser 3 (MIT) with Matter.js physics.
 // ═════════════════════════════════════════════════════════════════════════════
@@ -459,12 +461,12 @@ function calmFx(em) {
 }
 
 // A resting palm (or the side of a hand) is not a tap, but a thumb always is. Phones report a
-// thumb as a much bigger contact than a fingertip: iOS reports radii in steps of about 10 CSS px
-// (a light fingertip about 21, a firm one 31, a pressed thumb 42 or more; a palm well over 100),
-// and Android reports whatever the panel measures, often 30-40 px for a thumb. So a contact is
+// thumb as a much bigger contact than a fingertip: iOS reports the contact radius in steps of
+// about 10 px (about 21 for a light touch, 31 for a firmer one, far more for a palm), and Android
+// reports whatever the panel measures, which varies a lot from phone to phone. So a contact is
 // ignored only if it's bigger than any thumb, or broad while another finger is already down.
 const PALM_R = 75;        // contact radius (CSS px) that is never a fingertip or thumb
-const PALM_R_SECOND = 52; // ...and the radius that's a palm when another touch is already down
+const PALM_R_SECOND = 56; // ...and the radius that's a palm when another touch is already down
 
 // Contact radius of this pointer's touch in CSS px (0 for a mouse, a pen or no data), and whether
 // another finger was already on the screen.
@@ -1507,7 +1509,7 @@ class PatchScene extends Phaser.Scene {
         if (this.ui && this.ui.paused) return 'paused';
         if (this.roundOver) return 'over';
         if (this.hovering) return 'hovering';  // swaying over the tower, the ring showing
-        if (a.carrying) return 'carrying';     // picked up: the walk back can't be interrupted
+        if (a.carrying || a.lifting) return 'carrying'; // picked up: the walk back can't be interrupted
         if (this.tossed()) return 'tossing';   // flying up out of his hands, no ring yet
         if (a.busy) return 'busy';             // picking, watering, diving, BOOM, MORE!, a jump, a cuddle
         if (this.dropping) return 'dropping';  // falling onto the tower
@@ -1565,7 +1567,7 @@ class PatchScene extends Phaser.Scene {
         for (const sp of this.spots) {
             if (sp.busy) continue;
             const c = this.spotCentre(sp);
-            Z.push({ id: sp.stage >= 3 ? 'pick' : 'water', prio: 2, move: true,
+            Z.push({ id: sp.stage >= 2 && sp.img ? 'pick' : 'water', prio: 2, move: true,
                 react: () => this.wiggleSpot(sp), run: () => this.harvest(sp),
                 shape: { cx: c.x, cy: c.y, r: Math.max(c.r, R) } });
         }
@@ -1715,8 +1717,9 @@ class PatchScene extends Phaser.Scene {
         Sfx.boop(40);
     }
 
-    // A vine spot's tap target: the plant (sprout, unripe or ripe pumpkin) or the bare soil where
-    // the next one comes up. Sprouts are tiny, so it's never smaller than r (and a thumb).
+    // A vine spot's tap target: the plant (a sprout, or a pumpkin of any size) or the bare soil
+    // where the next one comes up. Sprouts are tiny, so it's never smaller than r (and a thumb).
+    // harvest(sp) decides: a pumpkin is picked, a sprout or bare soil is watered.
     spotCentre(sp) {
         const lane = LANES[sp.lane];
         if (!sp.img) return { x: sp.x, y: lane.y - 16, r: 70 };
@@ -2136,8 +2139,8 @@ class PatchScene extends Phaser.Scene {
         if (best) { this.pickUp(best); return; }
         let spot = null, sd = 230;
         for (const sp of this.spots) {
-            if (!sp.img || sp.stage < 1 || sp.busy) continue;
-            const d = Math.abs(sp.x - a.x) - (sp.stage >= 3 ? 40 : 0); // a ripe one wins a near tie
+            if (sp.busy) continue; // a pumpkin to pick, or a sprout or bare spot to water
+            const d = Math.abs(sp.x - a.x) - (sp.stage >= 2 && sp.img ? 40 : 0); // a pumpkin wins a near tie
             if (d < sd) { spot = sp; sd = d; }
         }
         if (spot) { this.harvest(spot); return; }
@@ -3377,9 +3380,15 @@ class UIScene extends Phaser.Scene {
     }
 
     // The sound and pause buttons' tap areas (screen px), a little bigger than the buttons and
-    // each at least a thumb across on a phone.
-    soundRect() { return { x: this.scale.width - 120, y: 0, w: 120, h: 115 }; }
-    pauseRect() { return { x: this.scale.width - 224, y: 0, w: 104, h: 115 }; }
+    // each at least a thumb (THUMB_CSS) across, however small the phone.
+    soundRect() {
+        const T = THUMB_CSS * this.patch.cssPx(), w = Math.max(120, T);
+        return { x: this.scale.width - w, y: 0, w, h: Math.max(115, T) };
+    }
+    pauseRect() {
+        const s = this.soundRect(), w = Math.max(104, THUMB_CSS * this.patch.cssPx());
+        return { x: s.x - w, y: 0, w, h: s.h };
+    }
     inRect(p, r) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; }
 
     hitButton(p) {
@@ -3750,7 +3759,12 @@ const PatchZones = {
         for (const z of [...zones].sort((p, q) => q.prio - p.prio)) {
             const c = ZONE_COLORS[z.id] || 0xffffff, s = z.shape, word = ZONE_WORDS[z.id] || z.id.toUpperCase();
             if (s.all) {
-                if (z.id !== 'walk') g.fillStyle(c, 0.16).fillRect(v.x, v.y, v.width, v.height);
+                // the whole screen: washed in its colour and named in the middle (walking, the
+                // fallback when idle, is only named in the bottom line)
+                if (z.id === 'walk') continue;
+                g.fillStyle(c, 0.2).fillRect(v.x, v.y, v.width, v.height);
+                label('ANYWHERE: ' + word, v.centerX, v.y + v.height * 0.4, zoneCss(c));
+                this.zoneLabels[li - 1].setScale(2 * k);
                 continue;
             }
             g.lineStyle(3 * k, c, 0.95).fillStyle(c, 0.24);
@@ -5220,8 +5234,8 @@ const UIEggs = {
 
     // The badge's tap area (screen px): from the sound button's down, at least a thumb tall.
     eggBadgeRect() {
-        const h = Math.max(64, THUMB_CSS * this.patch.cssPx());
-        return { x: this.scale.width - 168, y: EGG_BADGE_Y - 5, w: 168, h };
+        const h = Math.max(64, THUMB_CSS * this.patch.cssPx()), y = Math.max(EGG_BADGE_Y - 5, this.soundRect().h);
+        return { x: this.scale.width - 168, y, w: 168, h };
     },
 
     eggOnBadge(p) {
@@ -5479,8 +5493,9 @@ const UIHtp = {
     htpHit(btn, p) {
         if (!btn || !btn.visible) return false;
         for (let o = btn; o; o = o.parentContainer) if (!o.visible) return false;
-        const m = btn.getWorldTransformMatrix();
-        return Math.abs(p.x - m.tx) < btn.bw / 2 && Math.abs(p.y - m.ty) < btn.bh / 2;
+        // at least a thumb (THUMB_CSS) each way, however small the screen draws the button
+        const m = btn.getWorldTransformMatrix(), T = THUMB_CSS * this.patch.cssPx();
+        return Math.abs(p.x - m.tx) < Math.max(btn.bw, T) / 2 && Math.abs(p.y - m.ty) < Math.max(btn.bh, T) / 2;
     },
 
     // ── title extras ─────────────────────────────────────────────────────────

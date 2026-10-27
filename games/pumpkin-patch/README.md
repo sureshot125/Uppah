@@ -27,16 +27,35 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
 - **Rounds.** The afternoon lasts 3 minutes and the sky turns gold, then dusky. At sunset, or when the lives run out, Ansel BOOMs whatever is still standing and the round ends. The end card shows that last BOOM, your score, your best, and a picture of the round's tallest tower beside Ansel. Tap to play again.
 - Leaf piles hide surprise pumpkins. **MORE!** If there's no pumpkin to pick anywhere (path or vines), tap empty ground or Ansel and he shouts MORE!: every plant in the patch grows a size and the leaf piles fill again. It needs 20 seconds before it works again; until then, water. Ansel, the trees, Hoppah the bunny and lots of the scenery react when tapped.
 
-Keyboard: arrows or A/D to walk; Down or S to pick up, harvest the nearest vine pumpkin, or dive into a leaf pile; Up, W or Space to lift, drop, ask for more or play again; hold B to BOOM (a single press does nothing, so a stray key can't bank the tower); P or Esc to pause; M to mute (remembered).
+Keyboard: arrows or A/D to walk; Down or S to pick up, pick or water the nearest vine spot, or dive into a leaf pile; Up, W or Space to drop, ask for more or play again; hold B to BOOM (a single press does nothing, so a stray key can't bank the tower); P or Esc to pause; M to mute (remembered). While Ansel carries a pumpkin back to the bale, the walking keys, Up and Down do nothing.
 
 The pause button sits beside the sound button, and the game pauses itself when the tab is hidden.
+
+## What a tap does
+
+One tap, one action: no double taps or long presses. Which zone a tap lands in depends on what's happening; `PatchScene.tapZones()` lists them in one place, and `?zones=1` on the URL draws them over the game.
+
+| When | A tap or click |
+|---|---|
+| Title, how-to-play card, pause menu, end card | Belongs to that screen (play, turn the page, resume, play again). It never reaches the patch. |
+| Any time in a round | The sound and pause buttons, the sticker badge and the open sticker tray take their own taps first. |
+| A pumpkin swaying over the tower (the ring is showing) | Drops it, wherever you tap. |
+| The toss (the pumpkin flying up out of Ansel's hands, about 0.4 s) | Nothing. A drop then would be unaimed; tap once the ring shows. |
+| Ansel carrying a pumpkin back to the bale | Nothing, and it isn't kept for later: the walk back can't be interrupted. |
+| Ansel busy (picking up, watering, diving, BOOM, MORE!, a jump) | The pumpkin or plant you tapped wiggles at once, and Hoppah and the scenery react at once. A tap on something to fetch, water or walk to waits until he's free: only the latest, for 0.6 s at most, and it's forgotten if he starts anything else. The bale, the plank and the tower do nothing. |
+| A pumpkin falling onto the tower | As when idle, but the tower, the bale and the BOOM plank do nothing, so a late second tap on a drop is harmless. |
+| Ansel idle or walking | 1. The BOOM plank: BOOM. 2. A pumpkin on the path (or the dirt straight below it) or in the vines: pick it; a sprout or a bare vine spot: water it; a leaf pile: dive in; Hoppah: boing; Ansel: a happy jump (MORE! when there's nothing to pick). The one nearest your finger, for its size, wins. 3. The tower: nothing. The bale, or a thumb's width around the plank: BOOM. 4. The scenery above the fence: its surprise. 5. Anywhere else: Ansel walks there (MORE! when there's nothing to pick). |
+
+- Every target is at least a thumb (48 CSS px) across at any zoom, so small pumpkins, sprouts and bare vine spots are easy to hit on a phone.
+- A resting palm is ignored only if the contact is bigger than any thumb (radius over 75 CSS px), or broad (over 56 px) while another finger is already down. Phones report a thumb as a much bigger contact than a fingertip (iOS in steps of about 10 px: roughly 21 for a light touch, 31 for a firmer one; Android varies by phone), and the old limit of 28 px threw firm thumb taps away.
+- One finger bouncing (a second hit within 120 ms and a thumb's width of the first) is one tap; a second finger tapping elsewhere is a new tap.
 
 ## Design rules
 
 | Rule | Where it comes from |
 |---|---|
 | Two taps per pumpkin, tap-then-tap, no dragging | Stack's one-tap drop; works the same with a mouse or a finger |
-| Every tap reacts instantly; busy taps are queued | Toca Boca, Sago Mini, Pok Pok |
+| Every tap reacts instantly; a tap made while Ansel is busy waits (the latest one, briefly) and never fires late | Toca Boca, Sago Mini, Pok Pok; owner feedback |
 | Rules are shown in the world, not in UI: the landing ring, the windsock, streaming leaves, wobble, creaks, the dusk | Owner feedback ("calm screen") |
 | No outcome hints: the ring shows where it lands, not whether it stays; help is for a player's first round only | UX review ("tap when the ring is gold") |
 | Ansel speaks up only for big moments (UPPAH!, MORE!, BOOM, golden, milestones, falls, surprises) | UX review; the players aren't toddlers |
@@ -45,7 +64,8 @@ The pause button sits beside the sound button, and the game pauses itself when t
 | Wind is telegraphed (~1.4 s of leaves and whoosh), alternates sides, and is present but not dominant | Paper Toss; owner feedback |
 | Achievements earn lives back, each with a pumpkin flying into the life row | Owner feedback; arcade extra lives |
 | Perfect drops sparkle and climb in pitch | Stack (Ketchapp) |
-| Up to three touches, broad contacts ignored, 120 ms double-hit guard | A resting palm can't block a finger; stops accidental double taps |
+| Up to three touches; only a contact bigger than any thumb (or a broad one beside another finger) is ignored; 120 ms double-hit guard per spot | A resting palm can't block a finger, and a thumb is never mistaken for a palm |
+| Thumb-sized targets; when two are close, the one that matters for play wins; the drop works anywhere | Owner feedback ("tapping on the landing spot should drop") |
 
 ## Files
 

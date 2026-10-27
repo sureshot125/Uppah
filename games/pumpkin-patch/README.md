@@ -1,6 +1,6 @@
 # Ansel's Pumpkin Patch
 
-An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them on a hay bale. A round has wind and a tower that can fall, and ends when 3 pumpkins drop or the sun sets.
+An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them on a hay bale. The tower can fall, so a round ends when you run out of pumpkin lives or the sun sets.
 
 ## How to play
 
@@ -8,9 +8,16 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
 - **Tap again** to drop it. The ring shows where it will land: gold = perfect (snaps to the centre), white = steady, orange = wobbly, flashing red = it will fall.
 - **Stack honestly.** A pumpkin lands where you drop it. If its centre is past the edge of the one below, it rolls off. A moderate miss wobbles and sometimes goes over. The whole stack tips if its weight leans past the joint below. Only the first two pumpkins of a round get help.
 - **Weight and order matter.** A big, heavy pumpkin is a wide, steady base. A heavy one dropped on a small one rocks hard and often topples. A little one on a big one is easy. Build big at the bottom and small on top. Landing on something at least as heavy scores a bonus.
-- **Wind.** Watch the windsock beside the bale and the leaves. They start streaming a second before a gust. A gust pushes the hovering pumpkin, drifts it as it falls (aim upwind), and sways the tower. A crooked tower catches more wind. Gusts get stronger as the tower grows and toward sunset.
+- **Wind is scenery.** Autumn gusts are announced by the windsock beside the bale and by streaming leaves. In a gust the tower sways a little, and the hovering pumpkin leans, bobs and sways along with the top of the tower. Wind never moves where a pumpkin lands and never knocks anything over: what lines up on screen is what lands.
 - **BOOM!** Once the tower is 3 tall, a wooden BOOM sign on the hay bale shows how many points it will bank. Tapping the bale sends Ansel to shove it: that banks the tower's points × (1 + 0.2 per pumpkin) and knocks it down. If the tower falls first, the points on the fallen pumpkins are lost. Stack one more, or cash in now?
-- **Rounds.** Each pumpkin that falls off costs one of 3 pumpkin lives. Five perfect drops in a row win one back. The afternoon lasts 3 minutes and the sky turns gold, then dusky. At sunset, or when the lives run out, the round ends and the end card shows your score, tallest tower and best. Tap to play again.
+- **Pumpkin lives.** You start with 3. Each pumpkin that falls off the tower costs one. You can earn lives back, up to 5:
+  - 3 perfect drops in a row: +1.
+  - BOOM a tower 8 tall: +1 (14 tall: +2).
+  - The first time a tower tops Gigi, the silo, the clouds, the sky and the moon in a round: +1 each.
+  - Harvesting a golden pumpkin: +1.
+
+  Each one flies into the life row as a little pumpkin, with a chime.
+- **Rounds.** The afternoon lasts 3 minutes and the sky turns gold, then dusky. At sunset, or when the lives run out, the round ends and the end card shows your score, tallest tower and best. Tap to play again.
 - Leaf piles hide surprise pumpkins. **Tap anywhere for MORE!** when the patch runs out. Ansel, the trees, Hoppah the bunny and lots of the scenery react when tapped.
 
 Keyboard: arrows or A/D to walk; Down or S to pick up, dive, or BOOM beside the tower; Up, W or Space to lift, drop, ask for more or play again; B to BOOM; M to mute.
@@ -24,7 +31,8 @@ Keyboard: arrows or A/D to walk; Down or S to pick up, dive, or BOOM beside the 
 | Rules are shown in the world, not in UI: the ring colour, the windsock, streaming leaves, wobble, creaks, the dusk | Owner feedback ("calm screen") |
 | Honest stacking: centre of weight over the joint or it goes; weight and size change how a drop behaves | Owner feedback; Jenga / Mount Your Friends physical stakes |
 | Push your luck: points ride on the tower until BOOM banks them | Can't Stop / "press your luck" games |
-| Wind is telegraphed (~1.4 s of leaves and whoosh) and alternates sides | Paper Toss; fairness |
+| Wind is mood, not a hazard: telegraphed by the windsock and leaves, it sways things but never changes a landing | Owner feedback ("shouldn't cause loss") |
+| Achievements earn lives back, each with a pumpkin flying into the life row | Owner feedback; arcade extra lives |
 | Perfect drops sparkle and climb in pitch | Stack (Ketchapp) |
 | One finger at a time, 120 ms double-hit guard | Stops accidental double taps and stray touches on phones |
 
@@ -38,21 +46,24 @@ Keyboard: arrows or A/D to walk; Down or S to pick up, dive, or BOOM beside the 
 ## Tuning
 
 - The rules live in the `<rules>` block near the top of `game.js`:
-  - `RULES`: lives, landing help, flat-top widths, wobble, wind, sway, BOOM, points, the 3-minute day.
+  - `RULES`: lives and how to earn them, landing help, flat-top widths, wobble, sway (and the wind's cosmetic sway), BOOM, points, the 3-minute day.
   - `HEFT`: how heavy each variety is.
-  - `STAGES`: CALM, BREEZY, WINDY, GUSTY, STORMY and WILD WIND, by tower height, each with sway width and speed, perfect zone and gust strength.
+  - `STAGES`: CALM, BREEZY, WINDY, GUSTY, STORMY and WILD WIND, by tower height, each with sway width and speed, perfect zone, and how hard the (cosmetic) gusts blow.
 - Per-tower state lives in a `Stack` object (one per hay bale), so more bales are a small change.
 - Items may carry `it.golden` (scores ×3) and `it.heft` (overrides the variety's weight).
+- `PatchScene.earnLife(n, x, y)` awards lives from anywhere, with the fly-in.
 
-Measured with `sim.js` (2000 rounds each, 3-minute day, never pressing BOOM), pumpkins stacked per round (p10 / median / p90):
+Measured with `sim.js` (2000 rounds each, 3-minute day), pumpkins stacked per round (p10 / median / p90). Gusts on or off make no difference: the sim checks that the same rounds come out identical, and nothing ever topples between landings.
 
-| Player | Stacked |
-|---|---|
-| Random tapper | 4 / 6 / 9 |
-| Taps anywhere in the white/gold ring zone | 9 / 13 / 19 |
-| Taps in the perfect zone 90% of the time | 14 / 29 / 41 (30% reach sunset) |
+| Player | Never BOOM | Reach sunset |
+|---|---|---|
+| Random tapper | 4 / 7 / 10 | 0% |
+| Timing error 150 ms (casual) | 4 / 8 / 16 | 0% (9% if they BOOM at 8) |
+| Timing error 70 ms (good) | 10 / 20 / 33 | 5% |
+| Taps anywhere in the white/gold ring zone | 11 / 26 / 41 | 38% (80–97% if they BOOM at 6–10) |
+| Timing error 45 ms (expert) | 16 / 28 / 41 | 18% (89–97% if they BOOM at 10–14) |
 
-A good-zone player who presses BOOM at height 8–10 banks about 17,000–18,000 points. Pushing to 15 drops the median to 300.
+Lives earned back per round: random tapper 1.6, casual 2.3, good 4.2, expert 3.7. Under the old rule (only 5 perfects in a row) it was 0.01–0.33. A good-zone player who presses BOOM at height 10 banks a median of about 21,000 points; at 15, about 32,000.
 
 The game picks its resolution from the screen's shape (720 on the short side) and re-fits when a phone rotates, so it fills both landscape and portrait screens.
 

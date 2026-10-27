@@ -772,6 +772,7 @@ class PatchScene extends Phaser.Scene {
         this.load.spritesheet('giraffe', ART + 'giraffe.png', { frameWidth: 224, frameHeight: 352 });
         // windsock art (make_art.py)
         this.load.spritesheet('windsock', ART + 'windsock.png', { frameWidth: 136, frameHeight: 288 });
+        this.howPreload(); // how to play
     }
 
     create() {
@@ -1978,6 +1979,7 @@ class PatchScene extends Phaser.Scene {
             st.sway.x = 0; st.sway.v = 0; st.tip.tipT = 0; st.danger = 0;
         }
         if (this.ui && this.ui.ready) this.ui.newRound();
+        if (this.ui && this.ui.howRoundStarted) this.ui.howRoundStarted(); // how to play
     }
 
     // Tap-to-retry from the end card: a fresh patch and empty bales.
@@ -2669,6 +2671,7 @@ class UIScene extends Phaser.Scene {
         this.title.setDepth(100);
 
         this.createChallengeUI();
+        this.howCreate(); // how to play: the card, and the title's extras
 
         this.layout(this.scale.width, this.scale.height);
         this.scale.on('resize', size => {
@@ -2728,6 +2731,7 @@ class UIScene extends Phaser.Scene {
 
     startGame() {
         if (this.patch.started) return;
+        if (this.howGate()) return; // how to play
         this.tweens.add({ targets: this.title, alpha: 0, duration: 300, onComplete: () => this.title.setVisible(false) });
         this.patch.begin();
     }
@@ -4461,6 +4465,846 @@ const UIEggs = {
 Object.assign(PatchScene.prototype, PatchEggs);
 Object.assign(UIScene.prototype, UIEggs);
 // ═════════════════════════════════════════════════════════════ end SURPRISES ══
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HOW TO PLAY: an illustrated, skippable explainer, plus the title card's extras
+//
+// Four wooden-sign panels built from the game's own sprites, each with a little
+// looping scene: STACK 'EM UP (the goal, the drop ring, controls), DON'T LET IT FALL
+// (pumpkin lives, earning them back, heavy at the bottom), BOOM! (banking the tower)
+// and BEAT THE SUNSET (the afternoon is the clock, gusts, what else is in the patch).
+// Touch players see tap controls; mouse-and-keyboard players (hover + fine pointer)
+// see keycaps. NEXT / BACK / SKIP buttons, swipes, tapping the card, the page
+// pumpkins, and the keyboard (→ Space Enter next, ← back, Esc skip) all work.
+// It opens by itself after the title tap until the player has started HOW_AUTO rounds
+// (counted in localStorage), and any time from the title's "?" button (or ? / H).
+// showHowTo('pause', onClose) is there for a pause menu.
+// Title extras: the flat dark shade becomes stepped bands so the live patch shows
+// through, a best-score line, "?" and HOME (back to the Uppah home page) buttons,
+// and the sound button sits above the shade.
+// Self-contained; one-line hooks elsewhere are marked "how to play".
+// Art: make_art.py (how to play section) writes keys.png, key_wide.png, icon_home.png.
+// ═════════════════════════════════════════════════════════════════════════════
+const HOW_SAVE = 'uppah.pumpkinpatch.rounds'; // rounds started, ever
+const HOW_AUTO = 3;                            // the card opens by itself until this many rounds
+const HOW_HOME = '../../';                     // the Uppah home page
+const HOW_COL = { cream: '#fff6e0', gold: '#ffd35a', orange: '#ff9a3a', red: '#ff6a4a', ink: 0x1b130d };
+// Windows onto the patch for the illustrations (world px). Close-up for the tower
+// panels, wider for the afternoon (it shows the sun).
+const HOW_NEAR = { x: 630, y: 1560, w: 660, h: 600 };
+const HOW_WIDE = { x: 1040, y: 1360, w: 880, h: 800 };
+const HOW_ICON_W = 136;                        // icon column of the text rows
+
+function howRounds() {
+    try { return parseInt(localStorage.getItem(HOW_SAVE), 10) || 0; } catch (e) { return 0; }
+}
+function howDesktop() {
+    try { return window.matchMedia('(hover: hover) and (pointer: fine)').matches; } catch (e) { return false; }
+}
+function howTxt(size, color, stroke) {
+    return { fontFamily: FONT, fontSize: size + 'px', color, stroke: INK, strokeThickness: stroke };
+}
+
+// Rows: { p, c } a paragraph (c: colour name); { ic, t } an icon and its text.
+// touch / desk rows only show for that kind of player. Icons: { img, f, s, tint, n }
+// a sprite (n copies); { keys: [...] } keycaps ('left' 'right' 'up' 'down', 'SPACE',
+// or a letter); { bubble: text } a speech bubble.
+const HOW_PAGES = [
+    { title: "STACK 'EM UP", art: 'howArtStack', rows: [
+        { p: 'PICK UP PUMPKINS AND STACK THEM ON THE HAY BALE. AS TALL AS YOU DARE!' },
+        { ic: { img: 'target', tint: 0xffc93a, s: 0.85 }, t: 'A GOLD RING MEANS A PERFECT DROP.' },
+        { touch: true, ic: { img: 'hand' }, t: 'TAP A PUMPKIN TO PICK IT UP.' },
+        { touch: true, ic: { img: 'hand' }, t: 'TAP AGAIN TO DROP IT.' },
+        { desk: true, ic: { keys: ['left', 'right'] }, t: 'WALK (OR A, D)' },
+        { desk: true, ic: { keys: ['down'] }, t: 'PICK UP (OR S)' },
+        { desk: true, ic: { keys: ['SPACE'] }, t: 'LIFT, THEN DROP (OR ↑, W)' },
+        { desk: true, ic: { img: 'hand' }, t: 'OR CLICK, JUST LIKE A TAP.' },
+    ] },
+    { title: "DON'T LET IT FALL", art: 'howArtFall', rows: [
+        { p: 'A PUMPKIN THAT ROLLS OR FALLS OFF THE TOWER COSTS A PUMPKIN LIFE. LOSE THEM ALL AND THE ROUND IS OVER.' },
+        { ic: { img: 'pumpkin_deep_xl', s: 0.62 }, t: 'BIG, HEAVY ONES MAKE A STEADY BASE.' },
+        { p: 'START WITH 3. EARN THEM BACK, UP TO 5:', c: 'gold' },
+        { ic: { img: 'sparkle', n: 3 }, t: '3 PERFECT DROPS IN A ROW' },
+        { ic: { img: 'haybale', s: 0.5 }, t: 'BOOM A TALL TOWER' },
+        { ic: { img: 'egg_cloud_2', s: 0.6 }, t: 'REACH NEW HEIGHTS' },
+        { ic: { img: 'pumpkin_golden', s: 0.6 }, t: 'GOLDEN PUMPKINS' },
+    ] },
+    { title: 'BOOM!', art: 'howArtBoom', rows: [
+        { p: 'ONCE THE TOWER IS 3 TALL, A BOOM SIGN HANGS ON THE HAY BALE.' },
+        { p: "BOOM BANKS THE TOWER'S POINTS AND KNOCKS IT DOWN. TALLER TOWER, BIGGER BONUS." },
+        { p: 'IF IT FALLS FIRST, THOSE POINTS ARE LOST.', c: 'orange' },
+        { p: 'ONE MORE, OR CASH IN NOW?', c: 'gold' },
+        { touch: true, ic: { img: 'hand' }, t: 'TAP THE BALE TO BOOM.' },
+        { desk: true, ic: { keys: ['B'] }, t: 'HOLD B TO BOOM, OR CLICK THE BALE.' },
+    ] },
+    { title: 'BEAT THE SUNSET', art: 'howArtDay', rows: [
+        { p: 'A ROUND IS ONE AFTERNOON. THE SKY TURNS GOLD, THEN DUSK. SUNSET ENDS IT.' },
+        { ic: { img: 'windsock', f: 6, s: 0.42 }, t: 'GUSTS SWAY THE TOWER: WATCH THE WINDSOCK.' },
+        { ic: { img: 'pumpkin_unripe', s: 0.75 }, t: 'VINES GROW PUMPKINS. TAP TO PICK, OR WATER.' },
+        { ic: { img: 'leafpile_a', s: 0.55 }, t: 'LEAF PILES HIDE SOME.' },
+        { ic: { bubble: 'MORE!' }, t: 'EMPTY PATCH? TAP!' },
+        { ic: { img: 'sparkle', n: 2 }, t: 'TAP THE SCENERY, TOO.' },
+        { desk: true, ic: { keys: ['P', 'M'] }, t: 'PAUSE, MUTE' },
+    ] },
+];
+
+// ── loading (PatchScene) ─────────────────────────────────────────────────────
+const PatchHowTo = {
+    howPreload() {
+        this.load.spritesheet('keys', ART + 'keys.png', { frameWidth: 52, frameHeight: 52 });
+        this.load.image('key_wide', ART + 'key_wide.png');
+        this.load.image('icon_home', ART + 'icon_home.png');
+    },
+};
+
+// ── the card and the title extras (UIScene) ──────────────────────────────────
+const UIHowTo = {
+    howCreate() {
+        const H = this.how = { open: false, mode: null, page: 0, pass: false, leaving: false,
+            timers: [], down: null, desk: howDesktop(), openedAt: -1e9 };
+        H.shade = this.add.rectangle(0, 0, 10, 10, HOW_COL.ink, 0.7).setOrigin(0).setDepth(140).setVisible(false);
+        H.root = this.add.container(0, 0).setDepth(150).setVisible(false);
+        H.panel = this.add.nineslice(0, 0, 'panel', null, 100, 100, 20, 20, 20, 20);
+        H.wood = this.add.tileSprite(0, 0, 80, 80, 'panel', 'planks');
+        H.title = this.add.text(0, 0, '', howTxt(36, HOW_COL.orange, 10)).setOrigin(0.5);
+        H.pageC = this.add.container(0, 0);
+        H.skip = this.howButton('SKIP', 20, 156, 68);
+        H.back = this.howButton('BACK', 20, 156, 68);
+        H.next = this.howButton('NEXT', 24, 184, 68, HOW_COL.gold);
+        H.dots = HOW_PAGES.map(() => this.add.image(0, 0, 'icon_pumpkin'));
+        H.root.add([H.panel, H.wood, H.title, H.pageC, H.skip, H.back, H.next, ...H.dots]);
+        H.maskG = this.make.graphics({ add: false });
+        H.mask = H.maskG.createGeometryMask();
+        this.howTitleCreate();
+
+        this.input.on('pointerdown', p => this.howPointerDown(p));
+        this.input.on('pointerup', p => this.howPointerUp(p));
+        this.input.keyboard.on('keydown', e => this.howKey(e));
+        this.scale.on('resize', size => this.howLayout(size.width, size.height));
+        this.events.on('update', () => this.howTitleSync());
+        this.howLayout(this.scale.width, this.scale.height);
+    },
+
+    // A wooden button: container with a hit size (bw x bh) and a label.
+    howButton(label, size, w, h, color) {
+        const c = this.add.container(0, 0);
+        c.bg = this.add.nineslice(0, 0, 'panel', null, w, h, 20, 20, 20, 20);
+        c.label = this.add.text(0, 2, label, howTxt(size, color || HOW_COL.cream, 6)).setOrigin(0.5);
+        c.add([c.bg, c.label]);
+        c.bw = w; c.bh = h;
+        return c;
+    },
+
+    howHit(btn, p) {
+        if (!btn || !btn.visible) return false;
+        const m = btn.getWorldTransformMatrix();
+        return Math.abs(p.x - m.tx) < btn.bw / 2 && Math.abs(p.y - m.ty) < btn.bh / 2;
+    },
+
+    // ── title extras ─────────────────────────────────────────────────────────
+    howTitleCreate() {
+        const H = this.how, T = this.t;
+        H.bands = this.add.graphics();
+        this.title.addAt(H.bands, 0);
+        if (T.shade) T.shade.setVisible(false);
+        H.best = this.add.text(0, 0, '', howTxt(20, HOW_COL.gold, 6)).setOrigin(0.5);
+        H.help = this.howButton('?', 36, 84, 84, HOW_COL.gold);
+        H.help.label.setPosition(2, 4);
+        H.home = this.howButton('HOME', 20, 188, 84);
+        H.home.label.setX(26);
+        H.home.add(this.add.image(-52, -2, 'icon_home'));
+        this.title.add([H.best, H.help, H.home]);
+        // the sound button stays visible (and in reach) over the title
+        if (this.soundBtn) this.soundBtn.setDepth(101);
+        if (this.soundIcon) this.soundIcon.setDepth(101);
+        this.tweens.add({ targets: H.help, scale: 1.08, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    },
+
+    // Keeps the extras lined up with the title (whatever size it is), redraws the stepped
+    // bands when the title's layout changes, and keeps the in-round HUD off the title.
+    howTitleSync() {
+        const H = this.how, T = this.t;
+        if (!H) return;
+        this.howHud(!this.patch.started);
+        if (!this.title.visible) return;
+        const w = this.scale.width, h = this.scale.height;
+        const b = this.patch.best || {};
+        const line = b.score ? 'BEST ' + Number(b.score).toLocaleString('en-US') + (b.count ? ' · TALLEST ' + b.count : '') : '';
+        if (H.best.text !== line) H.best.setText(line);
+        const t2 = T.t2.getBounds(), howB = T.how ? T.how.getBounds() : { top: h * 0.8 };
+        H.best.setPosition(w / 2, t2.bottom + 30);
+        const top = Math.round((line ? t2.bottom + 60 : t2.bottom + 30) / 8) * 8;
+        const bot = Math.round((howB.top - 30) / 8) * 8;
+        const key = [w, h, top, bot].join();
+        if (key === H.bandKey) return;
+        H.bandKey = key;
+        // a see-through veil over the live patch, darker in steps behind the title and the hints
+        const g = H.bands.clear(), steps = 8, veil = 0.42, dark = 0.84;
+        g.fillStyle(0x2b1810, veil).fillRect(0, top, w, bot - top);
+        for (let i = 0; i < steps; i++) {
+            const a = dark - (dark - veil) * i / steps;
+            g.fillStyle(0x2b1810, a).fillRect(0, Math.round(top * i / steps), w, Math.ceil(top / steps));
+            const y0 = bot + Math.round((h - bot) * i / steps), b2 = veil + (dark - veil) * (i + 1) / steps;
+            g.fillStyle(0x2b1810, b2).fillRect(0, y0, w, Math.ceil((h - bot) / steps));
+        }
+    },
+
+    // The round's HUD (count panel, score, lives) means nothing on the title: hide it from
+    // the camera there (visibility and alpha stay the HUD's own business).
+    howHud(hide) {
+        const H = this.how, cam = this.cameras.main;
+        if (hide === !!H.hudHidden) return;
+        H.hudHidden = hide;
+        if (hide) {
+            const r = this.panel.getBounds();
+            H.hud = this.children.list.filter(o => o !== this.title && o.depth < 50 && o.x >= r.left - 4 &&
+                o.x <= r.right + 4 && o.y >= r.top - 4 && o.y <= r.bottom + 4);
+            H.hud.forEach(o => { o.cameraFilter |= cam.id; });
+        } else {
+            (H.hud || []).forEach(o => { o.cameraFilter &= ~cam.id; });
+        }
+    },
+
+    howTitleLayout(w, h) {
+        const H = this.how;
+        H.home.setPosition(20 + 94, 62);
+        H.help.setPosition(w - 132 - 42, 62);
+        H.bandKey = null;
+    },
+
+    // ── showing and hiding ───────────────────────────────────────────────────
+    // mode: 'auto' (after the title tap; ends by starting the round), 'title' (the "?"
+    // button: CLOSE goes back to the title, PLAY! starts) or 'pause' (DONE / CLOSE call onClose).
+    showHowTo(mode = 'title', onClose = null) {
+        const H = this.how;
+        if (!H || H.open) return;
+        Sfx.init(); // a tap or a key got us here, so the music may start
+        Object.assign(H, { open: true, mode, onClose, openedAt: this.time.now, desk: howDesktop(), down: null });
+        if (mode !== 'pause') {
+            this.tweens.killTweensOf(this.title);
+            this.tweens.add({ targets: this.title, alpha: 0, duration: 200 });
+        }
+        H.shade.setVisible(true).setAlpha(0);
+        H.root.setVisible(true).setAlpha(0);
+        this.tweens.add({ targets: [H.shade, H.root], alpha: 1, duration: 220 });
+        H.page = 0;
+        this.howBuildPage();
+    },
+
+    hideHowTo() {
+        const H = this.how;
+        if (!H.open) return;
+        H.open = false;
+        H.down = null;
+        this.tweens.add({ targets: [H.shade, H.root], alpha: 0, duration: 180, onComplete: () => {
+            if (H.open) return;
+            H.shade.setVisible(false);
+            H.root.setVisible(false);
+            this.howClear();
+        } });
+    },
+
+    // Called from startGame(): true when the card takes over (it starts the game when done).
+    howGate() {
+        const H = this.how;
+        if (!H) return false;
+        if (H.leaving || H.open) return true;
+        if (H.pass || howRounds() >= HOW_AUTO) return false;
+        this.showHowTo('auto');
+        return true;
+    },
+
+    howRoundStarted() {
+        try { localStorage.setItem(HOW_SAVE, String(howRounds() + 1)); } catch (e) {}
+    },
+
+    howGo(i) {
+        const H = this.how;
+        i = Phaser.Math.Clamp(i, 0, HOW_PAGES.length - 1);
+        if (i === H.page) return;
+        H.page = i;
+        Sfx.pop();
+        this.howBuildPage();
+    },
+
+    howNext() {
+        const H = this.how;
+        if (H.page < HOW_PAGES.length - 1) this.howGo(H.page + 1);
+        else this.howFinish('done');
+    },
+
+    // done: the last page's PLAY! / DONE. skip: SKIP / CLOSE.
+    howFinish(kind) {
+        const H = this.how, mode = H.mode;
+        this.hideHowTo();
+        if (mode === 'pause') { if (H.onClose) H.onClose(); return; }
+        if (mode === 'title' && kind === 'skip') {
+            this.tweens.killTweensOf(this.title);
+            this.tweens.add({ targets: this.title, alpha: 1, duration: 250 });
+            return;
+        }
+        H.pass = true;
+        Sfx.pickup();
+        this.startGame();
+    },
+
+    // ── input ────────────────────────────────────────────────────────────────
+    howPointerDown(p) {
+        const H = this.how;
+        if (!H.open) { this.howTitleTap(p); return; }
+        if (this.time.now - H.openedAt < 150) return;
+        H.down = null;
+        if (this.hitButton(p)) return; // the sound button (the HUD handles it)
+        if (this.howHit(H.skip, p)) { this.howFinish('skip'); return; }
+        if (this.howHit(H.back, p)) { this.howGo(H.page - 1); return; }
+        if (this.howHit(H.next, p)) { this.howNext(); return; }
+        const dot = H.dots.findIndex(d => Math.abs(p.x - H.root.x - d.x) < 24 && Math.abs(p.y - H.root.y - d.y) < 28);
+        if (dot >= 0) { this.howGo(dot); return; }
+        H.down = { x: p.x, y: p.y };
+    },
+
+    // A swipe turns the page; a plain tap on the card goes on (not past the last page).
+    howPointerUp(p) {
+        const H = this.how;
+        if (!H.open || !H.down) return;
+        const dx = p.x - H.down.x, dy = p.y - H.down.y;
+        H.down = null;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) { this.howGo(H.page + (dx < 0 ? 1 : -1)); return; }
+        const inCard = Math.abs(p.x - H.root.x) < H.cw / 2 && Math.abs(p.y - H.root.y) < H.ch / 2;
+        if (inCard && Math.abs(dx) < 24 && Math.abs(dy) < 24 && H.page < HOW_PAGES.length - 1) this.howNext();
+    },
+
+    howTitleTap(p) {
+        const H = this.how;
+        if (this.patch.started || !this.title.visible || this.title.alpha < 0.6) return;
+        if (this.howHit(H.help, p)) { Sfx.init(); Sfx.pop(); this.showHowTo('title'); return; }
+        if (this.howHit(H.home, p)) { this.howLeave(); }
+    },
+
+    howLeave() {
+        const H = this.how;
+        H.leaving = true;
+        this.cameras.main.fadeOut(250, 27, 19, 13);
+        this.time.delayedCall(260, () => { window.location.href = HOW_HOME; });
+    },
+
+    howKey(e) {
+        const H = this.how, code = e.code;
+        if (!H.open) {
+            if (!this.patch.started && !H.leaving && (e.key === '?' || code === 'KeyH')) this.showHowTo('title');
+            return;
+        }
+        if (this.time.now - H.openedAt < 150) return; // the key that opened it
+        if (['ArrowRight', 'KeyD', 'Space', 'Enter', 'ArrowUp', 'KeyW'].includes(code)) this.howNext();
+        else if (code === 'ArrowLeft' || code === 'KeyA') this.howGo(H.page - 1);
+        else if (code === 'Escape' || code === 'Backspace') this.howFinish('skip');
+        else if (/^Digit[1-9]$/.test(code)) this.howGo(Number(code.slice(5)) - 1);
+    },
+
+    // ── layout ───────────────────────────────────────────────────────────────
+    howLayout(w, h) {
+        const H = this.how, portrait = h > w;
+        H.portrait = portrait;
+        H.shade.setSize(w, h);
+        H.cw = portrait ? Math.min(w - 28, 692) : Math.min(w - 56, 1184);
+        H.ch = portrait ? Math.min(h - 200, 1340) : h - 32;
+        H.root.setPosition(Math.round(w / 2), Math.round(h / 2));
+        H.panel.setSize(H.cw, H.ch);
+        H.wood.setSize(H.cw - 24, H.ch - 24);
+        H.title.setPosition(0, -H.ch / 2 + 58);
+        const fy = H.ch / 2 - 58, pad = portrait ? 34 : 44;
+        H.skip.setPosition(-H.cw / 2 + pad + 78, fy);
+        H.next.setPosition(H.cw / 2 - pad - 92, fy);
+        H.back.setPosition(H.next.x - 184 / 2 - 18 - 78, fy);
+        const dotY = portrait ? fy - 76 : fy, dotX = portrait ? 0 : (H.skip.x + 78 + H.back.x - 78) / 2;
+        H.dots.forEach((d, i) => d.setPosition(dotX + (i - (H.dots.length - 1) / 2) * 44, dotY));
+        this.howTitleLayout(w, h);
+        if (H.open) this.howBuildPage();
+    },
+
+    // Clears the page: its timers, its tweens, its objects.
+    howClear() {
+        const H = this.how;
+        H.timers.forEach(t => t.remove(false));
+        H.timers = [];
+        const kill = o => { this.tweens.killTweensOf(o); if (o.list) o.list.forEach(kill); };
+        kill(H.pageC);
+        H.pageC.removeAll(true);
+    },
+
+    howLater(ms, fn) {
+        const H = this.how;
+        H.timers = H.timers.filter(t => t.loop || !t.hasDispatched);
+        const ev = this.time.delayedCall(ms, fn);
+        H.timers.push(ev);
+        return ev;
+    },
+
+    // Runs fn now and every ms after (the illustrations' loops).
+    howLoop(ms, fn) {
+        const ev = this.time.addEvent({ delay: ms, loop: true, callback: fn });
+        this.how.timers.push(ev);
+        fn();
+    },
+
+    howBuildPage() {
+        const H = this.how, pg = HOW_PAGES[H.page], last = H.page === HOW_PAGES.length - 1;
+        this.howClear();
+        H.title.setText(pg.title);
+        H.skip.label.setText(H.mode === 'auto' ? 'SKIP' : 'CLOSE');
+        H.next.label.setText(last ? (H.mode === 'pause' ? 'DONE' : 'PLAY!') : 'NEXT');
+        H.back.setVisible(H.page > 0);
+        H.dots.forEach((d, i) => d.setScale(i === H.page ? 0.62 : 0.46).setAlpha(i === H.page ? 1 : 0.4));
+        if (last) {
+            this.tweens.add({ targets: H.next, scale: 1.08, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        } else {
+            this.tweens.killTweensOf(H.next);
+            H.next.setScale(1);
+        }
+
+        // text rows for this kind of player
+        const rows = pg.rows.filter(r => !(r.touch && H.desk) && !(r.desk && !H.desk)).map(r => this.howRow(r));
+        const innerW = H.cw - 2 * (H.portrait ? 30 : 40);
+        const top = -H.ch / 2 + 106, bottom = H.ch / 2 - (H.portrait ? 160 : 104);
+        const avail = bottom - top, gap = 14;
+        const measure = tw => rows.reduce((s, r) => s + this.howRowFit(r, tw) + gap, -gap);
+        let artW, artH, tx, tw, th;
+        if (H.portrait) {
+            tw = innerW;
+            th = measure(tw);
+            artW = innerW;
+            artH = Math.min(Math.round(artW / 1.1), avail - th - 30);
+            artW = Math.min(artW, Math.round(artH * 1.1));
+            const used = artH + 30 + th, y0 = top + Math.max(0, (avail - used) / 2);
+            this.howArtBox(pg.art, -artW / 2, y0, artW, artH);
+            tx = -tw / 2;
+            this.howPlaceRows(rows, tx, y0 + artH + 30, gap);
+        } else {
+            // give the picture as much room as the text allows
+            for (let f = 0.44; f >= 0.3; f -= 0.02) {
+                artW = Math.round(innerW * f);
+                tw = innerW - artW - 40;
+                th = measure(tw);
+                if (th <= avail) break;
+            }
+            artH = Math.min(avail, Math.round(artW / 1.1));
+            artW = Math.round(artH * 1.1);
+            tw = innerW - artW - 40;
+            th = measure(tw);
+            const x0 = -innerW / 2;
+            this.howArtBox(pg.art, x0, top + (avail - artH) / 2, artW, artH);
+            this.howPlaceRows(rows, x0 + artW + 40, top + Math.max(0, (avail - th) / 2), gap);
+        }
+    },
+
+    // ── text rows ────────────────────────────────────────────────────────────
+    howRow(r) {
+        const color = HOW_COL[r.c] || HOW_COL.cream;
+        const text = this.add.text(0, 0, r.p || r.t, Object.assign(howTxt(20, color, 6), { lineSpacing: 10 }));
+        const icon = r.ic ? this.howIcon(r.ic) : null;
+        this.how.pageC.add(icon ? [icon, text] : [text]);
+        return { text, icon };
+    },
+
+    // Wraps the row to width tw and returns its height.
+    howRowFit(row, tw) {
+        row.text.setWordWrapWidth(row.icon ? tw - HOW_ICON_W : tw);
+        row.h = Math.max(row.text.height, row.icon ? row.icon.ih : 0);
+        return row.h;
+    },
+
+    howPlaceRows(rows, x, y, gap) {
+        for (const r of rows) {
+            if (r.icon) {
+                r.icon.setPosition(x + HOW_ICON_W / 2 - 8, y + r.h / 2);
+                r.text.setPosition(x + HOW_ICON_W, y + (r.h - r.text.height) / 2);
+            } else {
+                r.text.setPosition(x, y);
+            }
+            y += r.h + gap;
+        }
+    },
+
+    howIcon(ic) {
+        const c = this.add.container(0, 0);
+        c.ih = 44;
+        if (ic.keys) {
+            const parts = ic.keys.map(k => {
+                if (k === 'SPACE') {
+                    const kc = this.add.container(0, 0, [this.add.image(0, 0, 'key_wide'),
+                        this.add.text(0, -4, 'SPACE', howTxt(20, '#2b1810', 0)).setOrigin(0.5)]);
+                    kc.kw = 132;
+                    return kc;
+                }
+                const arrow = ['left', 'right', 'up', 'down'].indexOf(k);
+                const kc = this.add.container(0, 0, [this.add.image(0, 0, 'keys', arrow + 1)]);
+                if (arrow < 0) kc.add(this.add.text(1, -3, k, howTxt(20, '#2b1810', 0)).setOrigin(0.5));
+                kc.kw = 52;
+                return kc;
+            });
+            const total = parts.reduce((s, k) => s + k.kw, 0) + 6 * (parts.length - 1);
+            let x = -total / 2;
+            for (const k of parts) { k.setX(x + k.kw / 2); x += k.kw + 6; c.add(k); }
+            c.ih = 52;
+        } else if (ic.bubble) {
+            const t = this.add.text(0, -6, ic.bubble, howTxt(20, '#2b1810', 0)).setOrigin(0.5);
+            const bw = t.width + 28;
+            c.add([this.add.nineslice(0, 18, 'bubble', null, bw, 52, 16, 16, 16, 16).setOrigin(0.5, 1),
+                this.add.image(-bw / 4, 16, 'bubble_tail').setOrigin(0.5, 0), t]);
+            c.ih = 56;
+        } else {
+            const key = this.textures.exists(ic.img) ? ic.img : 'sparkle';
+            const n = ic.n || 1;
+            for (let i = 0; i < n; i++) {
+                const im = this.add.image((i - (n - 1) / 2) * 30, 0, key, ic.f).setScale(ic.s || 1);
+                if (ic.tint) im.setTint(ic.tint);
+                c.add(im);
+                c.ih = Math.max(c.ih, im.displayHeight);
+            }
+            if (ic.img === 'sparkle') this.tweens.add({ targets: c.list, scale: 1.25, duration: 500, yoyo: true, repeat: -1,
+                delay: this.tweens.stagger(160), ease: 'Sine.InOut' });
+        }
+        return c;
+    },
+
+    // ── illustrations ────────────────────────────────────────────────────────
+    // A framed window at (x, y) on the card, artW x artH, onto a little scene built
+    // in world px (box: HOW_NEAR or HOW_WIDE), scaled to fit and clipped to the frame.
+    howArtBox(name, x, y, artW, artH) {
+        const H = this.how;
+        H.pageC.add(this.add.rectangle(x - 6, y - 6, artW + 12, artH + 12, 0x2b1810).setOrigin(0));
+        const box = name === 'howArtDay' ? HOW_WIDE : HOW_NEAR;
+        const s = Math.min(artW / box.w, artH / box.h);
+        const c = this.add.container(x + (artW - box.w * s) / 2, y + (artH - box.h * s) / 2).setScale(s);
+        c.s = s;
+        c.box = box;
+        H.pageC.add(c);
+        H.maskG.clear().fillStyle(0xffffff).fillRect(H.root.x + x, H.root.y + y, artW, artH);
+        c.setMask(H.mask);
+        // the patch itself: background, the silo's pumpkin, the fence in front
+        const crop = key => this.add.image(-box.x, -box.y, key).setOrigin(0).setCrop(box.x, box.y, box.w, box.h);
+        c.add(crop('background'));
+        if (box === HOW_NEAR) c.add(this.add.image(SILO_X - box.x, SILO_TOP_Y + 8 - box.y, 'silo_pumpkin').setOrigin(0.5, 1));
+        c.add(crop('foreground'));
+        this[name](c);
+    },
+
+    // helpers in the scene's world px (relative to its box)
+    howW(c, x, y) { return { x: x - c.box.x, y: y - c.box.y }; },
+
+    howPumpkin(c, key, x, bottom) {
+        const spec = PUMPKIN_SPECS[key], bh = (spec.h + 1) * 4, imgH = (spec.h + 8) * 4;
+        const p = this.howW(c, x, bottom - bh / 2);
+        const img = this.add.image(p.x, p.y, key).setOrigin(0.5, (24 + 2 * spec.h) / imgH);
+        img.bw = (spec.w + 1) * 4; img.bh = bh;
+        c.add(img);
+        return img;
+    },
+
+    // a tower on the bale, bottom first: returns its pumpkins and the y of its top
+    howTower(c, keys, x = HAY_X) {
+        let top = HAY_TOP;
+        const items = keys.map(k => { const it = this.howPumpkin(c, k, x, top); top -= it.bh; return it; });
+        return { items, top };
+    },
+
+    howBale(c, x = HAY_X) {
+        const p = this.howW(c, x, GROUND + 4);
+        c.add(this.add.image(p.x, p.y, 'shadow').setScale(1.35, 1));
+        const img = this.add.image(p.x, p.y, 'haybale').setOrigin(0.5, 1);
+        c.add(img);
+        return img;
+    },
+
+    howAnsel(c, pose, x, dir = 1) {
+        const P = POSES[pose] || POSES.run, key = pose === 'run' ? 'ansel_1' : 'ansel_' + pose;
+        const p = this.howW(c, x, GROUND);
+        c.add(this.add.image(p.x, p.y + 4, 'shadow'));
+        const img = this.add.image(p.x, p.y, this.textures.exists(key) ? key : 'ansel_1')
+            .setScale(HEAD_PX / P.headSrc).setOrigin(0.5, 1 - P.foot / P.h).setFlipX(dir < 0);
+        c.add(img);
+        img.pose = pose;
+        return img;
+    },
+
+    howPose(img, pose, frame) {
+        const P = POSES[pose] || POSES.run, key = pose === 'run' ? 'ansel_' + ((frame || 0) % 6 + 1) : 'ansel_' + pose;
+        if (!this.textures.exists(key)) return;
+        img.setTexture(key).setScale(HEAD_PX / P.headSrc).setOrigin(0.5, 1 - P.foot / P.h);
+        img.pose = pose;
+    },
+
+    // text inside a scaled scene, sized in screen px so it stays readable
+    howArtText(c, x, y, text, px, color) {
+        const t = this.add.text(x, y, text, howTxt(Math.round(px / c.s), color, Math.round(7 / c.s))).setOrigin(0.5);
+        c.add(t);
+        return t;
+    },
+
+    howPop(c, x, y, text, px, color) {
+        const t = this.howArtText(c, x, y, text, px, color).setScale(0.3);
+        this.tweens.add({ targets: t, scale: 1, duration: 220, ease: 'Back.Out' });
+        this.tweens.add({ targets: t, y: y - 70, alpha: 0, delay: 900, duration: 500, onComplete: () => t.destroy() });
+        return t;
+    },
+
+    howSparkles(c) {
+        const e = this.add.particles(0, 0, 'sparkle', {
+            lifespan: { min: 450, max: 800 }, speed: { min: 120, max: 320 }, angle: { min: 0, max: 360 },
+            scale: { start: 1.5, end: 0 }, rotate: { start: 0, end: 180 }, emitting: false,
+        });
+        c.add(e);
+        return e;
+    },
+
+    howHand(c) {
+        const h = this.add.image(0, 0, 'hand').setOrigin(0.4, 0).setScale(1.3).setVisible(false);
+        c.add(h);
+        return h;
+    },
+
+    howTap(hand, x, y) {
+        hand.setPosition(x, y).setVisible(true).setAlpha(1).setScale(1.3);
+        this.tweens.add({ targets: hand, y: y - 14, scale: 1.15, duration: 110, yoyo: true });
+        this.tweens.add({ targets: hand, alpha: 0, delay: 600, duration: 200 });
+    },
+
+    // 1. Ansel lifts a pumpkin over the tower; it sways, the ring under it turns gold over
+    //    the middle, a tap drops it: PERFECT!
+    howArtStack(c) {
+        this.howBale(c);
+        const tower = this.howTower(c, ['pumpkin_deep_xl', 'pumpkin_orange_l']);
+        this.howPumpkin(c, 'pumpkin_white_m', 1200, GROUND);
+        this.howAnsel(c, 'up', 820);
+        const top = this.howW(c, HAY_X, tower.top);
+        const ring = this.add.image(top.x, top.y + 6, 'target');
+        c.add(ring);
+        const pk = this.howPumpkin(c, 'pumpkin_orange_m', HAY_X, tower.top - 150);
+        const hoverY = pk.y, restY = top.y - pk.bh / 2;
+        const hand = this.howHand(c), fx = this.howSparkles(c);
+        const sway = { u: -1 };
+        const place = () => {
+            const d = sway.u * 80;
+            pk.x = top.x + d;
+            const ad = Math.abs(d), perfect = ad <= 22;
+            ring.setX(pk.x).setTint(perfect ? 0xffc93a : ad <= 40 ? 0xffffff : ad <= 54 ? 0xffa040 : 0xff4a3a)
+                .setScale((pk.bw / 128) * (perfect ? 1.15 : 1), perfect ? 1.15 : 1);
+        };
+        this.howLoop(3900, () => {
+            pk.setPosition(top.x - 80, hoverY).setAlpha(1).setScale(1).setAngle(0);
+            ring.setVisible(true);
+            sway.u = -1;
+            place();
+            const tw = this.tweens.add({ targets: sway, u: 1, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.InOut', onUpdate: place });
+            this.howLater(1990, () => {
+                this.howTap(hand, top.x + 46, hoverY + 30);
+                tw.stop();
+                sway.u = 0;
+                place();
+                this.howLater(90, () => {
+                    ring.setVisible(false);
+                    this.tweens.add({ targets: pk, y: restY, duration: 180, ease: 'Quad.In', onComplete: () => {
+                        this.tweens.add({ targets: pk, scaleX: 1.12, scaleY: 0.88, duration: 70, yoyo: true });
+                        fx.explode(18, top.x, top.y);
+                        this.howPop(c, top.x, top.y - 150, 'PERFECT!', 24, HOW_COL.gold);
+                        Sfx.perfect && Sfx.perfect(1);
+                    } });
+                });
+            });
+            this.howLater(3500, () => this.tweens.add({ targets: pk, alpha: 0, duration: 260 }));
+        });
+    },
+
+    // 2. A pumpkin lands too far off the edge, rolls off and falls: a life goes dark.
+    //    Then one flies back in (lives can be earned back).
+    howArtFall(c) {
+        this.howBale(c);
+        const tower = this.howTower(c, ['pumpkin_deep_xl', 'pumpkin_orange_l']);
+        const top = this.howW(c, HAY_X, tower.top);
+        // the life row, like the HUD's
+        const row = this.add.container(30, 28);
+        const lw = 3 * 84 + 40;
+        row.add(this.add.nineslice(0, 0, 'panel', null, lw, 116, 20, 20, 20, 20).setOrigin(0));
+        const lives = [0, 1, 2].map(i => { const im = this.add.image(62 + i * 84, 58, 'icon_pumpkin').setScale(1.25); row.add(im); return im; });
+        c.add(row);
+        const pk = this.howPumpkin(c, 'pumpkin_white_m', HAY_X + 60, tower.top - 160);
+        const hoverY = pk.y, restY = top.y - pk.bh / 2, groundY = GROUND - c.box.y - pk.bh / 2;
+        const fx = this.howSparkles(c);
+        const flash = this.add.rectangle(0, 0, c.box.w, c.box.h, 0xff3020, 0).setOrigin(0);
+        c.add(flash);
+        this.howLoop(5600, () => {
+            pk.setPosition(top.x + 60, hoverY).setAngle(0).setAlpha(1);
+            lives.forEach(l => l.setAlpha(1).clearTint().setScale(1.25));
+            this.tweens.add({ targets: pk, y: restY, delay: 500, duration: 200, ease: 'Quad.In', onComplete: () => {
+                Sfx.thunk && Sfx.thunk(20, 3);
+                this.tweens.add({ targets: pk, angle: 16, x: pk.x + 14, duration: 320, ease: 'Sine.In', onComplete: () => {
+                    Sfx.uhoh();
+                    this.tweens.add({ targets: pk, x: pk.x + 170, angle: 220, duration: 700, ease: 'Linear' });
+                    this.tweens.add({ targets: pk, y: groundY, duration: 700, ease: 'Quad.In', onComplete: () => {
+                        this.tweens.add({ targets: pk, y: groundY - 26, duration: 140, yoyo: true, ease: 'Quad.Out' });
+                        this.howPop(c, pk.x, groundY - 90, '-1', 28, HOW_COL.red);
+                        lives[2].setAlpha(0.3).setTint(0x5a4a3a);
+                        this.tweens.add({ targets: lives[2], scale: 1.0, duration: 90, yoyo: true, repeat: 2 });
+                        flash.setFillStyle(0xff3020, 0.3);
+                        this.tweens.add({ targets: flash, fillAlpha: 0, duration: 300 });
+                    } });
+                } });
+            } });
+            // ...and a life flies back in
+            this.howLater(3400, () => {
+                const fly = this.add.image(top.x, top.y - 40, 'icon_pumpkin').setScale(1.6);
+                c.add(fly);
+                const tx = row.x + lives[2].x, ty = row.y + lives[2].y;
+                Sfx.pickup();
+                this.tweens.add({ targets: fly, x: tx, duration: 750, ease: 'Sine.InOut' });
+                this.tweens.add({ targets: fly, y: { value: ty, ease: 'Back.In' }, angle: 360, scale: 1.25, duration: 750, onComplete: () => {
+                    fly.destroy();
+                    lives[2].setAlpha(1).clearTint();
+                    this.tweens.add({ targets: lives[2], scale: 1.6, duration: 140, yoyo: true });
+                    fx.explode(12, tx, ty);
+                    this.howPop(c, tx + 120, ty + 30, '+1', 26, HOW_COL.gold);
+                    Sfx.bonus();
+                } });
+            });
+            this.howLater(5200, () => this.tweens.add({ targets: pk, alpha: 0, duration: 250 }));
+        });
+    },
+
+    // 3. A four-pumpkin tower with the BOOM sign on its bale; a tap sends Ansel to shove
+    //    it, it goes flying, and its points are banked.
+    howArtBoom(c) {
+        this.howBale(c);
+        const keys = ['pumpkin_deep_xl', 'pumpkin_orange_l', 'pumpkin_green_m', 'pumpkin_orange_s'];
+        const tower = this.howTower(c, keys);
+        const homes = tower.items.map(it => ({ x: it.x, y: it.y }));
+        const top = this.howW(c, HAY_X, tower.top);
+        const sp = this.howW(c, HAY_X, HAY_TOP + 46);
+        const sign = this.add.container(sp.x, sp.y);
+        const st = this.howArtText(c, 0, -22, 'BOOM!', 22, HOW_COL.orange);
+        const sv = this.howArtText(c, 0, 24, '+1,260', 20, HOW_COL.gold);
+        const sw = Math.max(st.width, sv.width) + 40, sh = st.height + sv.height + 18;
+        st.setY(-sh / 2 + 12 + st.height / 2);
+        sv.setY(sh / 2 - 12 - sv.height / 2);
+        sign.add([this.add.nineslice(0, 0, 'panel', null, sw, sh, 20, 20, 20, 20), st, sv]);
+        c.add(sign);
+        const ansel = this.howAnsel(c, 'run', 700);
+        const startX = ansel.x, shoveX = HAY_X - 150 - c.box.x;
+        const hand = this.howHand(c), fx = this.howSparkles(c);
+        const burst = this.add.particles(0, 0, 'leaves', {
+            frame: [0, 1, 2, 3, 4, 5, 6, 7], lifespan: { min: 900, max: 1600 },
+            speedX: { min: -320, max: 320 }, speedY: { min: -620, max: -240 }, gravityY: 620,
+            rotate: { start: 0, end: 720 }, scale: { min: 1, max: 1.4 }, emitting: false,
+        });
+        c.add(burst);
+        this.howLoop(5600, () => {
+            tower.items.forEach((it, i) => it.setPosition(homes[i].x, homes[i].y).setAngle(0).setAlpha(1));
+            sign.setVisible(true).setScale(1).setAngle(0);
+            this.tweens.add({ targets: sign, angle: { from: -4, to: 4 }, duration: 90, yoyo: true, repeat: 2, delay: 300,
+                onComplete: () => sign.setAngle(0) });
+            ansel.setX(startX);
+            this.howPose(ansel, 'run', 0);
+            this.howLater(800, () => this.howTap(hand, sp.x + 30, sp.y + 10));
+            this.howLater(1000, () => {
+                let f = 0;
+                const run = this.time.addEvent({ delay: 75, repeat: 5, callback: () => this.howPose(ansel, 'run', ++f) });
+                this.how.timers.push(run);
+                this.tweens.add({ targets: ansel, x: shoveX, duration: 450 });
+            });
+            this.howLater(1500, () => this.howPose(ansel, 'down'));
+            this.howLater(1700, () => {
+                Sfx.boom();
+                sign.setVisible(false);
+                fx.explode(30, top.x, top.y + 60);
+                burst.explode(24, top.x, top.y + 100);
+                this.tweens.add({ targets: c, x: c.x + 8, duration: 50, yoyo: true, repeat: 3 });
+                tower.items.forEach((it, i) => {
+                    const dx = (i % 2 ? -1 : 1) * (60 + 70 * i) + 120, up = 160 + 60 * i;
+                    this.tweens.add({ targets: it, x: it.x + dx, angle: (i % 2 ? -1 : 1) * (220 + 90 * i), duration: 1000 });
+                    this.tweens.add({ targets: it, y: it.y - up, duration: 380, ease: 'Quad.Out', onComplete: () =>
+                        this.tweens.add({ targets: it, y: GROUND - c.box.y - it.bh / 2, duration: 520, ease: 'Quad.In' }) });
+                });
+                this.howPop(c, top.x, top.y - 10, '+1,260', 30, HOW_COL.gold);
+                this.howLater(250, () => Sfx.fanfare());
+                this.howLater(450, () => this.howPose(ansel, 'dizzy'));
+            });
+            this.howLater(5100, () => this.tweens.add({ targets: tower.items, alpha: 0, duration: 300 }));
+        });
+    },
+
+    // 4. The afternoon passes over the patch (the same light as the round's clock), while
+    //    gusts flap the windsock, blow leaves through and sway a little tower.
+    howArtDay(c) {
+        const bale = this.howBale(c, 1520);
+        const sway = this.add.container(bale.x, bale.y - 4 - HAY_H);
+        c.add(sway);
+        let topY = 0;
+        for (const k of ['pumpkin_orange_l', 'pumpkin_orange_m', 'pumpkin_gold_s']) {
+            const spec = PUMPKIN_SPECS[k], bh = (spec.h + 1) * 4;
+            sway.add(this.add.image(0, topY - bh / 2, k).setOrigin(0.5, (24 + 2 * spec.h) / ((spec.h + 8) * 4)));
+            topY -= bh;
+        }
+        const sockP = this.howW(c, 1250, WINDSOCK_Y);
+        const sock = this.add.sprite(sockP.x, sockP.y, 'windsock', 0).setOrigin(WINDSOCK_POLE, 1);
+        c.add(sock);
+        const leaves = this.add.particles(0, 0, 'leaves', {
+            frame: [0, 1, 2, 3, 4, 5, 6, 7], x: -40, y: { min: 40, max: c.box.h - 160 },
+            speedX: { min: 520, max: 900 }, speedY: { min: -60, max: 80 }, lifespan: 1900,
+            rotate: { start: 0, end: 720 }, scale: { min: 1.1, max: 1.6 }, frequency: 70, emitting: false,
+        });
+        c.add(leaves);
+        // dusk: the very multiply the round uses (UIScene.setDusk), over this window only
+        const dusk = this.add.rectangle(0, 0, c.box.w, c.box.h, 0xffffff).setOrigin(0)
+            .setBlendMode(Phaser.BlendModes.MULTIPLY);
+        c.add(dusk);
+        const label = this.add.container(28, 26);
+        const lt = this.howArtText(c, 0, 0, '', 20, HOW_COL.cream).setOrigin(0, 0.5);
+        const lb = this.add.nineslice(0, 0, 'panel', null, 100, lt.height + 30, 20, 20, 20, 20).setOrigin(0, 0.5);
+        label.add([lb, lt]);
+        c.add(label);
+        const stops = [[0, 0xffffff], [0.5, 0xfff2dc], [0.8, 0xffc898], [1, 0x9c88c4]];
+        const day = { d: 0 };
+        const paint = () => {
+            const d = day.d;
+            let i = 0;
+            while (i < stops.length - 2 && d > stops[i + 1][0]) i++;
+            const [a0, c0] = stops[i], [a1, c1] = stops[i + 1];
+            dusk.setFillStyle(Phaser.Display.Color.ObjectToColor(Phaser.Display.Color.Interpolate.ColorWithColor(
+                Phaser.Display.Color.ValueToColor(c0), Phaser.Display.Color.ValueToColor(c1), 100,
+                Phaser.Math.Clamp((d - a0) / (a1 - a0), 0, 1) * 100)).color);
+            const name = d < 0.45 ? 'AFTERNOON' : d < 0.78 ? 'GOLDEN HOUR' : d < 0.98 ? 'DUSK' : 'SUNSET!';
+            if (lt.text !== name) {
+                lt.setText(name).setX(36).setColor(name === 'SUNSET!' ? HOW_COL.gold : HOW_COL.cream);
+                lb.setSize(lt.width + 72, lt.height + 30);
+            }
+        };
+        this.howLoop(8200, () => {
+            day.d = 0;
+            paint();
+            this.tweens.add({ targets: day, d: 1, delay: 600, duration: 6000, ease: 'Linear', onUpdate: paint, onComplete: paint });
+        });
+        // gusts: calm, a warning flutter, then a gust that streams leaves and sways the tower
+        let lvl = 0;
+        const flap = this.time.addEvent({ delay: 130, loop: true, callback: () => {
+            sock.setFrame(lvl * 2 + (sock.frame.name % 2 ? 0 : 1));
+        } });
+        this.how.timers.push(flap);
+        this.howLoop(5200, () => {
+            lvl = 0;
+            this.howLater(1500, () => { lvl = 1; leaves.setFrequency(260); leaves.start(); });
+            this.howLater(2300, () => {
+                lvl = 3;
+                leaves.setFrequency(60);
+                Sfx.wind && Sfx.wind(0.4, 2);
+                this.tweens.add({ targets: sway, angle: { from: 0, to: 3.2 }, duration: 500, yoyo: true, repeat: 1, ease: 'Sine.InOut' });
+            });
+            this.howLater(4400, () => { lvl = 1; leaves.stop(); });
+        });
+    },
+};
+
+Object.assign(PatchScene.prototype, PatchHowTo);
+Object.assign(UIScene.prototype, UIHowTo);
+// ══════════════════════════════════════════════════════════ end HOW TO PLAY ══
 
 // Wait (briefly) for the pixel font so text isn't drawn in a fallback face.
 const fontReady = document.fonts && document.fonts.load

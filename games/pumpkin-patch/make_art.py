@@ -1943,6 +1943,89 @@ def windsock():
     return sheet
 
 
+# ═════════════════════════════════════════════════════════════ how to play ══
+# Art for the how-to-play card and the title's HOME button: keyboard keycaps
+# (blank, and with arrows: Press Start 2P has no left/right arrow glyphs) and a
+# little red barn for "home". Letters on blank keys are drawn by the game.
+KEY = {"k": INK + (255,), "h": hx("#fff8e6"), "f": hx("#f3e3c3"), "d": hx("#dcc69c"),
+       "s": hx("#a77b4f"), "S": hx("#7d5634")}
+KEY_ARROW = [
+    "...k...",
+    "..kk...",
+    ".kkkkkk",
+    "kkkkkkk",
+    ".kkkkkk",
+    "..kk...",
+    "...k...",
+]
+
+
+def keycap(w=13, h=13, glyph=None):
+    """A chunky keyboard key: cream face lit from the top left, two rows of wooden-brown
+    side below it, dark outline with clipped corners. `glyph` rows are drawn in ink,
+    centred on the face."""
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    p = img.load()
+    side = 2
+    for y in range(h):
+        for x in range(w):
+            corner = (x in (0, w - 1) and y in (0, 1, h - 2, h - 1)) or (x in (1, w - 2) and y in (0, h - 1))
+            if corner:
+                continue
+            if x in (0, w - 1) or y in (0, h - 1) or (x in (1, w - 2) and y in (1, h - 2)):
+                p[x, y] = KEY["k"]
+            elif y >= h - 1 - side:
+                p[x, y] = KEY["S"] if y == h - 2 else KEY["s"]
+            elif y == 1 or x == 1:
+                p[x, y] = KEY["h"]
+            elif x == w - 2 or y == h - 2 - side:
+                p[x, y] = KEY["d"]
+            else:
+                p[x, y] = KEY["f"]
+    if glyph:
+        gw, gh = len(glyph[0]), len(glyph)
+        ox, oy = (w - gw) // 2, 1 + (h - 2 - side - gh) // 2
+        for gy, row in enumerate(glyph):
+            for gx, ch in enumerate(row):
+                if ch == "k":
+                    p[ox + gx, oy + gy] = KEY["k"]
+    return img
+
+
+def keys_sheet():
+    """keys.png: blank, left, right, up, down (13x13 art px each)."""
+    left = KEY_ARROW
+    right = [r[::-1] for r in left]
+    up = ["".join(left[y][x] for y in range(7)) for x in range(7)]
+    down = up[::-1]
+    return strip([keycap(), keycap(glyph=left), keycap(glyph=right), keycap(glyph=up), keycap(glyph=down)])
+
+
+def home_icon():
+    """A little red barn: the HOME button (back to the Uppah home page)."""
+    rows = [
+        ".....kk.....",
+        "....krRk....",
+        "...krrRRk...",
+        "..krrrRRRk..",
+        ".krrrrRRRRk.",
+        "kkkkkkkkkkkk",
+        ".kwwwwwwwck.",
+        ".kwwkkkkwck.",
+        ".kwwkddkwck.",
+        ".kwwkddkwck.",
+        ".kkkkkkkkkk.",
+    ]
+    return from_rows(rows, {"k": INK + (255,), "r": hx("#d8402e"), "R": hx("#a82a1e"),
+                            "w": hx("#f6efe0"), "c": hx("#d8cfc0"), "d": hx("#8a5a2c")})
+
+
+def how_to_play_art():
+    save(keys_sheet(), "keys.png")
+    save(keycap(33, 13), "key_wide.png")
+    save(home_icon(), "icon_home.png")
+
+
 def main():
     save(sprout(), "sprout.png")
     save(pumpkin(13, 10, "unripe", 3, seed=5, curl=True), "pumpkin_unripe.png")
@@ -1983,6 +2066,7 @@ def main():
         sheet.alpha_composite(f, (i * f.width, 0))
     save(sheet, "giraffe.png")
     save(windsock(), "windsock.png")
+    how_to_play_art()   # how to play: keycaps, HOME icon
 
 
 if __name__ == "__main__":

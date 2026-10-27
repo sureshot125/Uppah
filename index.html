@@ -2,52 +2,366 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>UPPAH - Premium Toddler Game</title>
-    <link rel="stylesheet" href="css/main.css">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>UPPAH! Games starring Ansel</title>
+    <meta name="description" content="Little pixel-art games starring Ansel. Pick a game.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        /* The Uppah home page: a level select. All the art is the games' own pixel art
+           (home/make_home_art.py); CSS only lays it out and slices the wooden sign
+           (games/pumpkin-patch/art/panel.png) around each card. */
+        :root {
+            --ink: #1b130d;
+            --ink2: #2b1810;
+            --cream: #fff6e0;
+            --sand: #ffe3a6;
+            --gold: #ffd35a;
+            --orange: #ff9a3a;
+            --dim: #b9a58a;
+            --gap: 28px;
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; overflow-x: hidden; }
+        body {
+            min-height: 100vh;
+            min-height: 100dvh;
+            background: var(--ink);
+            color: var(--cream);
+            font-family: 'Press Start 2P', monospace;
+            display: flex;
+            flex-direction: column;
+            -webkit-font-smoothing: none;
+            overflow-x: hidden;
+        }
+        img { image-rendering: pixelated; }
+
+        /* the patch's night-to-dusk sky behind everything */
+        .sky {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            background: var(--ink) url(home/art/sky.png) center bottom / cover no-repeat;
+            image-rendering: pixelated;
+        }
+        .sky::after {          /* a little darker so the signs stand out */
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(27, 19, 13, 0.35);
+        }
+
+        header {
+            text-align: center;
+            padding: 14px 16px 4px;
+        }
+        h1 {
+            margin: 0;
+            font-size: clamp(40px, 6.5vw, 72px);
+            line-height: 1.1;
+            color: var(--orange);
+            letter-spacing: 4px;
+            /* a chunky ink outline, one art pixel thick in every direction */
+            text-shadow:
+                -5px 0 var(--ink2), 5px 0 var(--ink2), 0 -5px var(--ink2), 0 5px var(--ink2),
+                -5px -5px var(--ink2), 5px -5px var(--ink2), -5px 5px var(--ink2), 5px 5px var(--ink2),
+                0 10px var(--ink2);
+        }
+        .tag {
+            margin: 10px 0 0;
+            font-size: clamp(12px, 2.4vw, 16px);
+            color: var(--sand);
+            line-height: 1.6;
+            text-shadow: 3px 3px var(--ink2);
+        }
+
+        main {
+            flex: 1;
+            width: 100%;
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 12px 16px 0;
+        }
+        .levels {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: var(--gap);
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .levels > li { display: flex; min-width: 0; }
+
+        /* a wooden sign: the game's 9-slice panel, edges and planks tiled */
+        .card {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            min-width: 0;
+            padding: 0;
+            border: 18px solid transparent;
+            border-image: url(games/pumpkin-patch/art/panel.png) 20 fill / 18px round;
+            image-rendering: pixelated;
+            color: inherit;
+            text-decoration: none;
+            outline: none;
+            cursor: pointer;
+            transition: transform 0.08s steps(2);
+            -webkit-tap-highlight-color: transparent;
+        }
+        .card:hover, .card:focus-visible, .card.on { transform: translateY(-6px); }
+        .card:focus-visible { outline: 4px solid var(--gold); outline-offset: 4px; }
+        .card:active { transform: translateY(0); }
+        .thumb {
+            display: block;
+            width: 100%;
+            aspect-ratio: 480 / 300;
+            object-fit: cover;
+            border: 4px solid var(--ink2);
+            background: var(--ink2);
+        }
+        .name {
+            margin: 12px 2px 0;
+            font-size: clamp(14px, 1.5vw, 18px);
+            line-height: 1.35;
+            color: var(--orange);
+            text-shadow: 3px 3px var(--ink2);
+        }
+        .blurb {
+            margin: 8px 2px 0;
+            font-size: 12px;
+            line-height: 1.7;
+            color: var(--cream);
+            text-shadow: 2px 2px var(--ink2);
+        }
+        .stats {
+            margin: auto 2px 0;
+            padding-top: 8px;
+            font-size: 12px;
+            line-height: 1.8;
+            color: var(--gold);
+            text-shadow: 2px 2px var(--ink2);
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0 12px;
+        }
+        .stats .none { color: var(--dim); }
+        .stats img { width: 18px; height: 18px; vertical-align: -3px; image-rendering: auto; }
+        .play {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 8px 2px 0;
+            font-size: 16px;
+            color: var(--gold);
+            text-shadow: 3px 3px var(--ink2);
+        }
+        /* the game's pointing hand shows which card is picked */
+        .hand {
+            width: 33px;
+            height: 45px;
+            visibility: hidden;
+            margin: -10px 0 -6px;
+        }
+        .card:hover .hand, .card:focus-visible .hand, .card.on .hand {
+            visibility: visible;
+            animation: poke 0.7s steps(2) infinite;
+        }
+        @keyframes poke { 50% { transform: translateY(-6px); } }
+
+        .card.locked { cursor: default; }
+        .card.locked .play { margin-top: auto; padding-top: 12px; }
+        .card.locked .name { color: var(--dim); }
+        .card.locked .play { color: var(--dim); }
+        .card.locked.shake { animation: shake 0.3s steps(3); }
+        @keyframes shake { 33% { transform: translateX(-6px); } 66% { transform: translateX(6px); } }
+
+        /* Ansel runs along the patch's dirt path at the bottom */
+        footer {
+            position: relative;
+            height: 96px;
+            pointer-events: none;
+        }
+        .path {
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            height: 72px;
+            background: url(home/art/path.png) 0 0 / auto 72px repeat-x;
+            image-rendering: pixelated;
+        }
+        .runner {
+            position: absolute;
+            left: 0;
+            bottom: 28px;
+            width: 63px;
+            height: 93px;
+            background: url(home/art/ansel_run.png) 0 0 / 378px 93px no-repeat;
+            animation: legs 0.6s steps(6) infinite, across 14s linear -4s infinite;
+        }
+        @keyframes legs { to { background-position: -378px 0; } }
+        @keyframes across {
+            0% { transform: translateX(-80px); }
+            100% { transform: translateX(calc(100vw + 20px)); }
+        }
+
+        /* tablets: two across */
+        @media (max-width: 1100px) {
+            .levels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        /* phones: the two games full width, the coming-soon signs side by side and small */
+        @media (max-width: 640px) {
+            :root { --gap: 18px; }
+            header { padding-top: 28px; }
+            .levels > li.game { grid-column: span 2; }
+            .locked .blurb { display: none; }
+            .locked .name { font-size: 12px; }
+            .locked .play { font-size: 12px; }
+            .card { border-width: 16px; border-image-width: 16px; }
+            h1 { font-size: 44px; }
+            footer { height: 124px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .runner { animation: none; left: 24px; }
+            .card, .card:hover, .card:focus-visible, .card.on { transition: none; transform: none; }
+            .card .hand { animation: none !important; }
+        }
+    </style>
 </head>
 <body>
-    <div id="game-container">
-        <canvas id="gameCanvas" width="400" height="700"></canvas>
-        
-        <!-- UI Overlay -->
-        <div id="ui-layer">
-            <div id="top-bar">
-                <div class="meter-container">
-                    <div class="meter-label">Diaper</div>
-                    <div class="meter-bg"><div id="diaper-fill"></div></div>
-                </div>
-                <div class="meter-container" style="margin-top: 5px;">
-                    <div class="meter-label" style="color: #FF6B9D">Happy</div>
-                    <div class="meter-bg"><div id="happy-fill"></div></div>
-                </div>
-                <div id="score-display">
-                    Score: <span id="score-value">0</span>
-                    <div class="ballball-count">🏀 x <span id="ballball-value">0</span></div>
-                </div>
-            </div>
+    <div class="sky" aria-hidden="true"></div>
+    <header>
+        <h1>UPPAH!</h1>
+        <p class="tag">LITTLE GAMES STARRING ANSEL</p>
+    </header>
 
-            <!-- Speech Bubble Base (dynamically styled via JS) -->
-            <div id="speech-bubble" class="hidden">uppah!</div>
-            <div id="gigi-warning" class="hidden">GIGI CLOSE!</div>
-        </div>
+    <main>
+        <ul class="levels" aria-label="Pick a game">
+            <li class="game">
+                <a class="card" href="games/pumpkin-patch/" data-game="pumpkin">
+                    <img class="thumb" src="home/art/card_pumpkin.png" alt="Ansel beside a tower of pumpkins on a hay bale">
+                    <span class="name">ANSEL'S PUMPKIN PATCH</span>
+                    <span class="blurb">STACK PUMPKINS AS TALL AS YOU DARE, AND BOOM BEFORE SUNSET.</span>
+                    <span class="stats" id="stats-pumpkin"><span class="none">NOT PLAYED YET</span></span>
+                    <span class="play">PLAY <img class="hand" src="games/pumpkin-patch/art/hand.png" alt=""></span>
+                </a>
+            </li>
+            <li class="game">
+                <a class="card" href="dino.html" data-game="runner">
+                    <img class="thumb" src="home/art/card_runner.png" alt="Ansel running through the zoo past Hoppah and a ballball">
+                    <span class="name">ZOO DASH</span>
+                    <span class="blurb">GIGI'S RIGHT BEHIND YOU. JUMP, DUCK, GRAB BALLBALLS.</span>
+                    <span class="stats" id="stats-runner"><span class="none">NOT PLAYED YET</span></span>
+                    <span class="play">PLAY <img class="hand" src="games/pumpkin-patch/art/hand.png" alt=""></span>
+                </a>
+            </li>
+            <li>
+                <div class="card locked" tabindex="-1" role="link" aria-disabled="true" data-game="lumber">
+                    <img class="thumb" src="home/art/card_lumber.png" alt="Locked: a lumber pile">
+                    <span class="name">LUMBER YARD</span>
+                    <span class="blurb">BUILD SOMETHING BIG, ONE BOARD AT A TIME.</span>
+                    <span class="play">COMING SOON <img class="hand" src="games/pumpkin-patch/art/hand.png" alt=""></span>
+                </div>
+            </li>
+            <li>
+                <div class="card locked" tabindex="-1" role="link" aria-disabled="true" data-game="leaves">
+                    <img class="thumb" src="home/art/card_leaves.png" alt="Locked: leaf piles under autumn trees">
+                    <span class="name">LEAF PILES</span>
+                    <span class="blurb">RAKE THEM UP. JUMP RIGHT IN.</span>
+                    <span class="play">COMING SOON <img class="hand" src="games/pumpkin-patch/art/hand.png" alt=""></span>
+                </div>
+            </li>
+        </ul>
+    </main>
 
-        <!-- Touch Zones -->
-        <div id="controls-layer">
-            <div id="zone-left">
-                <div class="zone-text">⬇️ DUCK<br><small>HOLD</small></div>
-            </div>
-            <div id="zone-right">
-                <div class="zone-text">⬆️ JUMP<br><small>TAP</small></div>
-            </div>
-        </div>
-        
-        <div id="start-screen">
-            <h1>UPPAH!</h1>
-            <p>Tap to Play</p>
-        </div>
-    </div>
-    <script src="src/core/main.js"></script>
+    <footer aria-hidden="true">
+        <div class="path"></div>
+        <div class="runner"></div>
+    </footer>
+
+    <script>
+    (() => {
+        'use strict';
+        const read = key => { try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; } };
+        const num = n => Number(n).toLocaleString('en-US');
+        const stat = (el, html) => { if (html) el.innerHTML = html; };
+
+        // ── best scores, from each game's own localStorage ──
+        const pp = read('uppah.pumpkinpatch.best') || {};
+        const found = read('uppah.pumpkinpatch.surprises') || [];
+        const ppStats = document.getElementById('stats-pumpkin');
+        const ppParts = [];
+        if (pp.score) ppParts.push('<span>BEST ' + num(pp.score) + '</span>');
+        if (pp.count) ppParts.push('<span>TALLEST ' + num(pp.count) + '</span>');
+        stat(ppStats, ppParts.join('<span>·</span>'));
+        if (found.length) {
+            fetch('games/pumpkin-patch/art/surprises.json').then(r => r.json()).then(j => {
+                const n = (j.stickers || []).length;
+                const s = document.createElement('span');
+                s.textContent = 'SURPRISES ' + found.length + (n ? '/' + n : '');
+                if (!ppParts.length) ppStats.innerHTML = '';
+                else ppStats.insertAdjacentHTML('beforeend', '<span>·</span>');
+                ppStats.appendChild(s);
+            }).catch(() => {});
+        }
+        const run = read('uppah.runner.best') || {};
+        if (run.ballballs) {
+            stat(document.getElementById('stats-runner'),
+                '<span>BEST RUN ' + num(run.ballballs) + ' <img src="assets/BallBall.png" alt="ballballs"></span>');
+        }
+
+        // ── keyboard: arrows move between signs, Enter or Space opens one ──
+        const cards = [...document.querySelectorAll('.card')];
+        const columns = () => {
+            const top = cards[0].getBoundingClientRect().top;
+            return Math.max(1, cards.filter(c => Math.abs(c.getBoundingClientRect().top - top) < 4).length);
+        };
+        const pick = i => {
+            i = Math.max(0, Math.min(cards.length - 1, i));
+            cards.forEach(c => c.classList.toggle('on', c === cards[i]));
+            cards[i].focus({ preventScroll: false });
+        };
+        const nope = card => {
+            card.classList.remove('shake');
+            void card.offsetWidth;
+            card.classList.add('shake');
+        };
+        document.addEventListener('keydown', e => {
+            const i = cards.indexOf(document.activeElement);
+            const c = columns();
+            let j = null;
+            switch (e.key) {
+                case 'ArrowRight': j = i < 0 ? 0 : i + 1; break;
+                case 'ArrowLeft': j = i < 0 ? 0 : i - 1; break;
+                case 'ArrowDown': j = i < 0 ? 0 : (i + c < cards.length ? i + c : i); break;
+                case 'ArrowUp': j = i < 0 ? 0 : (i - c >= 0 ? i - c : i); break;
+                case 'Home': j = 0; break;
+                case 'End': j = cards.length - 1; break;
+                case 'Enter': case ' ':
+                    if (i < 0) return;
+                    e.preventDefault();
+                    if (cards[i].classList.contains('locked')) nope(cards[i]);
+                    else cards[i].click();
+                    return;
+                default: return;
+            }
+            e.preventDefault();
+            pick(j);
+        });
+        cards.forEach(card => {
+            card.addEventListener('mouseenter', () => cards.forEach(c => c.classList.toggle('on', c === card)));
+            card.addEventListener('focus', () => cards.forEach(c => c.classList.toggle('on', c === card)));
+            if (card.classList.contains('locked')) card.addEventListener('click', () => nope(card));
+            else card.addEventListener('click', () => {
+                try { localStorage.setItem('uppah.home.last', card.dataset.game); } catch (e) {}
+            });
+        });
+        // keyboard players start on the game they played last (or the first one)
+        const last = (() => { try { return localStorage.getItem('uppah.home.last'); } catch (e) { return null; } })();
+        const start = Math.max(0, cards.findIndex(c => c.dataset.game === last));
+        if (window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches) pick(start);
+    })();
+    </script>
 </body>
 </html>

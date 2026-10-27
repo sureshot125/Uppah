@@ -124,11 +124,11 @@ const MORE_POOL = [
 const MORE_BATCH = 5;
 
 // ── Growing patch: pumpkins grow in two lanes of the vine rows behind the path ──
-// Plants sprout and grow to a green, unripe pumpkin on their own, then wait for water (left
-// alone, an unripe one ripens only slowly).
-// Tap a ripe one and Ansel (in his straw hat) wades in, tugs it off the vine and carries
-// it back; tap a sprout or an unripe one and he waters it, it ripens in front of him, and
-// he picks it and carries it back in the same trip.
+// A bare spot sprouts, and a sprout grows into a small pumpkin, then medium, large and (left
+// long enough) XL, each bigger stage taking longer. Tap a pumpkin of any size and Ansel (in his
+// straw hat) wades in, picks it and carries it to the bale. Tap a bare spot or a sprout and he
+// waters it: it jumps a stage at once and grows half again as fast until it's picked. Water
+// early, pick big.
 // Gigi's visit: she stands between the two vine rows (the front row hides her feet), at
 // roughly Ansel's height, and jogs rather than sprints.
 const GIGI = { y: 1962, depth: 5, scale: 0.55, speed: 250 };
@@ -141,11 +141,18 @@ const GROW_SPOTS = [
     { lane: 0, x: 1430 }, { lane: 0, x: 1660 },
     { lane: 1, x: 450 }, { lane: 1, x: 700 }, { lane: 1, x: 1290 }, { lane: 1, x: 1545 },
 ];
-// sproutDelay: seconds from a pick to a new sprout; stageTime: sprout to unripe; ripenTime:
-// unripe to ripe without water (slow, so most vine pumpkins get watered; null = only water
-// ripens one); start: each spot's stage when a round begins (0 bare, 1 sprout, 2 unripe, 3 ripe).
-const GROW = { sproutDelay: [4, 8], stageTime: [9, 14], ripenTime: [30, 50], goldenChance: 0.06,
-    start: [2, 1, 3, 2, 1, 2, 2, 1, 3, 2] };
+// sproutDelay: seconds before a bare spot sprouts; grow[i]: seconds from sprout (0), small (1),
+// medium (2) and large (3) to the next size, left alone; watered: a watered plant grows this many
+// times faster until it's picked; goldenChance: a plant growing large is now and then golden
+// instead (it stays that size); start: each spot's stage when a round begins (0 bare, 1 sprout,
+// 2 small, 3 medium, 4 large, 5 XL); moreCooldown: seconds before MORE! works again.
+const GROW = { sproutDelay: [6, 10], grow: [[10, 14], [22, 30], [40, 55], [55, 70]], watered: 1.5,
+    goldenChance: 0.08, start: [2, 1, 3, 0, 1, 2, 3, 1, 2, 0], moreCooldown: 20 };
+// The varieties a vine pumpkin can be at each stage (from PUMPKIN_SPECS, so the size, weight and
+// stacking rules all apply).
+const GROW_SIZES = [null, null, ['pumpkin_gold_s', 'pumpkin_orange_s', 'pumpkin_warty_s'],
+    ['pumpkin_orange_m', 'pumpkin_white_m', 'pumpkin_green_m'], ['pumpkin_orange_l'], ['pumpkin_deep_xl']];
+const GROW_TOP = GROW_SIZES.length - 1;
 const PILES = [
     { key: 'leafpile_b', x: 262,  hides: 'pumpkin_orange_s' },
     { key: 'leafpile_a', x: 1695, hides: 'pumpkin_orange_m' },
@@ -186,6 +193,7 @@ const RULES = {
     kickSpread: 0.6,      // ...and varies +-this share from drop to drop (moderate misses only sometimes fall)
     kickPow: 0.75,        // ...weight ratio to this power
     kickBase: 0.25,       // ...plus this much even when centred
+    heavyKick: 0.5,       // ...and a big pumpkin lands harder: x (weight / a medium's) ^ this, above medium
     tipDelay: 0.6,        // seconds a stack teeters past its tipping point before it goes (short gusts pass)
     windK: 0.03,          // wind leverage: balance shift per unit of wind per px of height
     leverCap: 220,        // px: wind leverage stops growing above this height
@@ -195,10 +203,12 @@ const RULES = {
     warn: 1.4,            // seconds of leaves and whoosh before a gust hits
     windSway: h => 7 + Math.min(h, 1000) * 0.012, // extra px the top visibly sways in a full gust
     hoverLean: 7,         // degrees the hovering pumpkin leans in a full gust
+    hoverHeft: 0.06,      // hover glide speed x (weight / a medium's) ^ this: a big one swings a bit faster
     swayHz: 0.6,          // the tower's springy sway
     swayDamp: 0.2,
     swayPx: h => 12 + Math.min(h, 1400) * 0.03, // top sway (px) at full lean
     points: { perfect: 100, good: 50, ok: 25 },
+    sizePow: 0.6,         // bigger pumpkins score more: points x (weight / a medium's) ^ this, 0.6x to 2.2x
     orderBonus: 25,       // landing on a pumpkin at least as heavy (big at the bottom, small on top)
     combos: [[10, 4], [5, 3], [3, 2]], // perfect streak -> score multiplier
     goldenMult: 3,        // golden pumpkins (it.golden) score this many times more
@@ -283,7 +293,8 @@ const Rules = {
     // rock harder. Even a centred drop jolts a light pumpkin when a heavy one lands on it.
     kick(sup, pc, d, base) {
         const ratio = clampN(pc.m / (sup ? sup.m : RULES.hayMass), 0.25, 4);
-        return RULES.impact * Math.pow(ratio, RULES.kickPow) *
+        const heavy = Math.pow(Math.max(1, pc.m / 1.34), RULES.heavyKick);
+        return RULES.impact * Math.pow(ratio, RULES.kickPow) * heavy *
             (RULES.kickBase + Math.min(1.5, Math.abs(d) / this.supportHalf(sup, base)));
     },
 
@@ -330,14 +341,17 @@ const Rules = {
     boomMult(n) { return 1 + RULES.boomPer * n; },
     boomLives(n) { for (const [h, k] of RULES.boomLives) if (n >= h) return k; return 0; },
     combo(streak) { for (const [n, x] of RULES.combos) if (streak >= n) return x; return 1; },
-    score(grade, stageIdx, streak, ordered, golden) {
-        const mult = (grade === 'perfect' ? this.combo(streak) : 1) * (golden ? RULES.goldenMult : 1);
+    // A big pumpkin scores more (but it's heavy: a slower carry and a risky top).
+    sizeMult(m) { return clampN(Math.pow((m || 1.34) / 1.34, RULES.sizePow), 0.6, 2.2); },
+    score(grade, stageIdx, streak, ordered, golden, m) {
+        const mult = (grade === 'perfect' ? this.combo(streak) : 1) * (golden ? RULES.goldenMult : 1) * this.sizeMult(m);
         return Math.round((RULES.points[grade] + (ordered ? RULES.orderBonus : 0)) * (1 + 0.25 * stageIdx) * mult);
     },
 
-    // Hovering: light pumpkins glide a little faster and get blown further than heavy ones.
+    // Hovering: how a pumpkin's weight changes its glide (RULES.hoverHeft); light ones also get
+    // blown further than heavy ones.
     hoverSpeed(stage, pc) {
-        return stage.speed * clampN(Math.pow(1.34 / pc.m, 0.1), 0.88, 1.12);
+        return stage.speed * clampN(Math.pow(pc.m / 1.34, RULES.hoverHeft), 0.85, 1.2);
     },
     hoverDrift(wind, pc) { return wind * RULES.hoverDrift * clampN(Math.sqrt(1.34 / pc.m), 0.55, 1.7); },
     fallDrift(wind, pc) { return wind * RULES.fallDrift * clampN(Math.sqrt(1.34 / pc.m), 0.55, 1.7); },
@@ -1378,29 +1392,30 @@ class PatchScene extends Phaser.Scene {
             onComplete: () => { a.jumpY = 0; } });
     }
 
-    // Is there anything left to fetch: a pumpkin on the path, or a vine pumpkin to pick or water
-    // (not counting pumpkins still hidden in leaves)?
+    // Is there a pumpkin to pick anywhere: on the path, or of any size in the vines (not counting
+    // pumpkins still hidden in leaves)? Bare spots and sprouts can always be watered, so they
+    // don't count here.
     anyLoose() {
         return this.items.some(it => it.body && it.state !== 'tower' && it.state !== 'hidden' && it.state !== 'spent') ||
-            (this.spots || []).some(sp => sp.stage >= 1 && !sp.busy);
+            (this.spots || []).some(sp => sp.stage >= 2 && !sp.busy);
     }
 
+    // MORE!: with no pumpkin to pick anywhere, a tap on empty ground (or on Ansel) makes him shout
+    // for more, and every plant in the patch grows a stage. It needs GROW.moreCooldown seconds
+    // to come back; until then the patch has to grow (or be watered) the slow way.
     more() {
         const a = this.ansel;
         if (a.busy || a.carrying || this.hovering || this.anyLoose()) return;
+        if (this.time.now < (this.moreReadyAt || 0)) { this.anselJump(); return; }
+        this.moreReadyAt = this.time.now + GROW.moreCooldown * 1000;
         a.busy = true;
         this.setPose('cheer');
         Sfx.more();
         this.say('MORE!', 1300, true);
-        // the whole patch grows a stage or two, rippling out from Ansel, but never past unripe:
-        // only water ripens a pumpkin
+        // every plant grows a stage, rippling out from Ansel
         const order = [...this.spots].sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x));
         order.forEach((sp, i) => {
-            this.time.delayedCall(250 + i * 110, () => {
-                if (sp.busy) return;
-                if (sp.stage < 2) this.growSpot(sp);
-                if (sp.stage < 2 && i % 2 === 0) this.growSpot(sp);
-            });
+            this.time.delayedCall(250 + i * 110, () => { if (!sp.busy) this.growSpot(sp); });
         });
         // and tuck a new surprise into any leaf pile that's empty
         for (const pile of this.piles) {
@@ -1543,52 +1558,58 @@ class PatchScene extends Phaser.Scene {
         this.resetPatch();
     }
 
-    // Each round starts with a mix in the vines: some ripe, some green, some sprouts.
+    // Each round starts with a mix in the vines: bare spots, sprouts, small and medium pumpkins.
     resetPatch() {
+        this.moreReadyAt = 0;
         this.spots.forEach((sp, i) => {
             if (sp.img) { this.tweens.killTweensOf(sp.img); sp.img.destroy(); }
-            Object.assign(sp, { stage: 0, t: 0, img: null, key: null, golden: false, busy: false });
+            Object.assign(sp, { stage: 0, t: Phaser.Math.FloatBetween(...GROW.sproutDelay), img: null, key: null,
+                golden: false, busy: false, watered: false });
             const start = GROW.start[i % GROW.start.length];
             for (let k = 0; k < start; k++) this.growSpot(sp, false);
         });
     }
 
+    // Seconds until a plant at its current stage grows again (faster if it has been watered).
+    growTime(sp) {
+        const range = sp.stage === 0 ? GROW.sproutDelay : GROW.grow[sp.stage - 1];
+        if (!range || sp.golden) return Infinity; // full size
+        return Phaser.Math.FloatBetween(...range) / (sp.watered ? GROW.watered : 1);
+    }
+
+    // Grow one stage: bare -> sprout -> small -> medium -> large (now and then golden) -> XL.
+    // It reads calmly: the new size just eases in, no bursts.
     growSpot(sp, fx = true) {
-        if (sp.stage >= 3) return;
+        if (sp.stage >= GROW_TOP || sp.golden) return;
         sp.stage += 1;
         const lane = LANES[sp.lane];
         let key, scale = lane.scale;
         if (sp.stage === 1) { key = 'sprout'; scale *= 1.4; }
-        else if (sp.stage === 2) key = 'pumpkin_unripe';
         else {
-            sp.golden = Math.random() < GROW.goldenChance;
-            sp.key = sp.golden ? 'pumpkin_golden' : Phaser.Utils.Array.GetRandom(MORE_POOL);
+            if (sp.stage === 4 && Math.random() < GROW.goldenChance) sp.golden = true;
+            sp.key = sp.golden ? 'pumpkin_golden' : Phaser.Utils.Array.GetRandom(GROW_SIZES[sp.stage]);
             key = sp.key;
         }
         if (!sp.img) sp.img = this.add.image(sp.x, lane.y + 6, key).setOrigin(0.5, 1).setDepth(lane.depth);
         sp.img.setTexture(key).setScale(scale).setAngle(0);
-        // an unripe pumpkin waits for water (or, if GROW.ripenTime is set, ripens slowly by itself)
-        sp.t = sp.stage === 2 ? (GROW.ripenTime ? Phaser.Math.FloatBetween(...GROW.ripenTime) : Infinity)
-            : Phaser.Math.FloatBetween(...GROW.stageTime);
+        sp.t = this.growTime(sp);
         if (fx) {
-            sp.img.setScale(scale * 0.5);
-            this.tweens.add({ targets: sp.img, scale, duration: 260, ease: 'Back.Out' });
-            this.sparkles.explode(sp.stage === 3 ? 5 : 2, sp.x, lane.y - 20);
-            if (sp.stage === 3) Sfx.pop();
-            if (sp.golden) this.sparkles.explode(12, sp.x, lane.y - 40);
+            this.tweens.killTweensOf(sp.img);
+            sp.img.setScale(scale * (sp.stage === 1 ? 0.5 : 0.85));
+            this.tweens.add({ targets: sp.img, scale, duration: 450, ease: 'Sine.Out' });
         }
     }
 
     updatePatch(dt) {
         if (!this.started) return;
         for (const sp of this.spots) {
-            if (sp.busy || sp.stage >= 3) continue;
+            if (sp.busy) continue;
             sp.t -= dt;
             if (sp.t <= 0) this.growSpot(sp);
         }
         // a golden pumpkin glints now and then so it gets noticed
         for (const sp of this.spots) {
-            if (sp.golden && sp.stage >= 3 && sp.img && Math.random() < dt * 1.5) {
+            if (sp.golden && sp.img && Math.random() < dt * 1.5) {
                 this.sparkles.explode(1, sp.x + Phaser.Math.Between(-35, 35), sp.img.y - sp.img.displayHeight * 0.6);
             }
         }
@@ -1606,21 +1627,24 @@ class PatchScene extends Phaser.Scene {
         return best ? { spot: best, d: bd } : null;
     }
 
+    // The one entry point for a tap on a vine spot: a pumpkin of any size gets picked and carried
+    // to the bale; a bare spot or a sprout gets watered (and Ansel stays at the field's edge).
     harvest(sp) {
         const a = this.ansel;
-        if (a.busy || a.carrying || sp.busy || !sp.img) return;
+        if (a.busy || a.carrying || sp.busy) return;
         const lane = LANES[sp.lane];
         const side = a.x <= sp.x ? -1 : 1;
         let standX = sp.x + side * 78 * lane.scale;
         if (standX < PLAY_L + 40 || standX > PLAY_R - 40) standX = sp.x - side * 78 * lane.scale;
         this.walkTo(standX, () => {
             // claim the spot only on arrival, so a change of mind on the way leaves it free
-            if (sp.busy || !sp.img || a.busy || a.carrying) return;
+            if (sp.busy || a.busy || a.carrying) return;
+            const pick = sp.stage >= 2 && sp.img;
             sp.busy = true;
             a.busy = true;
             this.face(sp.x);
             if (!a.farming) { a.farming = true; this.sparkles.explode(6, a.x, GROUND - HEAD_TOP - 10); }
-            this.enterLane(lane, () => (sp.stage >= 3 ? this.pickFromVine(sp, lane) : this.waterSpot(sp, lane)));
+            this.enterLane(lane, () => (pick ? this.pickFromVine(sp, lane) : this.waterSpot(sp, lane)));
         });
     }
 
@@ -1673,7 +1697,7 @@ class PatchScene extends Phaser.Scene {
             it.img.setScale(ds).setDepth(a.img.depth + 0.1);
             this.tweens.killTweensOf(img);
             img.destroy();
-            sp.img = null; sp.stage = 0; sp.key = null; sp.golden = false; sp.busy = false;
+            sp.img = null; sp.stage = 0; sp.key = null; sp.golden = false; sp.busy = false; sp.watered = false;
             sp.t = Phaser.Math.FloatBetween(...GROW.sproutDelay);
             const carryFrame = this.heavyHold(it) ? 'heavy_1' : 'carry_1';
             const done = () => {
@@ -1706,21 +1730,20 @@ class PatchScene extends Phaser.Scene {
         });
     }
 
-    // The 12-frame watering animation (the can and the drops are in the frames). The plant
-    // grows on the pour, all the way to a ripe pumpkin, and he picks it and carries it back
-    // in the same trip.
+    // The 12-frame watering animation (the can and the drops are in the frames). On the pour the
+    // plant jumps a stage (a bare spot sprouts, a sprout becomes a small pumpkin) and from then on
+    // grows twice as fast. He doesn't pick anything: he steps back out to the field's edge,
+    // ready for the next tap.
     waterSpot(sp, lane) {
         const a = this.ansel;
         const step = 85;
         for (let i = 0; i < 12; i++) this.time.delayedCall(i * step, () => this.setPose('water_' + (i + 1)));
         this.time.delayedCall(3 * step, () => Sfx.water());
         this.time.delayedCall(6 * step, () => {
-            while (sp.stage < 2) this.growSpot(sp, false);
+            sp.watered = true;
             this.growSpot(sp);
-            this.say(sp.stage >= 3 ? (sp.golden ? 'GOLDEN!' : 'PUMPKIN!') : 'GROW!', 900);
         });
         this.time.delayedCall(12 * step, () => {
-            if (sp.stage >= 3 && sp.img) { this.pickFromVine(sp, lane); return; }
             sp.busy = false;
             this.setPose('run');
             this.leaveLane(false, () => { a.busy = false; });
@@ -2119,7 +2142,7 @@ class PatchScene extends Phaser.Scene {
         // perfect streaks, x3 for golden, plus a bonus for landing on something at least as heavy
         // (big at the bottom, small on top)
         const pts = Rules.score(grade, Rules.stageAt(n - 1), this.streak,
-            Rules.ordered(sup ? pieceOf(sup) : null, pieceOf(it)), it.golden);
+            Rules.ordered(sup ? pieceOf(sup) : null, pieceOf(it)), it.golden, pieceOf(it).m);
         // one popup over the pumpkin: its points
         const num = this.add.text(it.rx, it.topY - 20, '+' + pts, {
             fontFamily: FONT, fontSize: '40px', color: '#ffd35a',
@@ -2866,7 +2889,7 @@ class PatchScene extends Phaser.Scene {
             }
             if (best) target = { x: best.body.position.x, y: best.body.position.y };
             else {
-                const ripe = this.spots.filter(sp => sp.stage >= 3 && !sp.busy && sp.img)
+                const ripe = this.spots.filter(sp => sp.stage >= 2 && !sp.busy && sp.img)
                     .sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x))[0];
                 if (ripe) target = { x: ripe.x, y: ripe.img.y - ripe.img.displayHeight * 0.4 };
             }

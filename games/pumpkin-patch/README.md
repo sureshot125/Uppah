@@ -6,9 +6,10 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
 
 - **Tap a pumpkin.** Ansel picks it up, carries it on his head and lifts it over the stack ("uppah!").
 - **Where pumpkins come from.** A round starts with 5 pumpkins on the path and a couple hidden in the leaf piles. After that they come from the vine rows behind the path.
-  - Plants sprout and grow to a green, unripe pumpkin on their own, then wait for water. Left alone, an unripe one only ripens slowly (30–50 s).
-  - Tap a ripe one and Ansel puts on his straw hat, wades in, tugs it off the vine and carries it back.
-  - Tap a sprout or an unripe one and he waters it. It ripens in front of him, and he picks it and carries it back in the same trip.
+  - Vine pumpkins keep growing while they're left: sprout, then a small pumpkin (gold, orange or warty), medium (orange, white or green), large (orange), and finally XL (the deep orange giant). Now and then one grows golden instead of large. Each bigger size takes longer.
+  - Tap a pumpkin of any size and Ansel puts on his straw hat, wades in, picks it and carries it to the bale.
+  - Tap a bare spot or a sprout and he waters it. It jumps a size at once and grows half again as fast until it's picked. He doesn't pick anything on a watering trip; he steps back to the field's edge, ready for your next tap.
+  - **Water early, pick big:** a big pumpkin scores more (points × its weight relative to a medium's, from about 0.6× to 2×) and is a wide, steady base. But it's heavy: a slower carry, it swings a little faster when tossed up, it lands harder, and it's risky on top of a smaller one.
   - BOOMed pumpkins are banked and spent: they fly off, settle and fade away.
   - Pumpkins that fall off a bad drop stay on the path to be picked up again.
 - **Tap again** to drop it. A plain ring on the stack shows where it will land (wind drift included). It doesn't tell you whether it will stay: that's for you to judge from weight, order and lean.
@@ -24,7 +25,7 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
 
   Each one flies into the life row as a little pumpkin, with a chime.
 - **Rounds.** The afternoon lasts 3 minutes and the sky turns gold, then dusky. At sunset, or when the lives run out, Ansel BOOMs whatever is still standing and the round ends. The end card shows that last BOOM, your score, your best, and a picture of the round's tallest tower beside Ansel. Tap to play again.
-- Leaf piles hide surprise pumpkins. **Tap anywhere for MORE!** if there's nothing left to pick or water: the patch sprouts and grows (never past unripe; only water or time ripens a pumpkin) and the leaf piles fill again. Ansel, the trees, Hoppah the bunny and lots of the scenery react when tapped.
+- Leaf piles hide surprise pumpkins. **MORE!** If there's no pumpkin to pick anywhere (path or vines), tap empty ground or Ansel and he shouts MORE!: every plant in the patch grows a size and the leaf piles fill again. It needs 20 seconds before it works again; until then, water. Ansel, the trees, Hoppah the bunny and lots of the scenery react when tapped.
 
 Keyboard: arrows or A/D to walk; Down or S to pick up, harvest the nearest vine pumpkin, or dive into a leaf pile; Up, W or Space to lift, drop, ask for more or play again; hold B to BOOM (a single press does nothing, so a stray key can't bank the tower); P or Esc to pause; M to mute (remembered).
 
@@ -61,26 +62,37 @@ The pause button sits beside the sound button, and the game pauses itself when t
   - `RULES`: lives and how to earn them, first-round help, the perfect-drop snap, flat-top widths, wobble, wind, sway, BOOM, points, the 3-minute day.
   - `HEFT`: how heavy each variety is.
   - `STAGES`: CALM, BREEZY, WINDY, GUSTY, STORMY and WILD WIND, by tower height, each with sway width and speed, perfect zone and gust strength.
-- The patch: `LAYOUT` (path pumpkins at the start), `GROW` (sprout and unripe times, how slowly an unripe pumpkin ripens by itself, the golden chance, each spot's starting stage) and `GROW_SPOTS`.
+- The patch: `LAYOUT` (path pumpkins at the start), `GROW` (how long each size takes, how much faster a watered plant grows, the golden chance, each spot's starting stage, the MORE! cooldown), `GROW_SIZES` (the varieties at each size) and `GROW_SPOTS`. `RULES.sizePow` sets how much size is worth, `RULES.heavyKick` how hard a big one lands, `RULES.hoverHeft` how weight changes its swing.
+- `PatchScene.harvest(sp)` is the one entry point for a tap on a vine spot: it picks a pumpkin, or waters a bare spot or a sprout.
 - Per-tower state lives in a `Stack` object (one per hay bale), so more bales are a small change.
 - Items may carry `it.golden` (scores ×3) and `it.heft` (overrides the variety's weight).
 - `PatchScene.earnLife(n, x, y)` awards lives from anywhere, with the fly-in.
 - `PatchScene.say()` filters what Ansel says: lines in `SAY_LINES`, or calls that pass `important`.
 - One-time help is remembered per device in `localStorage` (`uppah.pumpkinpatch.played`, `.hinted`).
 
-Measured with `sim.js` (2000 rounds each, 3-minute day, a returning player with no first-round help), pumpkins stacked per round (p10 / median / p90). Each pumpkin costs a real trip with the game's timings: walking, wading into and out of a vine row, 12 frames of watering at 85 ms, the pick, and the slower heavy carry. Path trips average about 3 s; vine trips with watering about 5–6 s. Timing players aim the landing ring at the centre with the given timing error. They tap anything in sight at random.
+Measured with `sim.js` (1000 rounds each, 3-minute day, a returning player with no first-round help), pumpkins stacked per round (p10 / median / p90). Each action costs a real trip with the game's timings: walking, wading into and out of a vine row, the pick and the slower heavy carry, or 12 frames of watering at 85 ms. Timing players aim the landing ring at the centre with the given timing error. Two styles:
+- **grabbers** take the nearest pumpkin of any size;
+- **planners** water bare spots and sprouts early and pick large ones (large, golden or XL), or else the biggest around.
 
-| Player | Never BOOM | Reach sunset |
+| Player | Grabber, never BOOM | Planner, never BOOM |
 |---|---|---|
-| Random tapper | 3 / 7 / 11 | 0% |
-| Casual (150 ms) | 4 / 8 / 14 | 0% |
-| Good (70 ms) | 10 / 17 / 27 | 8% (92% if they BOOM at 8) |
-| Expert (45 ms) | 15 / 24 / 31 | 25% (85% if they BOOM at 14) |
-| Near-perfect (25 ms) | 23 / 31 / 33 | 62% |
+| Random tapper | 2 / 5 / 9 | |
+| Casual (150 ms) | 2 / 6 / 12 | 5 / 11 / 18 |
+| Good (70 ms) | 9 / 17 / 28 | 12 / 20 / 23 |
+| Expert (45 ms) | 15 / 25 / 34 | 18 / 22 / 24 |
+| Near-perfect (25 ms) | 23 / 33 / 43 | |
 
-- **Watering:** about half of all stacked pumpkins were watered first (46–50%). After the first minute, 62–84% of trips go to the vines. A player who always fetches whatever is nearest Ansel waters 75–90%. MORE! is almost never needed, since there's nearly always something to pick or water.
-- **BOOM:** pressing BOOM at 8–14 banks a median of about 18,500 for a good player; an expert pushing to 14–18 banks about 31,000–33,000. Never pressing BOOM (only the automatic one at the end) scores a median of about 5,500 (good) and 14,300 (expert), so cashing in during the round still pays.
-- **Wind:** present but not dominant. Players stack 8 vs 8 with gusts on and off (casual), 17 vs 18 (good) and 24 vs 27 (expert). Gusts topple a tower 0.08 (casual) to 0.39 (expert) times per round, always one that was already leaning.
+- **Pumpkin weight:** planners stack fewer pumpkins in a day, because big ones are slow trips (about 4.4 s per pick against 3 s), but heavier ones (average weight about 2.3 against 1.0–1.4 for grabbers; about 73% large or bigger).
+- **Score:**
+  - Pressing BOOM at 8–14, a good planner banks about 15–24% more than a good grabber, and an expert planner about 1–5% more.
+  - Each style's best strategy: planners come out about +2–6% (good), +20–26% (expert) and about +40% (casual). Big pumpkins' wide tops cut casual players' roll-offs, and an expert can grow one steady tower of big pumpkins all afternoon and let the end-of-round BOOM bank it.
+  - Never pressing BOOM, a grabber's tower usually falls before sunset while a planner's stands: about 8,000 against 20,000 (good).
+- **Watering:**
+  - Planners water 12–19 times a round, each trip about 2.8 s.
+  - Players who tap anything at random water about 2–7 times a round.
+  - Grabbers never need to, since there's nearly always some pumpkin to grab.
+  - MORE! was never needed in the sim; it's there for a patch picked bare.
+- **Wind:** present but not dominant. Players stack 6 vs 6 with gusts on and off (casual grabbers), 17 vs 19 (good) and 25 vs 30 (expert).
 
 The game picks its resolution from the screen's shape (720 on the short side) and re-fits when a phone rotates, so it fills both landscape and portrait screens.
 

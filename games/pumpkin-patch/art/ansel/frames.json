@@ -1,498 +1,538 @@
 {
- "footX": 129,
- "footY": 285,
+ "footX": 128,
+ "footY": 288,
  "frames": {
   "everyday/carry_1": {
    "front": true,
    "hands": [
     [
-     -31.5,
-     226.5
+     -38.0,
+     224.0
     ],
     [
-     43.5,
-     220.5
+     42.0,
+     224.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
     "h": 60,
     "w": 84,
-    "x": 3.0,
-    "y": 216.0
+    "x": 2.0,
+    "y": 212.0
    },
-   "top": 237
+   "top": 244
   },
   "everyday/carry_2": {
    "front": true,
    "hands": [
     [
-     -13.5,
-     226.5
+     -38.0,
+     224.0
     ],
     [
-     49.5,
-     220.5
+     46.0,
+     224.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
-    "h": 60,
-    "w": 84,
-    "x": 3.0,
-    "y": 216.0
+    "h": 64,
+    "w": 88,
+    "x": 4.0,
+    "y": 212.0
    },
-   "top": 237
+   "top": 244
   },
   "everyday/carry_3": {
    "front": true,
    "hands": [
     [
-     -25.5,
-     226.5
+     -38.0,
+     224.0
     ],
     [
-     40.5,
-     220.5
+     42.0,
+     224.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
-    "h": 60,
+    "h": 64,
     "w": 84,
-    "x": 3.0,
-    "y": 216.0
+    "x": 2.0,
+    "y": 212.0
    },
-   "top": 237
+   "top": 244
   },
   "everyday/carry_4": {
    "front": true,
    "hands": [
     [
-     -28.5,
-     226.5
+     -34.0,
+     228.0
     ],
     [
-     46.5,
-     220.5
+     46.0,
+     228.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
-    "h": 63,
+    "h": 60,
     "w": 84,
-    "x": 3.0,
-    "y": 213.0
+    "x": 6.0,
+    "y": 216.0
    },
-   "top": 237
+   "top": 244
   },
   "everyday/carry_6": {
    "front": true,
    "hands": [
     [
-     -34.5,
-     226.5
+     -38.0,
+     228.0
     ],
     [
-     46.5,
-     220.5
+     42.0,
+     228.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
     "h": 60,
-    "w": 87,
-    "x": 1.5,
+    "w": 84,
+    "x": 2.0,
     "y": 216.0
    },
-   "top": 237
+   "top": 248
   },
   "everyday/dizzy": {
-   "top": 276
+   "top": 268
   },
   "everyday/heave": {
    "front": true,
    "hands": [
     [
-     34.5,
-     148.5
+     26.0,
+     148.0
     ],
     [
-     31.5,
-     130.5
+     22.0,
+     136.0
     ]
    ],
    "hold": {
     "anchor": "center",
-    "h": 54,
-    "w": 63,
-    "x": 49.5,
-    "y": 144.0
+    "h": 52,
+    "w": 64,
+    "x": 48.0,
+    "y": 142.0
    },
-   "top": 252
+   "top": 244
   },
   "everyday/heavy_1": {
    "front": true,
    "hands": [
     [
-     40.5,
-     139.5
+     30.0,
+     88.0
     ],
     [
-     49.5,
-     82.5
+     14.0,
+     124.0
     ]
    ],
    "hold": {
     "anchor": "center",
-    "h": 63,
-    "w": 84,
+    "h": 60,
+    "w": 80,
     "x": 48.0,
-    "y": 106.5
+    "y": 102.0
    },
-   "top": 249
+   "top": 236
   },
   "everyday/heavy_2": {
    "front": true,
    "hands": [
     [
-     43.5,
-     139.5
+     34.0,
+     88.0
     ],
     [
-     55.5,
-     88.5
+     10.0,
+     128.0
     ]
    ],
    "hold": {
     "anchor": "center",
-    "h": 66,
-    "w": 78,
-    "x": 42.0,
-    "y": 105.0
+    "h": 64,
+    "w": 80,
+    "x": 40.0,
+    "y": 104.0
    },
-   "top": 252
+   "top": 240
   },
   "everyday/pick_1": {
-   "top": 258
+   "top": 248
   },
   "everyday/pick_2": {
-   "top": 231
+   "top": 228
   },
   "everyday/pick_3": {
    "front": true,
    "hands": [
     [
-     61.5,
-     73.5
+     38.0,
+     40.0
     ],
     [
-     55.5,
-     37.5
+     66.0,
+     80.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
-    "h": 54,
-    "w": 66,
-    "x": 69.0,
-    "y": 6.0
+    "h": 52,
+    "w": 64,
+    "x": 72.0,
+    "y": 8.0
    },
-   "top": 210
+   "top": 200
   },
   "everyday/toss": {
-   "top": 258
+   "top": 256
   },
   "everyday/tug_1": {
    "front": true,
    "hands": [
     [
-     73.5,
-     58.5
+     34.0,
+     40.0
     ],
     [
-     43.5,
-     40.5
+     70.0,
+     64.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
-    "h": 54,
-    "w": 66,
+    "h": 52,
+    "w": 68,
     "x": 54.0,
-    "y": 6.0
+    "y": 8.0
    },
-   "top": 228
+   "top": 216
   },
   "everyday/tug_2": {
    "front": true,
    "hands": [
     [
-     70.5,
-     82.5
+     30.0,
+     72.0
     ],
     [
-     52.5,
-     73.5
+     58.0,
+     76.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
-    "h": 54,
-    "w": 63,
-    "x": 55.5,
-    "y": 15.0
+    "h": 52,
+    "w": 64,
+    "x": 56.0,
+    "y": 16.0
    },
-   "top": 246
+   "top": 236
   },
   "everyday/walk_1": {
-   "top": 258
+   "top": 248
   },
   "everyday/walk_2": {
-   "top": 258
+   "top": 252
   },
   "everyday/walk_3": {
-   "top": 255
+   "top": 248
   },
   "everyday/walk_4": {
-   "top": 255
+   "top": 244
   },
   "everyday/walk_5": {
-   "top": 258
+   "top": 252
   },
   "everyday/walk_6": {
-   "top": 255
+   "top": 248
   },
   "farmer/carry_1": {
    "front": true,
    "hands": [
     [
-     -25.5,
-     241.5
+     -34.0,
+     232.0
     ],
     [
-     55.5,
-     235.5
-    ]
-   ],
-   "hold": {
-    "anchor": "bottom",
-    "h": 63,
-    "w": 87,
-    "x": 10.5,
-    "y": 222.0
-   },
-   "top": 273
-  },
-  "farmer/carry_2": {
-   "front": true,
-   "hands": [
-    [
-     -31.5,
-     235.5
-    ],
-    [
-     43.5,
-     232.5
-    ]
-   ],
-   "hold": {
-    "anchor": "bottom",
-    "h": 63,
-    "w": 84,
-    "x": 3.0,
-    "y": 219.0
-   },
-   "top": 246
-  },
-  "farmer/carry_3": {
-   "front": true,
-   "hands": [
-    [
-     -31.5,
-     238.5
-    ],
-    [
-     49.5,
-     235.5
+     50.0,
+     232.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
     "h": 60,
-    "w": 87,
-    "x": 1.5,
-    "y": 225.0
+    "w": 88,
+    "x": 8.0,
+    "y": 220.0
    },
-   "top": 249
+   "top": 252
+  },
+  "farmer/carry_2": {
+   "front": true,
+   "hands": [
+    [
+     -34.0,
+     232.0
+    ],
+    [
+     50.0,
+     232.0
+    ]
+   ],
+   "hold": {
+    "anchor": "bottom",
+    "h": 60,
+    "w": 88,
+    "x": 8.0,
+    "y": 220.0
+   },
+   "top": 248
+  },
+  "farmer/carry_3": {
+   "front": true,
+   "hands": [
+    [
+     -38.0,
+     232.0
+    ],
+    [
+     42.0,
+     232.0
+    ]
+   ],
+   "hold": {
+    "anchor": "bottom",
+    "h": 64,
+    "w": 84,
+    "x": 2.0,
+    "y": 220.0
+   },
+   "top": 252
   },
   "farmer/carry_6": {
    "front": true,
    "hands": [
     [
-     -34.5,
-     232.5
+     -38.0,
+     232.0
     ],
     [
-     43.5,
-     229.5
+     46.0,
+     232.0
     ]
    ],
    "hold": {
     "anchor": "bottom",
-    "h": 63,
-    "w": 87,
-    "x": 1.5,
-    "y": 222.0
+    "h": 60,
+    "w": 88,
+    "x": 4.0,
+    "y": 220.0
    },
-   "top": 243
+   "top": 248
   },
   "farmer/dizzy": {
    "top": 276
   },
   "farmer/heave": {
    "front": true,
+   "hands": [
+    [
+     18.0,
+     160.0
+    ],
+    [
+     18.0,
+     148.0
+    ]
+   ],
    "hold": {
     "anchor": "center",
-    "h": 57,
-    "w": 63,
-    "x": 49.5,
-    "y": 166.5
+    "h": 56,
+    "w": 64,
+    "x": 48.0,
+    "y": 168.0
    },
-   "top": 255
+   "top": 252
   },
   "farmer/heavy_1": {
    "front": true,
    "hands": [
     [
-     25.5,
-     145.5
+     46.0,
+     92.0
     ]
    ],
    "hold": {
     "anchor": "center",
-    "h": 63,
-    "w": 81,
-    "x": 43.5,
-    "y": 112.5
+    "h": 64,
+    "w": 80,
+    "x": 44.0,
+    "y": 112.0
    },
-   "top": 261
+   "top": 260
   },
   "farmer/heavy_2": {
    "front": true,
    "hands": [
     [
-     37.5,
-     148.5
+     50.0,
+     96.0
     ]
    ],
    "hold": {
     "anchor": "center",
     "h": 60,
-    "w": 78,
-    "x": 42.0,
-    "y": 111.0
+    "w": 80,
+    "x": 40.0,
+    "y": 110.0
    },
-   "top": 261
+   "top": 256
   },
   "farmer/pick_1": {
-   "top": 258
+   "top": 256
   },
   "farmer/pick_2": {
-   "top": 234
+   "top": 232
   },
   "farmer/pick_3": {
    "front": true,
+   "hands": [
+    [
+     46.0,
+     48.0
+    ],
+    [
+     58.0,
+     80.0
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
-    "h": 51,
-    "w": 66,
-    "x": 72.0,
-    "y": 6.0
+    "h": 52,
+    "w": 64,
+    "x": 68.0,
+    "y": 4.0
    },
-   "top": 216
+   "top": 212
   },
   "farmer/toss": {
-   "top": 258
+   "top": 248
   },
   "farmer/tug_1": {
    "front": true,
+   "hands": [
+    [
+     22.0,
+     80.0
+    ],
+    [
+     34.0,
+     116.0
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
-    "h": 51,
-    "w": 51,
-    "x": 67.5,
-    "y": 51.0
+    "h": 52,
+    "w": 52,
+    "x": 66.0,
+    "y": 48.0
    },
-   "top": 246
+   "top": 240
   },
   "farmer/tug_2": {
    "front": true,
+   "hands": [
+    [
+     42.0,
+     92.0
+    ],
+    [
+     46.0,
+     120.0
+    ]
+   ],
    "hold": {
     "anchor": "bottom",
-    "h": 54,
-    "w": 57,
-    "x": 55.5,
-    "y": 57.0
+    "h": 48,
+    "w": 60,
+    "x": 54.0,
+    "y": 60.0
    },
-   "top": 252
+   "top": 244
   },
   "farmer/walk_1": {
-   "top": 261
-  },
-  "farmer/walk_2": {
-   "top": 258
-  },
-  "farmer/walk_3": {
-   "top": 261
-  },
-  "farmer/walk_4": {
-   "top": 261
-  },
-  "farmer/walk_5": {
    "top": 264
   },
+  "farmer/walk_2": {
+   "top": 260
+  },
+  "farmer/walk_3": {
+   "top": 264
+  },
+  "farmer/walk_4": {
+   "top": 260
+  },
+  "farmer/walk_5": {
+   "top": 260
+  },
   "farmer/walk_6": {
-   "top": 261
+   "top": 260
   },
   "farmer/water_1": {
-   "top": 258
+   "top": 260
   },
   "farmer/water_10": {
-   "top": 261
+   "top": 260
   },
   "farmer/water_11": {
-   "top": 261
+   "top": 260
   },
   "farmer/water_12": {
-   "top": 261
+   "top": 260
   },
   "farmer/water_2": {
-   "top": 258
+   "top": 260
   },
   "farmer/water_3": {
-   "top": 255
+   "top": 252
   },
   "farmer/water_4": {
-   "top": 255
+   "top": 252
   },
   "farmer/water_5": {
-   "top": 255
+   "top": 252
   },
   "farmer/water_6": {
-   "top": 255
+   "top": 252
   },
   "farmer/water_7": {
-   "top": 261
+   "top": 260
   },
   "farmer/water_8": {
-   "top": 258
+   "top": 260
   },
   "farmer/water_9": {
-   "top": 258
+   "top": 256
   }
  },
- "h": 288,
- "scale": 3,
- "w": 258
+ "h": 296,
+ "scale": 4,
+ "w": 256
 }

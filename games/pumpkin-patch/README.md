@@ -1,6 +1,6 @@
 # Ansel's Pumpkin Patch
 
-An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them on a hay bale. A normal round has wind and a tower that can fall, and ends when 3 pumpkins drop or the sun sets. **Toddler mode** (toggle on the title screen) is the original gentle game: no wind, nothing can be lost, no game over.
+An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them on a hay bale. A round has wind and a tower that can fall, and ends when 3 pumpkins drop or the sun sets.
 
 ## How to play
 
@@ -9,26 +9,24 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
 - **Stack honestly.** A pumpkin lands where you drop it. If its centre is past the edge of the one below, it rolls off. A moderate miss wobbles and sometimes goes over. The whole stack tips if its weight leans past the joint below. Only the first two pumpkins of a round get help.
 - **Weight and order matter.** A big, heavy pumpkin is a wide, steady base. A heavy one dropped on a small one rocks hard and often topples. A little one on a big one is easy. Build big at the bottom and small on top. Landing on something at least as heavy scores a bonus.
 - **Wind.** Watch the windsock beside the bale and the leaves. They start streaming a second before a gust. A gust pushes the hovering pumpkin, drifts it as it falls (aim upwind), and sways the tower. A crooked tower catches more wind. Gusts get stronger as the tower grows and toward sunset.
-- **BOOM!** Once the tower is 3 tall, the red button shows how many points it will bank. Pressing it banks the tower's points × (1 + 0.2 per pumpkin) and knocks it down. If the tower falls first, the points on the fallen pumpkins are lost. Stack one more, or cash in now?
+- **BOOM!** Once the tower is 3 tall, a wooden BOOM sign on the hay bale shows how many points it will bank. Tapping the bale sends Ansel to shove it: that banks the tower's points × (1 + 0.2 per pumpkin) and knocks it down. If the tower falls first, the points on the fallen pumpkins are lost. Stack one more, or cash in now?
 - **Rounds.** Each pumpkin that falls off costs one of 3 pumpkin lives. Five perfect drops in a row win one back. The afternoon lasts 3 minutes and the sky turns gold, then dusky. At sunset, or when the lives run out, the round ends and the end card shows your score, tallest tower and best. Tap to play again.
-- Leaf piles hide surprise pumpkins. **Tap anywhere for MORE!** when the patch runs out. Ansel, the trees and Hoppah the bunny react when tapped. In toddler mode, tapping the tower knocks it down too.
+- Leaf piles hide surprise pumpkins. **Tap anywhere for MORE!** when the patch runs out. Ansel, the trees, Hoppah the bunny and lots of the scenery react when tapped.
 
-Keyboard: arrows or A/D to walk; Down or S to pick up, dive, or BOOM beside the tower; Up, W or Space to lift, drop, ask for more or play again; B to BOOM; T to toggle toddler mode on the title or end card; M to mute.
+Keyboard: arrows or A/D to walk; Down or S to pick up, dive, or BOOM beside the tower; Up, W or Space to lift, drop, ask for more or play again; B to BOOM; M to mute.
 
 ## Design rules
 
 | Rule | Where it comes from |
 |---|---|
-| Two taps per pumpkin, tap-then-tap, no dragging | Toddler touch research; Stack's one-tap drop |
+| Two taps per pumpkin, tap-then-tap, no dragging | Stack's one-tap drop; works the same with a mouse or a finger |
 | Every tap reacts instantly; busy taps are queued | Toca Boca, Sago Mini, Pok Pok |
-| Rules are shown in the world, not in UI: the ring colour, the windsock, streaming leaves, wobble, creaks, the dusk | Kids guidance; owner feedback ("calm screen") |
+| Rules are shown in the world, not in UI: the ring colour, the windsock, streaming leaves, wobble, creaks, the dusk | Owner feedback ("calm screen") |
 | Honest stacking: centre of weight over the joint or it goes; weight and size change how a drop behaves | Owner feedback; Jenga / Mount Your Friends physical stakes |
 | Push your luck: points ride on the tower until BOOM banks them | Can't Stop / "press your luck" games |
 | Wind is telegraphed (~1.4 s of leaves and whoosh) and alternates sides | Paper Toss; fairness |
-| Toddler mode: no game over, close drops snap, wide drops just roll off ("uh oh!") | Toca Boca, Pok Pok |
 | Perfect drops sparkle and climb in pitch | Stack (Ketchapp) |
-| Ansel counts each pumpkin with a rising note | Counting practice for preschoolers |
-| One finger at a time, 120 ms double-hit guard | Toddlers rest palms on the screen |
+| One finger at a time, 120 ms double-hit guard | Stops accidental double taps and stray touches on phones |
 
 ## Files
 
@@ -39,11 +37,10 @@ Keyboard: arrows or A/D to walk; Down or S to pick up, dive, or BOOM beside the 
 
 ## Tuning
 
-- Challenge mode lives in the `<rules>` block near the top of `game.js`:
+- The rules live in the `<rules>` block near the top of `game.js`:
   - `RULES`: lives, landing help, flat-top widths, wobble, wind, sway, BOOM, points, the 3-minute day.
   - `HEFT`: how heavy each variety is.
   - `STAGES`: CALM, BREEZY, WINDY, GUSTY, STORMY and WILD WIND, by tower height, each with sway width and speed, perfect zone and gust strength.
-- Toddler mode uses the original `TIMING` table.
 - Per-tower state lives in a `Stack` object (one per hay bale), so more bales are a small change.
 - Items may carry `it.golden` (scores ×3) and `it.heft` (overrides the variety's weight).
 

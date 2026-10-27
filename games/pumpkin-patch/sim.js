@@ -80,7 +80,7 @@ const PLAYERS = {
             return (R() * 2 - 1) * zone;
         },
     }),
-    // a toddler tapping whenever: the drop time has nothing to do with where the pumpkin is
+    // a random tapper: the drop time has nothing to do with where the pumpkin is
     random: () => {
         let at = null;
         return { tap: (h, R) => { if (at === null) at = 0.25 + R() * 2 * h.period; return h.t >= at; } };

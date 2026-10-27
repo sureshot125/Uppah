@@ -7,7 +7,7 @@ To maintain a strict payload limit (target: < 3MB total for the web), the game r
 ## 2. Directory Structure
 ```text
 /
-├── index.html        (Entry point, UI overlay definitions)
+├── prototype.html    (Entry point, UI overlay definitions; was index.html, which is now the Uppah home page)
 ├── css/
 │   └── main.css      (UI styling, animations, flexbox layouts)
 ├── assets/           (Images, sounds. Heavily compressed WebP/PNGs)

@@ -587,6 +587,7 @@ function resume() {
 function gameOver() {
     gameState = 'GAME_OVER';
     pauseBtn.disabled = true;
+    saveBestRun();
     document.getElementById('start-emoji').style.display = 'none';
     document.getElementById('start-title').style.display = 'none';
     document.getElementById('game-over-img').style.display = 'block';
@@ -602,6 +603,16 @@ function gameOver() {
     document.getElementById('start-hints').style.display = 'none';
     startScreen.style.display = 'flex';
     dangerVignette.classList.add('danger');
+}
+
+// Best run (most ballballs), shown on the Uppah home page.
+function saveBestRun() {
+    try {
+        const best = JSON.parse(localStorage.getItem('uppah.runner.best')) || {};
+        if (stats.ballballs > (best.ballballs || 0)) {
+            localStorage.setItem('uppah.runner.best', JSON.stringify(Object.assign({}, stats)));
+        }
+    } catch (e) {}
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

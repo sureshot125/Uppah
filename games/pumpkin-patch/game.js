@@ -56,7 +56,8 @@ const GIRAFFE_LOOK = 4; // giraffe.png: 4 walk frames, then looking out at us, t
 // ── Ansel: frames cut from the owner's sheets by make_ansel_frames.py ─────────
 // art/ansel/<outfit>/<frame>.png, all on one canvas with his feet at the same spot
 // (art/ansel/frames.json), 3 game px per art pixel. Everyday clothes (cap) until his first
-// trip into the vine rows, then the farmer outfit (straw hat, gloves, boots) for good.
+// trip into the vine rows; the farmer outfit (straw hat, gloves, boots) is worn for field work and
+// comes off again afterwards (see updateOutfit).
 const ANSEL_ART = ART + 'ansel/';
 const ANSEL_FRAMES = {
     everyday: ['walk_1', 'walk_2', 'walk_3', 'walk_4', 'walk_5', 'walk_6', 'pick_1', 'pick_2', 'pick_3',
@@ -1297,6 +1298,7 @@ class PatchScene extends Phaser.Scene {
         this.walkTo(this.standSpot(it.body ? it.body.position.x : it.img.x, 40 + it.bw * 0.35), () => {
             if (!it.body || it.state === 'tower' || a.carrying) return;
             this.face(it.body.position.x);
+            this.hatOff();
             a.busy = true;
             this.setPose('bend');
             Sfx.down();
@@ -1903,6 +1905,26 @@ class PatchScene extends Phaser.Scene {
         });
     }
 
+    // The straw hat is for field work. It goes on as Ansel heads into the vines (harvest) and
+    // comes off when he goes back to other work: picking a path pumpkin, or after a few seconds
+    // out of the field. A string of vine trips keeps it on, so it doesn't flicker.
+    updateOutfit(dt) {
+        const a = this.ansel;
+        if (!a.farming) return;
+        const working = a.busy || a.walkingLane || a.carrying || this.hovering || this.dropping;
+        a.farmT = working ? 0 : (a.farmT || 0) + dt;
+        if (a.farmT > 4) this.hatOff();
+    }
+
+    hatOff() {
+        const a = this.ansel;
+        if (!a.farming) return;
+        a.farming = false;
+        a.farmT = 0;
+        if (a.frameName) a.img.setTexture(this.anselKey(a.frameName));
+        this.dust.explode(4, a.x, GROUND - HEAD_TOP * a.depthScale);
+    }
+
     enterLane(lane, then) {
         const a = this.ansel;
         a.walkingLane = true;
@@ -2348,6 +2370,7 @@ class PatchScene extends Phaser.Scene {
 
         if (this.started) this.idleT += dt;
         this.updateHint(time);
+        this.updateOutfit(dt);
         this.eggsUpdate(dt, time); // surprises
         this.updateHoppah(dt);
         this.updateScenery(dt);
@@ -2529,6 +2552,7 @@ class PatchScene extends Phaser.Scene {
         this.resetPatch();
         this.tweens.killTweensOf(a);
         a.laneY = 0; a.depthScale = 1; a.walkingLane = false; a.jumpY = 0;
+        a.farming = false; a.farmT = 0;
         a.img.setDepth(20); a.shadow.setDepth(9);
         this.startRound();
         this.tapGuard = this.time.now + 300;

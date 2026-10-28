@@ -1587,6 +1587,45 @@ def fence_post(front):
 ROOSTER_FEET = (94, 382)
 
 
+def scenery_zones(bg):
+    """Where the painted scenery sits, so the game's tap zones line up with it (game px):
+    the barn's roof and walls and the silo (each with its trim and one art px of outline),
+    how far down the stars go, and, every 2 art px across, where the hills start and where
+    the tree line starts (the trees run down to the field behind the fence). Measured from
+    the colours actually drawn, so the zones follow the art if the scene is repainted."""
+    p = bg.load()
+    W = bg.width
+    field = 440                               # the field behind the fence starts here (art y)
+
+    def bounds(cols, y0=0, y1=field):
+        xs, ys = [], []
+        for y in range(y0, y1):
+            for x in range(W):
+                if p[x, y][:3] in cols:
+                    xs.append(x)
+                    ys.append(y)
+        return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+    rx0, ry0, rx1, ry1 = bounds(keyset("#4a3a36", "#5d4b45"))                 # roof shingles
+    wx0, wy0, wx1, _ = bounds(keyset("#6e1b17", "#9c2a22", "#bf3a2c", "#d85a44"))  # red planks
+    sx0, sy0, sx1, _ = bounds(keyset("#7a7360", "#958d78", "#b3ab95", "#cdc6b1", "#ddd7c4"))  # concrete
+    _, _, _, star_y = bounds(keyset("#fff6d8", "#a9b8ff"), 0, 300)
+    hills = keyset("#8e8fbd", "#7d7fb0", "#d2ae55", "#bf9944", "#e7c973")   # far hills, gold fields
+    hill_top, tree_top = [], []
+    for x in range(0, W, 2):
+        h = next((y for y in range(340, field) if p[x, y][:3] in hills), field)
+        t = next((y for y in range(h, field) if p[x, y][:3] not in hills), field)
+        hill_top.append(h * S)
+        tree_top.append(t * S)
+    return {
+        "barnRoof": [(rx0 - 2) * S, (ry0 - 1) * S, (rx1 + 2) * S, ry1 * S],   # + white trim, outline
+        "barnWalls": [(wx0 - 2) * S, ry1 * S, (wx1 + 2) * S, field * S],
+        "silo": [(sx0 - 1) * S, (sy0 - 1) * S, (sx1 + 1) * S, field * S],
+        "starsBottom": (star_y + 1) * S,
+        "step": 2 * S, "hills": hill_top, "trees": tree_top, "treesBottom": field * S,
+    }
+
+
 # ── sticker sheet ──
 def small_sun():
     img = Image.new("RGBA", (17, 17), (0, 0, 0, 0))
@@ -1771,6 +1810,7 @@ def surprises(bg, front):
     save(fence_post(front), "egg_post.png")
     info["posts"] = {"xs": [(x0 + 1.5) * S for x0 in FENCE_X0], "bottom": 470 * S, "top": 447 * S}
     info["rooster"] = [ROOSTER_FEET[0] * S, ROOSTER_FEET[1] * S]
+    info["scenery"] = scenery_zones(bg)
 
     icons = {
         "cow": cow_head(False), "hen": hen(0), "owl": owl(0), "rooster": rooster(0),

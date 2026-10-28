@@ -1598,7 +1598,7 @@ class PatchScene extends Phaser.Scene {
             Z.push({ ...boom, prio: 3, shape: this.signRect(true) });
         }
         Z.push({ id: 'scenery', prio: 5, run: (wx, wy) => this.tapScene(wx, wy),
-            shape: { x: 0, y: 0, w: WORLD_W, h: EGG_FLOOR } });
+            shape: { x: 0, y: 0, w: WORLD_W, h: this.eggFloor() } });
         Z.push({ id: 'walk', prio: 6, move: true, shape: ALL,
             run: wx => (this.anyLoose() ? this.walkTo(wx, null) : this.more()) });
         return Z;
@@ -1618,8 +1618,22 @@ class PatchScene extends Phaser.Scene {
     // How far into a zone a point is: 0 at its centre, 1 at its edge, more outside. A col shape
     // also runs straight down to the bottom of the world: below its centre only the sideways
     // distance counts.
+    // Shapes: { all }, a circle { cx, cy, r, col }, a rect { x, y, w, h, col }, a capsule round a
+    // segment { x1, y1, x2, y2, r } (the giraffe's neck), and a band that follows the painted
+    // scenery { band: { step, top: [y per column], bottom: [y per column] or a y } } (hills, trees).
     zoneDepth(s, wx, wy) {
         if (s.all) return 0.999;
+        if (s.x1 !== undefined) {
+            const vx = s.x2 - s.x1, vy = s.y2 - s.y1;
+            const t = Phaser.Math.Clamp(((wx - s.x1) * vx + (wy - s.y1) * vy) / (vx * vx + vy * vy || 1), 0, 1);
+            return Math.hypot(wx - (s.x1 + t * vx), wy - (s.y1 + t * vy)) / s.r;
+        }
+        if (s.band) {
+            const B = s.band, i = Phaser.Math.Clamp(Math.floor(wx / B.step), 0, B.top.length - 1);
+            const top = B.top[i], bottom = Array.isArray(B.bottom) ? B.bottom[i] : B.bottom;
+            if (!(bottom > top)) return 2;
+            return Math.abs(wy - (top + bottom) / 2) / ((bottom - top) / 2);
+        }
         if (s.r !== undefined) {
             const dx = wx - s.cx, dy = wy - s.cy;
             return (s.col && dy > 0 ? Math.abs(dx) : Math.hypot(dx, dy)) / s.r;
@@ -2015,23 +2029,28 @@ class PatchScene extends Phaser.Scene {
     }
 
     // ── Scenery: giraffe and silo ───────────────────────────────────────────
+    // The giraffe and the silo pumpkin (when the surprises aren't loaded; otherwise their tap
+    // zones in eggZones call giraffeLook() and siloTap() directly).
     tapScenery(wx, wy) {
         const r = this.raffe;
-        if (Math.abs(wx - r.x) < 95 && wy > GIRAFFE_Y - 340 && wy < GIRAFFE_Y - 20) {
-            r.mode = 'look'; r.t = 2.4; r.frame = 0;
-            r.img.setFrame(GIRAFFE_LOOK);
-            this.tweens.add({ targets: r.img, y: GIRAFFE_Y - 22, duration: 180, yoyo: true, ease: 'Quad.Out' });
-            this.sparkles.explode(8, r.x + r.dir * 70, GIRAFFE_Y - 300);
-            Sfx.hum();
-            if (!this.ansel.busy) this.say('GIRAFFE!', 1100);
-            return true;
-        }
-        if (Math.abs(wx - SILO_X) < 95 && wy > SILO_TOP_Y - 150 && wy < SILO_TOP_Y + 20) {
-            this.siloWink(true);
-            if (!this.ansel.busy) this.say('BIG PUMPKIN!', 1100);
-            return true;
-        }
+        if (Math.abs(wx - r.x) < 95 && wy > GIRAFFE_Y - 340 && wy < GIRAFFE_Y - 20) { this.giraffeLook(); return true; }
+        if (Math.abs(wx - SILO_X) < 95 && wy > SILO_TOP_Y - 150 && wy < SILO_TOP_Y + 20) { this.siloTap(); return true; }
         return false;
+    }
+
+    giraffeLook() {
+        const r = this.raffe;
+        r.mode = 'look'; r.t = 2.4; r.frame = 0;
+        r.img.setFrame(GIRAFFE_LOOK);
+        this.tweens.add({ targets: r.img, y: GIRAFFE_Y - 22, duration: 180, yoyo: true, ease: 'Quad.Out' });
+        this.sparkles.explode(8, r.x + r.dir * 70, GIRAFFE_Y - 300);
+        Sfx.hum();
+        if (!this.ansel.busy) this.say('GIRAFFE!', 1100);
+    }
+
+    siloTap() {
+        this.siloWink(true);
+        if (!this.ansel.busy) this.say('BIG PUMPKIN!', 1100);
     }
 
     siloWink(tapped) {
@@ -3812,6 +3831,10 @@ class UIScene extends Phaser.Scene {
 const ZONE_COLORS = {
     drop: 0x4fc3f7, none: 0x9e9e9e, wait: 0x9e9e9e, boom: 0xff4f4f, pick: 0xffd54f, water: 0x66d96a,
     dive: 0xff9800, hoppah: 0xf48fb1, tower: 0xb39ddb, ansel: 0x80deea, scenery: 0xce93d8, walk: 0xffffff,
+    // the surprises (PatchScene.eggZones)
+    balloon: 0x4dd0e1, crow: 0x4dd0e1, bird: 0x4dd0e1, squirrel: 0x4dd0e1, giraffe: 0xffb74d, jack: 0xff8a50,
+    sign: 0xffcc80, rooster: 0xef5350, owl: 0xce93d8, barn: 0xe57373, sun: 0xfff176, moon: 0xfff9c4,
+    cloud: 0xe0f7fa, fence: 0xd7a86e, stars: 0x9fa8da, hills: 0x9575cd, trees: 0x81c784,
 };
 const ZONE_WORDS = {
     drop: 'DROP', none: 'NOTHING', wait: 'NOTHING', boom: 'BOOM', pick: 'PICK', water: 'WATER', dive: 'DIVE',
@@ -3826,19 +3849,71 @@ const PatchZones = {
         this.events.on('postupdate', () => this.drawZones()); // after the camera has moved
     },
 
+    // Draw one zone shape; returns where its label goes (the middle of its part on screen).
+    drawShape(g, s, v) {
+        if (s.x1 !== undefined) {
+            // a capsule round a segment
+            const a = Math.atan2(s.y2 - s.y1, s.x2 - s.x1), pts = [];
+            for (let i = 0; i <= 8; i++) {
+                const t = a + Math.PI / 2 + Math.PI * i / 8;
+                pts.push({ x: s.x1 + Math.cos(t) * s.r, y: s.y1 + Math.sin(t) * s.r });
+            }
+            for (let i = 0; i <= 8; i++) {
+                const t = a - Math.PI / 2 + Math.PI * i / 8;
+                pts.push({ x: s.x2 + Math.cos(t) * s.r, y: s.y2 + Math.sin(t) * s.r });
+            }
+            g.fillPoints(pts, true).strokePoints(pts, true);
+            return { x: (s.x1 + s.x2) / 2, y: (s.y1 + s.y2) / 2, top: Math.min(s.y1, s.y2) - s.r };
+        }
+        if (s.band) {
+            // a band that follows the painted scenery, column by column
+            const B = s.band, n = B.top.length, bot = i => (Array.isArray(B.bottom) ? B.bottom[i] : B.bottom);
+            const pts = [];
+            for (let i = 0; i < n; i++) pts.push({ x: i * B.step, y: B.top[i] }, { x: (i + 1) * B.step, y: B.top[i] });
+            for (let i = n - 1; i >= 0; i--) pts.push({ x: (i + 1) * B.step, y: bot(i) }, { x: i * B.step, y: bot(i) });
+            g.fillPoints(pts, true).strokePoints(pts, true);
+            const i = Phaser.Math.Clamp(Math.floor((v.centerX + v.width * 0.3) / B.step), 0, n - 1);
+            return { x: (i + 0.5) * B.step, y: (B.top[i] + bot(i)) / 2, inside: true };
+        }
+        if (s.r !== undefined) {
+            if (s.col) {
+                // a circle that runs straight down into the dirt
+                g.beginPath().arc(s.cx, s.cy, s.r, Math.PI, 2 * Math.PI)
+                    .lineTo(s.cx + s.r, WORLD_FLOOR).lineTo(s.cx - s.r, WORLD_FLOOR).closePath().fillPath().strokePath();
+            } else {
+                g.fillCircle(s.cx, s.cy, s.r).strokeCircle(s.cx, s.cy, s.r);
+            }
+            return { x: s.cx, y: s.cy, top: s.cy - s.r };
+        }
+        const h = s.col ? WORLD_FLOOR - s.y : s.h;
+        g.fillRect(s.x, s.y, s.w, h).strokeRect(s.x, s.y, s.w, h);
+        const x0 = Math.max(s.x, v.x), x1 = Math.min(s.x + s.w, v.right);
+        const y0 = Math.max(s.y, v.y), y1 = Math.min(s.y + Math.min(h, s.col ? s.h : h), v.bottom);
+        return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, top: s.y, inside: s.w > 600 };
+    },
+
     drawZones() {
         const cam = this.cameras.main, v = cam.worldView, k = 1 / cam.zoom;
         const state = this.inputState(), zones = this.tapZones(state);
         const g = this.zoneG.clear();
         let li = 0;
-        const label = (text, x, y, color) => {
+        const label = (text, x, y, color, scale = 1) => {
             let t = this.zoneLabels[li++];
             if (!t) {
                 t = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', color: '#ffffff', stroke: INK,
                     strokeThickness: 4, align: 'center' }).setOrigin(0.5).setDepth(201);
                 this.zoneLabels.push(t);
             }
-            t.setText(text).setColor(color).setScale(k).setPosition(x, y).setVisible(true);
+            t.setText(text).setColor(color).setScale(k * scale).setPosition(x, y).setVisible(true);
+        };
+        // a label goes just above its zone, so it never hides the art (big ones are named inside)
+        const draw = (z, word, alpha, above) => {
+            const c = ZONE_COLORS[z.id] || 0xffffff;
+            g.lineStyle(3 * k, c, 0.95).fillStyle(c, alpha);
+            const at = this.drawShape(g, z.shape, v);
+            if (!word) return;
+            const y = above && !at.inside && at.top !== undefined ? Math.max(v.y + 12 * k, at.top - 9 * k) : at.y;
+            label(word, at.x, y, zoneCss(c));
         };
         // lowest priority first, so the zones that win a tap are drawn on top
         for (const z of [...zones].sort((p, q) => q.prio - p.prio)) {
@@ -3848,35 +3923,36 @@ const PatchZones = {
                 // fallback when idle, is only named in the bottom line)
                 if (z.id === 'walk') continue;
                 g.fillStyle(c, 0.2).fillRect(v.x, v.y, v.width, v.height);
-                label('ANYWHERE: ' + word, v.centerX, v.y + v.height * 0.4, zoneCss(c));
-                this.zoneLabels[li - 1].setScale(2 * k);
+                label('ANYWHERE: ' + word, v.centerX, v.y + v.height * 0.4, zoneCss(c), 2);
                 continue;
             }
-            g.lineStyle(3 * k, c, 0.95).fillStyle(c, 0.24);
-            let lx, ly;
-            if (s.r !== undefined) {
-                if (s.col) {
-                    // a circle that runs straight down into the dirt
-                    g.beginPath().arc(s.cx, s.cy, s.r, Math.PI, 2 * Math.PI)
-                        .lineTo(s.cx + s.r, WORLD_FLOOR).lineTo(s.cx - s.r, WORLD_FLOOR).closePath().fillPath().strokePath();
-                } else {
-                    g.fillCircle(s.cx, s.cy, s.r).strokeCircle(s.cx, s.cy, s.r);
+            if (z.id === 'scenery') {
+                // the scenery: its outline, then every surprise in it (eggZones), winners on top
+                g.lineStyle(2 * k, c, 0.6).strokeRect(s.x, s.y, s.w, s.h);
+                const eggs = this.eggZones().filter(e => this.zoneOnScreen(e.shape, v));
+                const mid = eggs.filter(e => e.id === 'fence')
+                    .sort((p, q) => Math.abs(p.shape.x - v.centerX) - Math.abs(q.shape.x - v.centerX))[0];
+                for (const e of eggs.sort((p, q) => q.prio - p.prio)) {
+                    const big = !!(e.shape.band || e.shape.w > 600);
+                    draw(e, e === mid ? 'FENCE' : (e.label ?? e.id.toUpperCase()), big ? 0.1 : 0.22, true);
                 }
-                lx = s.cx; ly = s.cy;
-            } else {
-                const h = s.col ? WORLD_FLOOR - s.y : s.h;
-                g.fillRect(s.x, s.y, s.w, h).strokeRect(s.x, s.y, s.w, h);
-                // label the part of it that's on screen
-                const x0 = Math.max(s.x, v.x), x1 = Math.min(s.x + s.w, v.right);
-                const y0 = Math.max(s.y, v.y), y1 = Math.min(s.y + Math.min(h, s.col ? s.h : h), v.bottom);
-                lx = (x0 + x1) / 2; ly = (y0 + y1) / 2;
+                continue;
             }
-            label(word, lx, ly, zoneCss(c));
+            draw(z, word, 0.24);
         }
         for (; li < this.zoneLabels.length; li++) this.zoneLabels[li].setVisible(false);
         const rest = zones.find(z => z.shape.all);
         this.zoneLine = state.toUpperCase() + (rest ? (rest.prio === 0 ? ': ANYWHERE ' : ': ELSEWHERE ') +
             (ZONE_WORDS[rest.id] || rest.id) : '');
+    },
+
+    // Is any of this zone shape on screen (roughly)?
+    zoneOnScreen(s, v) {
+        if (s.band || s.all) return true;
+        if (s.x1 !== undefined) return Math.max(s.x1, s.x2) + s.r > v.x && Math.min(s.x1, s.x2) - s.r < v.right &&
+            Math.max(s.y1, s.y2) + s.r > v.y && Math.min(s.y1, s.y2) - s.r < v.bottom;
+        if (s.r !== undefined) return s.cx + s.r > v.x && s.cx - s.r < v.right && s.cy + s.r > v.y && s.cy - s.r < v.bottom;
+        return s.x + s.w > v.x && s.x < v.right && s.y + s.h > v.y && s.y < v.bottom;
     },
 };
 
@@ -3972,7 +4048,7 @@ function boot() {
 // ═════════════════════════════════════════════════════════════════════════════
 const EGG_SAVE = 'uppah.pumpkinpatch.surprises';
 const EGG_AGAIN = 4000;        // ms: taps closer together than this count as "again!" (3rd one escalates)
-const EGG_FLOOR = 1830;        // world y: nothing below the fence-post tops is a surprise (play area)
+const EGG_FLOOR = 1830;        // world y: no surprise below this if surprises.json is missing (see eggFloor)
 const EGG_TWINKLE = [0, 0, 7, 7, 9, 9, 7, 5, 5, 4, 4, 2, 2, 0];    // Twinkle Twinkle, one note per tap
 const EGG_PENTA = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];         // fence-post xylophone
 const EGG_NOTE_TINT = [0xffd35a, 0xff9a3a, 0xff7a6a, 0x9ad26a, 0x7fb4f0, 0xc49af0];
@@ -4335,7 +4411,7 @@ const PatchEggs = {
     // the tower, the bale and Ansel, so gameplay keeps priority. Returns true if a surprise took
     // the tap.
     eggTap(wx, wy) {
-        if (!this.eggJ || wy > EGG_FLOOR) return false;
+        if (!this.eggJ || wy > this.eggFloor()) return false;
         if (this.pumpkinAt(wx, wy)) return false;                 // pumpkins first, even mid-air
         if (this.tower.length >= 2) {                              // so does the tower (knock it down)
             const top = this.towerTop();
@@ -4344,85 +4420,125 @@ const PatchEggs = {
         const r = this.eggReact(wx, wy);
         if (!r) return false;
         if (r.id) this.eggFound(r.id, r.x ?? wx, r.y ?? wy);
-        if (!r.handled) return false;                              // the classic reaction (tapScenery) runs
+        if (!r.handled) {                                          // the classic reaction (giraffe, silo)
+            if (!r.classic) return false;
+            r.classic();
+            return true;
+        }
         if (!this.anyLoose()) this.more();                         // "tap anywhere for MORE!" still works
         return true;
     },
 
-    // Work out what was tapped and react. Returns { id: sticker, handled } or null.
-    eggReact(wx, wy) {
-        const J = this.eggJ;
-        const near = (x, y, rx, ry) => Math.abs(wx - x) < rx && Math.abs(wy - y) < ry;
-        const dist = (x, y) => Phaser.Math.Distance.Between(wx, wy, x, y);
+    // Nothing below the bottom of the fence is a surprise (the vines and the path are for play).
+    eggFloor() {
+        return this.eggJ ? this.eggJ.posts.bottom : EGG_FLOOR;
+    },
 
-        // visitors first: they're in front of the scenery
+    // Work out what was tapped and react. Returns { id: sticker, handled } or null.
+    // The zone under the finger (eggZones) runs its reaction.
+    eggReact(wx, wy) {
+        const z = this.zonesAt(this.eggZones(), wx, wy)[0];
+        return z ? z.run(wx, wy) : null;
+    },
+
+    // Every surprise's tap zone, as data (the ?zones=1 overlay draws this same list). Each one sits
+    // on its art: a sprite's own bounds (visitors, the rooster, the jack-o'-lantern, the barn
+    // doors open or shut, the giraffe's frame), or surprises.json for what's painted into the
+    // background (sun, moon, clouds, hayloft window, barn, silo, fence posts, and the stars, hills
+    // and trees, which follow the painted skyline column by column). Small things get a little
+    // margin and are never smaller than a thumb (thumbR). Lower prio wins; within a prio, the
+    // zone the finger is deepest into wins, so neighbours split the space between them:
+    //   1 visitors (in front of everything) · 2 the giraffe · 3 things: rooster, hayloft owl,
+    //   barn doors, jack-o'-lantern, sun, moon, clouds, fence posts · 4 the barn roof (rooster),
+    //   barn walls (the animals) and silo (ANSEL'S) · 5 the starry sky, the hills, the tree line
+    eggZones() {
+        const J = this.eggJ, Z = [];
+        if (!J) return Z;
+        const T = this.thumbR(), SC = J.scenery;
+        // a rect grown by pad all round, and to at least a thumb each way, about its centre
+        const grow = (r, pad = 8) => {
+            const hw = Math.max(r.w / 2 + pad, T), hh = Math.max(r.h / 2 + pad, T);
+            return { x: r.x + r.w / 2 - hw, y: r.y + r.h / 2 - hh, w: 2 * hw, h: 2 * hh };
+        };
+        const rect = b => ({ x: b[0], y: b[1], w: b[2] - b[0], h: b[3] - b[1] });
+        // a sprite's frame where it's drawn now (getBounds() ignores a negative scale, which is
+        // how the barn doors swing open)
+        const bounds = img => {
+            const w = img.width * img.scaleX, h = img.height * img.scaleY;
+            const x0 = img.x - img.originX * w, y0 = img.y - img.originY * h;
+            return { x: Math.min(x0, x0 + w), y: Math.min(y0, y0 + h), w: Math.abs(w), h: Math.abs(h) };
+        };
+        const add = (prio, id, shape, run, label) => Z.push({ id, prio, shape, run, label });
+
+        // 1 · visitors, in front of the scenery
         const bl = this.eggBalloon;
-        if (bl.state === 'drift' && near(bl.img.x, bl.img.y, 56, 74)) { this.eggBalloonTap(); return { id: 'balloon', handled: true }; }
+        if (bl.state === 'drift') add(1, 'balloon', grow(bounds(bl.img)), () => { this.eggBalloonTap(); return { id: 'balloon', handled: true }; });
         const cr = this.eggCrow;
-        if ((cr.state === 'in' || cr.state === 'perched') && near(cr.img.x, cr.img.y - 20, 46, 36)) {
-            this.eggCrowTap(); return { id: 'crow', handled: true };
+        if (cr.state === 'in' || cr.state === 'perched') {
+            add(1, 'crow', grow(bounds(cr.img)), () => { this.eggCrowTap(); return { id: 'crow', handled: true }; });
         }
         for (const b of this.eggBirds) {
-            if ((b.state === 'in' || b.state === 'sit') && near(b.img.x, b.img.y - 14, 38, 32)) {
-                this.eggBirdTap(b); return { id: 'bird', handled: true };
+            if (b.state === 'in' || b.state === 'sit') {
+                add(1, 'bird', grow(bounds(b.img)), () => { this.eggBirdTap(b); return { id: 'bird', handled: true }; });
             }
         }
         const sq = this.eggSquirrel;
-        if (sq.visible && near(sq.x, sq.y - 30, 46, 46)) { this.eggChitter(); return { id: 'squirrel', handled: true }; }
+        if (sq.visible) add(1, 'squirrel', grow(bounds(sq)), () => { this.eggChitter(); return { id: 'squirrel', handled: true }; });
 
-        // the giraffe walks in front of the barn and trees (its own reaction lives in tapScenery)
-        if (this.eggGiraffeAt(wx, wy)) return { id: 'giraffe', handled: false };
-
-        // silo: the jack-o'-lantern on top (third tap in a row: it sneezes), ANSEL'S below
-        if (Math.abs(wx - SILO_X) < 95 && wy > SILO_TOP_Y - 150 && wy < SILO_TOP_Y + 20) {
-            return { id: 'jack', handled: this.eggJack() };
-        }
-        if (Math.abs(wx - SILO_X) < 60 && wy >= SILO_TOP_Y + 20 && wy < 1765) { this.eggSign(); return { id: 'sign', handled: true }; }
-
-        // barn: rooster on the roof, owl in the hayloft, animals behind the doors
-        const roo = this.eggRoo;
-        if (near(roo.x, roo.y - 28, 44, 38)) { this.eggRooster(); return { id: 'rooster', handled: true }; }
-        const B = J.barn;
-        if (wx > 368 && wx < 676 && wy > 1464 && wy < 1765) {
-            if (near(B.loft[0], B.loft[1] - 18, 42, 36)) { this.eggOwl(); return { id: 'owl', handled: true }; }
-            if (wy < 1572) { this.eggRooster(); return { id: 'rooster', handled: true, x: roo.x, y: roo.y - 30 }; }
-            return { id: this.eggBarn(), handled: true };
-        }
-
-        // sky
-        if (dist(J.sun[0], J.sun[1]) < 100) { this.eggSun(); return { id: 'sun', handled: true }; }
-        if (dist(J.moon[0], J.moon[1]) < 90) { this.eggMoon(); return { id: 'moon', handled: true }; }
-        for (const c of this.eggClouds) {
-            if (near(c.x, c.y, c.w / 2 + 14, c.h / 2 + 14)) { this.eggCloud(c); return { id: 'cloud', handled: true, x: c.x, y: c.y }; }
-        }
-
-        // fence posts play notes
-        const P = J.posts;
-        if (wy > P.top - 22 && wy < P.top + 40) {
-            let bi = -1, bd = 34;
-            P.xs.forEach((x, i) => { const d = Math.abs(wx - x); if (d < bd) { bd = d; bi = i; } });
-            if (bi >= 0) { this.eggPost(bi); return { id: 'fence', handled: true, x: P.xs[bi], y: P.top - 10 }; }
-        }
-
-        if (wy < 790) { this.eggStars(wx, wy); return { id: 'stars', handled: true }; }
-        if (wy > 1478 && wy < 1588) { this.eggHills(wx, wy); return { id: 'flock', handled: true }; }
-        if (wy >= 1588 && wy < 1800) { this.eggTrees(wx); return { id: null, handled: true }; }
-        // the rest of the giraffe's old tap box (tapScenery handles it)
-        const g = this.raffe;
-        if (Math.abs(wx - g.x) < 95 && wy > GIRAFFE_Y - 340 && wy < GIRAFFE_Y - 20) return { id: 'giraffe', handled: false };
-        return null;
-    },
-
-    // Is the giraffe itself (body, neck or head) under the finger?
-    eggGiraffeAt(wx, wy) {
+        // 2 · the giraffe, which walks in front of the barn and the trees: body, neck and head,
+        // measured from its frames (giraffe.png); looking out at us, its head turns to face front
         const g = this.raffe, d = g.dir, y0 = g.img.y;
-        if (Math.abs(wx - (g.x - d * 20)) < 74 && wy > y0 - 168 && wy < y0) return true;
-        const hx = g.x + d * 76, hy = y0 - 308;
-        if (Math.abs(wx - hx) < 46 && Math.abs(wy - hy) < 42) return true;
-        const sx = g.x + d * 20, sy = y0 - 150, ex = g.x + d * 68, ey = y0 - 290;
-        const L2 = (ex - sx) ** 2 + (ey - sy) ** 2;
-        const t = Phaser.Math.Clamp(((wx - sx) * (ex - sx) + (wy - sy) * (ey - sy)) / L2, 0, 1);
-        return Phaser.Math.Distance.Between(wx, wy, sx + t * (ex - sx), sy + t * (ey - sy)) < 28;
+        const look = g.img.frame && +g.img.frame.name >= GIRAFFE_LOOK;
+        const giraffe = () => ({ id: 'giraffe', handled: false, classic: () => this.giraffeLook() });
+        const span = (a, b, y1, y2) => ({ x: g.x + Math.min(d * a, d * b), y: y0 + y1, w: Math.abs(b - a), h: y2 - y1 });
+        add(2, 'giraffe', grow(span(-100, 52, -180, -8), 6), giraffe);
+        add(2, 'giraffe', grow(look ? span(28, 88, -344, -260) : span(40, 108, -336, -252), 6), giraffe, '');
+        add(2, 'giraffe', { x1: g.x + d * 20, y1: y0 - 150, x2: g.x + d * 68, y2: y0 - 290, r: Math.max(28, T) }, giraffe, '');
+
+        // 3 · things
+        const roo = this.eggRoo, B = J.barn;
+        add(3, 'rooster', grow(bounds(roo)), () => { this.eggRooster(); return { id: 'rooster', handled: true }; });
+        const [ow, oh] = J.frames.egg_owl;   // the owl fills the hayloft window, its feet on the sill
+        add(3, 'owl', grow({ x: B.loft[0] - ow / 2 - 4, y: B.loft[1] - oh - 4, w: ow + 8, h: oh + 8 }, 4),
+            () => { this.eggOwl(); return { id: 'owl', handled: true }; });
+        const dl = bounds(this.eggDoorL), dr = bounds(this.eggDoorR);   // shut, or swung open flat
+        const doors = { x: Math.min(dl.x, dr.x), y: dl.y, w: Math.max(dl.x + dl.w, dr.x + dr.w) - Math.min(dl.x, dr.x), h: dl.h };
+        add(3, 'barn', grow(doors, 6), () => ({ id: this.eggBarn(), handled: true }), 'DOORS');
+        add(3, 'jack', grow(bounds(this.silo), 4),
+            () => { const sneezed = this.eggJack(); return { id: 'jack', handled: sneezed, classic: () => this.siloTap() }; });
+        add(3, 'sun', { cx: J.sun[0], cy: J.sun[1], r: Math.max(100, T) }, () => { this.eggSun(); return { id: 'sun', handled: true }; });
+        add(3, 'moon', { cx: J.moon[0], cy: J.moon[1], r: Math.max(90, T) }, () => { this.eggMoon(); return { id: 'moon', handled: true }; });
+        for (const c of this.eggClouds) {
+            add(3, 'cloud', grow({ x: c.x - c.w / 2, y: c.y - c.h / 2, w: c.w, h: c.h }, 14),
+                () => { this.eggCloud(c); return { id: 'cloud', handled: true, x: c.x, y: c.y }; });
+        }
+        // each post from its top down to the bottom of the fence; neighbours split the rails
+        const P = J.posts;
+        P.xs.forEach((x, i) => add(3, 'fence',
+            grow({ x: x - Math.max(34, T), y: P.top - 4, w: 2 * Math.max(34, T), h: P.bottom - P.top + 4 }, 0),
+            () => { this.eggPost(i); return { id: 'fence', handled: true, x, y: P.top - 10 }; }, ''));
+
+        // 4 · the barn roof (the rooster crows), its walls (whoever lives there) and the silo
+        if (SC) {
+            const roof = grow(rect(SC.barnRoof), 0);
+            add(4, 'rooster', roof, () => { this.eggRooster(); return { id: 'rooster', handled: true, x: roo.x, y: roo.y - 30 }; }, 'ROOF');
+            add(4, 'barn', grow(rect(SC.barnWalls), 0), () => ({ id: this.eggBarn(), handled: true }));
+            // the silo below its jack-o'-lantern, with ANSEL'S on it
+            const silo = rect(SC.silo), top = Math.max(silo.y, this.silo.y - 4);
+            add(4, 'sign', grow({ x: silo.x, y: top, w: silo.w, h: silo.y + silo.h - top }, 0),
+                () => { this.eggSign(); return { id: 'sign', handled: true }; });
+        }
+
+        // 5 · the starry sky, the hills and the tree line, following the painted skyline
+        add(5, 'stars', { x: 0, y: 0, w: WORLD_W, h: SC ? SC.starsBottom : 790 },
+            (wx, wy) => { this.eggStars(wx, wy); return { id: 'stars', handled: true }; });
+        if (SC) {
+            add(5, 'hills', { band: { step: SC.step, top: SC.hills, bottom: SC.trees } },
+                (wx, wy) => { this.eggHills(wx, wy); return { id: 'flock', handled: true }; });
+            add(5, 'trees', { band: { step: SC.step, top: SC.trees, bottom: SC.treesBottom } },
+                wx => { this.eggTrees(wx); return { id: null, handled: true }; });
+        }
+        return Z;
     },
 
     // Tap counter: how many times in a row (within EGG_AGAIN) this has been tapped.
@@ -5195,9 +5311,15 @@ const PatchEggs = {
         const pi = P.xs.reduce((bi, x, i) => (Math.abs(x - cx - 180) < Math.abs(P.xs[bi] - cx - 180) ? i : bi), 0);
         add('fence', f.has('fence'), P.xs[pi], P.top - 6);
         const side = cx < SILO_X + 120 && cx > 340 ? 900 : cx;     // somewhere clear of the barn and silo
-        add('flock', f.has('flock'), side + 160, 1552);
-        add('squirrel', f.has('squirrel'), side - 140, 1650);
-        if (v.y < 700) add('stars', f.has('stars'), Phaser.Math.Clamp(cx - 200, v.x + 80, v.right - 80), Math.max(v.y + 90, 520));
+        // on the hills and in the tree line where they're painted at that spot (their tap zones)
+        const SC = J.scenery, col = x => Phaser.Math.Clamp(Math.floor(x / SC.step), 0, SC.hills.length - 1);
+        const fx = side + 160, sx = side - 140 > 360 && side - 140 < 800 ? side + 320 : side - 140; // not on the silo
+        add('flock', f.has('flock'), fx, SC ? (SC.hills[col(fx)] + SC.trees[col(fx)]) / 2 : 1552);
+        add('squirrel', f.has('squirrel'), sx, SC ? (SC.trees[col(sx)] + SC.treesBottom) / 2 : 1650);
+        const starsBottom = SC ? SC.starsBottom : 790;
+        if (v.y < starsBottom - 100) {
+            add('stars', f.has('stars'), Phaser.Math.Clamp(cx - 200, v.x + 80, v.right - 80), Math.min(Math.max(v.y + 90, 520), starsBottom - 40));
+        }
         if (this.eggCrow.state === 'perched') add('crow', f.has('crow'), this.eggCrow.img.x, this.eggCrow.img.y - 20);
         for (const b of this.eggBirds) if (b.state === 'sit') add('bird', f.has('bird'), b.img.x, b.img.y - 14);
         if (this.eggBalloon.state === 'drift') add('balloon', f.has('balloon'), this.eggBalloon.img.x, this.eggBalloon.img.y, true);

@@ -179,7 +179,9 @@ const MILESTONES = [
 // game headless (node games/pumpkin-patch/sim.js). Keep it self-contained.
 // <rules>
 const RULES = {
-    lives: 3,             // pumpkin lives at the start: each pumpkin that falls off costs one
+    lives: 3,             // pumpkin lives at the start: each pumpkin that falls off costs one (none
+                          // left: it costs just its points). The round always runs to sunset.
+    livesBonus: 0.08,     // at sunset, after the last BOOM, each life left adds this share of the score
     maxLives: 5,          // ...and you can earn up to this many:
     lifeStreak: 3,        //   +1 for every this many perfect drops in a row
     boomLives: [[14, 2], [8, 1]], // +2 / +1 for banking a tower at least this tall with BOOM
@@ -203,15 +205,6 @@ const RULES = {
     windK: 0.03,          // wind leverage: balance shift per unit of wind per px of height
     leverCap: 220,        // px: wind leverage stops growing above this height
     sail: 0.3,            // a crooked stack catches more wind: push x (1 + sail x its lean)
-    // A tall tower settles: its weight presses the lower pumpkins together, so their footing
-    // widens by up to `settle` (a share of the contact patch). It starts once the tower is
-    // settleFrom pumpkins tall and is complete settleN pumpkins later; the top settleTop
-    // pumpkins stay loose (a joint with k pumpkins on it gets k/settleTop of it). Without it
-    // a break anywhere past ~12 pumpkins ends the round, and the moon is out of reach.
-    settle: 0.5,
-    settleFrom: 18,
-    settleN: 4,
-    settleTop: 3,
     hoverDrift: 32,       // px a full gust pushes a medium hovering pumpkin (light ones further)
     fallDrift: 24,        // px a full gust pushes a medium pumpkin while it falls (aim upwind!)
     warn: 1.4,            // seconds of leaves and whoosh before a gust hits
@@ -274,12 +267,6 @@ const Rules = {
 
     supportHalf(sup, base) { return sup ? RULES.topFlat * sup.w / 2 : base.half; },
 
-    // How much wider a joint's footing is once a tower of n pumpkins has settled, for a joint
-    // with `above` pumpkins sitting on it (RULES.settle).
-    settled(n, above) {
-        return 1 + RULES.settle * clampN((n - RULES.settleFrom) / RULES.settleN, 0, 1) * clampN(above / RULES.settleTop, 0, 1);
-    },
-
     // Balance of every joint, bottom first. Joint i is piece i resting on the piece below (or
     // the hay): the weight of everything from i up has to sit over the patch where the two flat
     // faces touch. Wind pushes sideways with leverage that grows with the height and sail of
@@ -296,12 +283,11 @@ const Rules = {
             const sx = i ? P[i - 1].x : base.x, sh = this.supportHalf(i ? P[i - 1] : null, base);
             const bh = RULES.botFlat * p.w / 2;
             const lo = Math.max(p.x - bh, sx - sh), hi = Math.min(p.x + bh, sx + sh);
+            const push = (wind || 0) * RULES.windK * Math.min(AY / A - yb[i], RULES.leverCap) * A / M;
             let L;
             if (hi - lo < 1) L = p.x >= sx ? 9 : -9;
             else {
-                const half = (hi - lo) / 2 * this.settled(n, n - i - 1);
-                const still = (MX / M - (lo + hi) / 2) / half;
-                const push = (wind || 0) * RULES.windK * Math.min(AY / A - yb[i], RULES.leverCap) * A / M;
+                const half = (hi - lo) / 2, still = (MX / M - (lo + hi) / 2) / half;
                 L = still + push / half * (1 + RULES.sail * Math.min(1.5, Math.abs(still)));
             }
             per[i] = { L, lo, hi, y: yb[i] };
@@ -360,6 +346,7 @@ const Rules = {
 
     ordered(sup, pc) { return !sup || pc.m <= sup.m * 1.05; },
     boomMult(n) { return 1 + RULES.boomPer * n; },
+    livesBonus(score, lives) { return Math.round(score * RULES.livesBonus * Math.max(0, lives)); },
     boomLives(n) { for (const [h, k] of RULES.boomLives) if (n >= h) return k; return 0; },
     combo(streak) { for (const [n, x] of RULES.combos) if (streak >= n) return x; return 1; },
     // A big pumpkin scores more (but it's heavy: a slower carry and a risky top).
@@ -2510,6 +2497,7 @@ class PatchScene extends Phaser.Scene {
         this.streak = 0; this.gusts = 0; this.duskSaid = false;
         this.reached.clear();
         this.lifeHeights = new Set();
+        this.foundAtStart = this.found ? this.found.size : 0; // secrets found before this round
         this.wind.reset();
         this.windV = 0;
         for (const st of this.stacks) {
@@ -2559,9 +2547,10 @@ class PatchScene extends Phaser.Scene {
         this.time.delayedCall(300, () => this.say('PUMPKINS!', 1500));
     }
 
-    // The round ends when three pumpkins have fallen ('lives', or 'topple' if a stack came down),
-    // or at sunset ('dusk'). Towers still standing are banked (without the BOOM bonus).
-    endRound(reason) {
+    // Sunset is the only way a round ends. Whatever is still standing is BOOMed with the full
+    // height bonus, then each pumpkin life left adds RULES.livesBonus of the score: the lives fly
+    // into the score one by one.
+    endRound() {
         if (this.roundOver) return;
         this.roundOver = true;
         const a = this.ansel;
@@ -2581,13 +2570,15 @@ class PatchScene extends Phaser.Scene {
             .map(st => ({ st, pts: Math.round(st.unbanked * Rules.boomMult(st.items.length)) }));
         const finalBoom = booms.reduce((sum, b) => sum + b.pts, 0);
         this.score += finalBoom;
+        const lives = this.lives, before = this.score, livesBonus = Rules.livesBonus(before, lives);
+        this.score += livesBonus;
         const newBest = this.score > (this.best.score || 0);
         if (newBest) { this.best.score = this.score; saveBest(this.best); }
-        if (reason === 'dusk') this.ui.banner('SUNSET!');
+        this.ui.banner('SUNSET!');
         const wait = booms.length ? 700 : 0;
         if (booms.length) {
             this.time.delayedCall(wait, () => {
-                this.ui.setScore(this.score);
+                this.ui.setScore(before);
                 this.ui.banner('BOOM! +' + finalBoom);
                 this.say('BOOM!', 900, true);
                 if (!a.carrying) {
@@ -2603,16 +2594,20 @@ class PatchScene extends Phaser.Scene {
                 }
                 this.time.delayedCall(250, () => Sfx.fanfare());
             });
-        } else this.ui.setScore(this.score);
+        } else this.ui.setScore(before);
         this.time.delayedCall(wait + 1100, () => {
-            if (!a.busy && !a.carrying) this.setPose(reason === 'dusk' ? 'cheer' : 'dizzy');
-            this.say(reason === 'dusk' ? 'NIGHT NIGHT!' : 'UH OH!', 1600);
-            if (reason !== 'dusk') Sfx.lose();
-            else if (!booms.length) Sfx.fanfare();
+            if (!a.busy && !a.carrying) this.setPose('cheer');
+            this.say('NIGHT NIGHT!', 1600);
+            if (!booms.length) Sfx.fanfare();
         });
-        this.time.delayedCall(wait + 2300, () => this.ui.showEnd({
-            reason, tallest: this.tallest, score: this.score, best: this.best.score, newBest,
-            finalBoom, tower: this.tallestTower,
+        const cashAt = wait + 1500, cashFor = this.ui.cashLives(lives, before, livesBonus, cashAt);
+        this.time.delayedCall(Math.max(wait + 2300, cashAt + cashFor + 700), () => this.ui.showEnd({
+            tallest: this.tallest, score: this.score, best: this.best.score, newBest,
+            finalBoom, livesBonus, tower: this.tallestTower,
+            secrets: this.eggJ && this.found ? {
+                found: this.found.size, total: this.eggJ.stickers.length,
+                fresh: Math.max(0, this.found.size - (this.foundAtStart || 0)),
+            } : null,
         }));
     }
 
@@ -2624,11 +2619,14 @@ class PatchScene extends Phaser.Scene {
         }));
     }
 
+    // Each fallen pumpkin costs a pumpkin life; with none left it costs just its points. Lives
+    // never end the round (it always runs to sunset): the ones left then add a bonus.
     loseLives(n) {
         if (this.roundOver) return;
-        this.lives = Math.max(0, this.lives - n);
+        const k = Math.min(n, this.lives);
+        if (!k) return;
+        this.lives -= k;
         this.ui.setLives(this.lives, true);
-        if (this.lives <= 0) this.endRound(n > 1 ? 'topple' : 'lives');
     }
 
     // Earn pumpkin lives (up to RULES.maxLives): a little pumpkin flies from (wx, wy) in the world
@@ -2663,6 +2661,9 @@ class PatchScene extends Phaser.Scene {
         // banking a tall tower wins pumpkin lives
         this.earnLife(Rules.boomLives(n), stack.x, stack.top().y, 600);
         this.time.delayedCall(250, () => Sfx.fanfare());
+        // a BOOM ends the perfect streak (so cashing in tiny towers can't farm the combo)
+        this.streak = 0;
+        this.ui.setStreak(0);
         this.blowUp(stack);
         return true;
     }
@@ -2827,7 +2828,7 @@ class PatchScene extends Phaser.Scene {
             this.duskSaid = true;
             this.ui.banner('SUNSET SOON!');
         }
-        if (left <= 0) this.endRound('dusk');
+        if (left <= 0) this.endRound();
     }
 
     updateWind(dt) {
@@ -3537,11 +3538,14 @@ class UIScene extends Phaser.Scene {
         E.wood = this.add.tileSprite(0, 0, 500, 420, 'panel', 'planks');
         E.title = this.add.text(0, 0, '', txt(40, '#ff9a3a', 10)).setOrigin(0.5);
         E.hero = this.add.image(0, 0, 'ansel:everyday/dizzy').setOrigin(0.5, 1);
-        E.rows = this.add.text(0, 0, '', Object.assign(txt(24, '#fff6e0', 7), { lineSpacing: 18 })).setOrigin(0, 0.5);
+        // the score table: labels and values in two columns, scaled as one piece to fit the card
+        E.labels = this.add.text(0, 0, '', Object.assign(txt(22, '#ffe3a6', 7), { lineSpacing: 14 }));
+        E.values = this.add.text(0, 0, '', Object.assign(txt(22, '#fff6e0', 7), { lineSpacing: 14 }));
+        E.table = this.add.container(0, 0, [E.labels, E.values]);
         E.best = this.add.text(0, 0, 'NEW BEST!', txt(22, '#ffd35a', 8)).setOrigin(0.5);
         E.go = this.add.text(0, 0, DESKTOP ? 'SPACE TO PLAY AGAIN' : 'TAP TO PLAY AGAIN', txt(24, '#fff6e0', 8)).setOrigin(0.5);
         E.tower = this.add.container(0, 0); // the round's tallest tower, on a little hay bale
-        E.root.add([E.shade, E.panel, E.wood, E.title, E.tower, E.hero, E.rows, E.best, E.go]);
+        E.root.add([E.shade, E.panel, E.wood, E.title, E.tower, E.hero, E.table, E.best, E.go]);
         this.tweens.add({ targets: E.go, alpha: 0.35, duration: 600, yoyo: true, repeat: -1 });
         this.tweens.add({ targets: E.best, scale: 1.05, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         this.endSparkles = calmFx(this.add.particles(0, 0, 'sparkle', {
@@ -3554,34 +3558,56 @@ class UIScene extends Phaser.Scene {
         this.applyHud();
     }
 
-    layoutChallenge(w, h, portrait) {
+    layoutChallenge(w, h) {
         this.sky.setSize(w, h);
-        // end card
-        const E = this.end, cxm = w / 2, cym = h / 2;
+        this.layoutEnd(w, h);
+    }
+
+    // The end card: the title, Ansel beside a picture of his tallest tower, the score table,
+    // NEW BEST and the play-again prompt. Wide screens put the picture and the table side by
+    // side; tall and squarish ones stack them. Each piece gets its own box, so nothing overlaps.
+    layoutEnd(w, h) {
+        const E = this.end, cx = w / 2, cy = h / 2;
         E.shade.setSize(w, h);
-        if (portrait) {
-            const pw = Math.min(w - 40, 640), ph = 800;
-            E.panel.setSize(pw, ph).setPosition(cxm, cym);
-            E.wood.setSize(pw - 24, ph - 24).setPosition(cxm, cym);
-            E.title.setPosition(cxm, cym - ph / 2 + 70).setFontSize(44);
-            // Ansel stands beside his tallest tower
-            E.hero.setPosition(cxm - 130, cym - 20).setScale(0.77);
-            E.towerSpot = { x: cxm + 140, y: cym - 20, maxH: 300, maxW: 220 };
-            E.rows.setPosition(cxm - 220, cym + 120);
-            E.best.setPosition(cxm, cym + 255);
-            E.go.setPosition(cxm, cym + ph / 2 - 55);
+        const wide = w / h >= 1.45;
+        const pw = wide ? Math.min(w - 80, 900) : Math.min(w - 40, 640);
+        const ph = wide ? Math.min(h - 60, 540) : Math.min(h - 60, 860);
+        const L = cx - pw / 2, R = cx + pw / 2, T = cy - ph / 2, B = cy + ph / 2;
+        E.panel.setSize(pw, ph).setPosition(cx, cy);
+        E.wood.setSize(pw - 24, ph - 24).setPosition(cx, cy);
+        E.title.setFontSize(wide ? 40 : 44).setPosition(cx, T + 58);
+        E.go.setPosition(cx, B - 44);
+        E.best.setPosition(cx, B - 98);
+        let pic, tab;
+        if (wide) {
+            pic = { l: L + 28, r: cx - 8, t: T + 104, b: B - 72 };
+            tab = { l: cx + 16, r: R - 32, t: T + 104, b: B - 124 };
+            E.best.setX((tab.l + tab.r) / 2);
         } else {
-            const pw = Math.min(w - 80, 820), ph = Math.min(h - 60, 520);
-            E.panel.setSize(pw, ph).setPosition(cxm, cym);
-            E.wood.setSize(pw - 24, ph - 24).setPosition(cxm, cym);
-            E.title.setPosition(cxm, cym - ph / 2 + 60).setFontSize(40);
-            E.hero.setPosition(cxm - pw / 2 + 120, cym + 130).setScale(0.65);
-            E.towerSpot = { x: cxm + pw / 2 - 120, y: cym + 130, maxH: ph - 190, maxW: 190 };
-            E.rows.setPosition(cxm - 175, cym - 20);
-            E.best.setPosition(cxm, cym + 120);
-            E.go.setPosition(cxm, cym + ph / 2 - 50);
+            const top = T + 104, bot = B - 124, picH = Math.round((bot - top) * 0.55);
+            pic = { l: L + 32, r: R - 32, t: top, b: top + picH };
+            tab = { l: L + 40, r: R - 40, t: top + picH + 18, b: bot };
         }
+        E.tabBox = tab;
+        // Ansel stands beside his tower, the two centred together in the picture box
+        const fw = E.hero.frame.width, fh = E.hero.frame.height;
+        const hs = Math.min(0.8, (pic.b - pic.t) / fh, (pic.r - pic.l) * 0.45 / fw);
+        const heroW = fw * hs, towerW = Math.min(220, pic.r - pic.l - heroW - 12);
+        const x0 = (pic.l + pic.r - (heroW + 12 + towerW)) / 2;
+        E.hero.setScale(hs).setPosition(x0 + heroW / 2, pic.b);
+        E.towerSpot = { x: x0 + heroW + 12 + towerW / 2, y: pic.b, maxH: pic.b - pic.t, maxW: towerW };
+        this.fitEndTable();
         if (this.endShown && this.endTower) this.drawEndTower(this.endTower);
+    }
+
+    // The table shrinks (never grows) to fit its box, centred in it.
+    fitEndTable() {
+        const E = this.end, b = E.tabBox;
+        if (!b) return;
+        E.values.setX(E.labels.width + 26);
+        const tw = E.values.x + E.values.width, th = Math.max(E.labels.height, E.values.height);
+        const k = Math.min(1, (b.r - b.l) / tw, (b.b - b.t) / th);
+        E.table.setScale(k).setPosition((b.l + b.r - tw * k) / 2, (b.t + b.b - th * k) / 2);
     }
 
     // The HUD: count, score and three pumpkin lives; streaks show as sparkles and pitch.
@@ -3608,6 +3634,7 @@ class UIScene extends Phaser.Scene {
         this.countText.setText('0');
         this.setScore(0);
         this.lifeFlying = 0;
+        this.cashing = false;
         this.setLives(RULES.lives, false);
         this.setStreak(0);
     }
@@ -3655,7 +3682,7 @@ class UIScene extends Phaser.Scene {
             onComplete: () => {
                 ic.destroy();
                 this.lifeFlying = Math.max(0, this.lifeFlying - 1);
-                this.setLives(Math.min(this.patch.lives, this.lifeShown + 1), false);
+                if (!this.cashing) this.setLives(Math.min(this.patch.lives, this.lifeShown + 1), false);
                 this.endSparkles.explode(10, tx, ty);
                 Sfx.bonus();
             },
@@ -3676,15 +3703,49 @@ class UIScene extends Phaser.Scene {
         this.sky.setFillStyle((mix(16) << 16) | (mix(8) << 8) | mix(0));
     }
 
+    // At sunset, after the last BOOM: the n lives left fly from the life row into the score one
+    // by one (from `delay` ms on), each adding its share of the bonus. Calm: no bursts, a soft
+    // note as each lands. Returns how long it takes.
+    cashLives(n, from, bonus, delay) {
+        if (!n) return 0;
+        const tx = this.scoreText.x + this.scoreText.width / 2, ty = this.scoreText.y;
+        this.time.delayedCall(delay, () => {
+            // exactly n lives showing (one earned just before sunset may still be on its way in)
+            this.cashing = true;
+            this.lifeIcons.forEach((ic, i) => { if (i < n) ic.setVisible(true).setAlpha(1).clearTint(); });
+        });
+        for (let i = 0; i < n; i++) {
+            const slot = this.lifeIcons[n - 1 - i];
+            this.time.delayedCall(delay + i * 350, () => {
+                slot.setAlpha(0.3).setTint(0x5a4a3a);
+                const ic = this.add.image(slot.x, slot.y, 'icon_pumpkin').setScale(LIFE_SCALE).setDepth(95);
+                this.tweens.add({
+                    targets: ic, x: tx, y: ty, scale: LIFE_SCALE * 0.7, alpha: 0.4, duration: 600, ease: 'Sine.InOut',
+                    onComplete: () => {
+                        ic.destroy();
+                        this.setScore(from + Math.round(bonus * (i + 1) / n));
+                        Sfx.pickup();
+                    },
+                });
+            });
+        }
+        return (n - 1) * 350 + 600;
+    }
+
     showEnd(info) {
         const E = this.end;
-        E.title.setText(info.reason === 'dusk' ? 'SUNSET!' : info.reason === 'topple' ? 'TOWER DOWN!' : 'UH OH!');
-        E.hero.setTexture(this.patch.anselKey(info.reason === 'dusk' ? ANSEL_POSES.hero : ANSEL_POSES.dizzy));
+        E.title.setText('SUNSET!');
+        E.hero.setTexture(this.patch.anselKey(ANSEL_POSES.hero));
         const rows = [];
-        if (info.finalBoom) rows.push('LAST BOOM +' + info.finalBoom);
-        rows.push('SCORE     ' + info.score, 'TALLEST   ' + info.tallest, 'BEST      ' + info.best);
-        E.rows.setText(rows.join('\n'));
+        if (info.finalBoom) rows.push(['LAST BOOM', '+' + info.finalBoom]);
+        rows.push(['LIVES BONUS', '+' + info.livesBonus]);
+        rows.push(['SCORE', info.score], ['TALLEST', info.tallest], ['BEST', info.best]);
+        const S = info.secrets;
+        if (S) rows.push(['SECRETS', S.found + '/' + S.total + (S.fresh ? '  +' + S.fresh + ' NEW' : '')]);
+        E.labels.setText(rows.map(r => r[0]).join('\n'));
+        E.values.setText(rows.map(r => r[1]).join('\n'));
         this.endTower = info.tower || null;
+        this.layoutEnd(this.scale.width, this.scale.height); // the hero's frame and the table's size changed
         this.drawEndTower(this.endTower);
         E.best.setVisible(info.newBest);
         E.go.setVisible(false);
@@ -5431,7 +5492,7 @@ const HTP_PAGES = [
         { desk: true, ic: { keys: ['SPACE'] }, t: 'LIFT, DROP (↑, W)' },
     ] },
     { title: "DON'T LET IT FALL", art: 'htpArtFall', rows: [
-        { p: 'A PUMPKIN THAT ROLLS OR FALLS OFF THE TOWER COSTS A PUMPKIN LIFE.' },
+        { p: 'A PUMPKIN THAT FALLS OFF THE TOWER COSTS A LIFE. LIVES LEFT AT SUNSET ADD TO YOUR SCORE.' },
         { ic: { img: 'windsock', f: 6, s: 0.3 }, t: 'GUSTS PUSH THE PUMPKIN AND TIP CROOKED TOWERS.' },
         { p: 'START WITH 3. EARN UP TO 5:', c: 'gold' },
         { ic: { img: 'sparkle', n: 3 }, t: '3 PERFECT DROPS IN A ROW' },
@@ -5449,7 +5510,7 @@ const HTP_PAGES = [
     ] },
     { title: 'BEAT THE SUNSET', art: 'htpArtDay', rows: [
         { p: 'A ROUND IS ONE AFTERNOON: GOLD, THEN DUSK.' },
-        { p: "AT SUNSET, OR WHEN YOUR LIVES RUN OUT, ANSEL BOOMS WHAT'S STILL STANDING.", c: 'gold' },
+        { p: "AT SUNSET, ANSEL BOOMS WHAT'S STILL STANDING. LIVES LEFT ADD A BONUS.", c: 'gold' },
         { ic: { img: 'sprout', s: 1 }, t: 'VINE PUMPKINS GROW BIGGER OVER TIME. TAP ONE TO PICK IT, OR A SPROUT TO WATER IT.' },
         { ic: { img: 'leafpile_a', s: 0.55 }, t: 'LEAF PILES HIDE SOME. NOTHING LEFT? TAP: MORE!' },
         { ic: { img: 'sparkle', n: 2 }, t: 'TAP THE SCENERY, TOO.' },

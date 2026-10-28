@@ -3,7 +3,9 @@
 //
 // Loads the <rules> block straight out of game.js (weights, balance, wind, lives, stages,
 // scoring), then plays thousands of rounds with simulated players and prints how far they get,
-// how many lives they earn back, how much the wind matters, plus fall rates for single drops.
+// how many lives they earn back, how much the wind matters, which BOOM height pays best, plus
+// fall rates for single drops. Every round runs the whole afternoon: falls cost lives, and the
+// lives left at sunset add a bonus.
 // Run:  node games/pumpkin-patch/sim.js [rounds]
 //
 // The fetch-and-carry part of each pumpkin is modelled as a 2.6-4.2 s wait; the hover, tap,
@@ -203,10 +205,9 @@ function playRound(makePlayer, pick, R, opts = {}) {
         lives += g; earned[why] += g; earned.capped += k - g;
     };
     let windFault = false; // is the fall being handled now down to the wind?
-    let endBy = null; // what took the last life: 'roll' (one pumpkin) or 'break' (a tower falling)
-    const lose = (n, kind) => {
-        lives -= n; counts.lost += n; if (windFault) counts.windLost += n;
-        if (lives <= 0) { end = 'lives'; endBy = kind; }
+    // each fallen pumpkin costs a life (none left: just its points); the round still runs to sunset
+    const lose = n => {
+        lives = Math.max(0, lives - n); counts.lost += n; if (windFault) counts.windLost += n;
     };
     const loseFrom = (at, cause) => { // joint `at` and everything above it fall: their points are lost
         if (P.length >= 12 && cause) { broke[cause]++; brokeLost.push(P.length - at); }
@@ -217,7 +218,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
         lostPts += lost.reduce((s, p) => s + (p.pts || 0), 0);
         streak = 0;
         tip.tipT = 0;
-        lose(lost.length, lost.length > 1 ? 'break' : 'roll');
+        lose(lost.length);
     };
     const frame = () => {
         dayT += DT;
@@ -339,7 +340,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
             if (P.length >= 12) counts.roll12++;
             patch.path.push({ key: pc.key, x: HAY_X + (R() < 0.5 ? -1 : 1) * (120 + 160 * R()) });
             streak = 0;
-            lose(1, 'roll');
+            lose(1);
         } else {
             counts.topple++;
             const sup = P[P.length - 1];
@@ -353,6 +354,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
             score += Math.round(P.reduce((s, p) => s + p.pts, 0) * Rules.boomMult(P.length));
             earn(Rules.boomLives(P.length), 'boom');
             P = [];
+            streak = 0; // a BOOM ends the perfect streak
             counts.banks++;
             sway.x = sway.v = 0;
             wait(2.5);
@@ -360,8 +362,11 @@ function playRound(makePlayer, pick, R, opts = {}) {
     }
     // every round ends in a BOOM: a tower still standing at the end is banked with the height bonus
     if (P.length) score += Math.round(P.reduce((s, p) => s + (p.pts || 0), 0) * Rules.boomMult(P.length));
-    return { placed, tallest, score, lostPts, drops, counts, earned, livesLeft: Math.max(0, lives), end: end || 'drops',
-        maxAbove, moon, broke, brokeLost, endBy };
+    // then the lives left at sunset add their bonus
+    const bonus = Rules.livesBonus(score, lives);
+    score += bonus;
+    return { placed, tallest, score, bonus, lostPts, drops, counts, earned, livesLeft: lives, end: end || 'drops',
+        maxAbove, moon, broke, brokeLost };
 }
 
 // ── Reporting ────────────────────────────────────────────────────────────────
@@ -379,13 +384,14 @@ function summarize(name, rounds, makePlayer, pick, seed, opts) {
     const sum = k => res.reduce((s, r) => s + r.counts[k], 0);
     const drops = res.reduce((s, r) => s + r.drops, 0);
     const lives = res.reduce((s, r) => s + r.earned.streak + r.earned.boom + r.earned.height + r.earned.golden, 0) / rounds;
-    const dusk = res.filter(r => r.end === 'dusk').length / rounds;
+    const left = res.reduce((s, r) => s + r.livesLeft, 0) / rounds;
+    const bonusShare = res.reduce((s, r) => s + r.bonus, 0) / Math.max(1, res.reduce((s, r) => s + r.score, 0));
     const pc = k => (sum(k) / drops * 100).toFixed(0).padStart(2) + '%';
     const placed = res.reduce((s, r) => s + r.placed, 0);
     const per = k => (sum(k) / rounds).toFixed(1);
     console.log(
         `${name.padEnd(32)} stacked ${p3(sorted('placed'))}  score p50 ${String(pct(sorted('score'), 0.5)).padStart(6)} mean ${String(Math.round(res.reduce((s, r) => s + r.score, 0) / rounds)).padStart(6)}` +
-        `  sunset ${(dusk * 100).toFixed(0).padStart(3)}%  lives+ ${lives.toFixed(1)}` +
+        `  lives+ ${lives.toFixed(1)}  left at sunset ${left.toFixed(1)} (bonus ${(bonusShare * 100).toFixed(0)}% of score)` +
         `  | waterings/rd ${per('waterings').padStart(4)}  picks/rd ${per('picks').padStart(4)} (vine ${(sum('fromVine') / Math.max(1, sum('picks')) * 100).toFixed(0)}%)` +
         `  pick trip ${(sum('pickTime') / Math.max(1, sum('picks'))).toFixed(1)}s  water trip ${(sum('waterTime') / Math.max(1, sum('waterings'))).toFixed(1)}s` +
         `  avg weight ${(sum('massSum') / Math.max(1, placed)).toFixed(2)} (large+ ${(sum('big') / Math.max(1, placed) * 100).toFixed(0)}%)` +
@@ -402,7 +408,8 @@ function windReport(name, rounds, makePlayer, seed) {
     console.log(
         `${name.padEnd(30)} lost pumpkins due to wind ${(sum(on, 'windLost') / Math.max(1, sum(on, 'lost')) * 100).toFixed(0).padStart(3)}%` +
         `  drops it tipped into a fall ${(sum(on, 'windMiss') / drops * 100).toFixed(1).padStart(4)}% (and saved ${(sum(on, 'windSave') / drops * 100).toFixed(1)}%)` +
-        `  gust topples/round ${(sum(on, 'gustTopple') / rounds).toFixed(2)}  stacked p50 ${med(on, 'placed')} with wind, ${med(off, 'placed')} without`);
+        `  gust topples/round ${(sum(on, 'gustTopple') / rounds).toFixed(2)}  tallest p50 ${med(on, 'tallest')} with wind, ${med(off, 'tallest')} without` +
+        `  score p50 ${med(on, 'score')} with wind, ${med(off, 'score')} without`);
 }
 
 // How high do towers get? Share of rounds (no BOOM) reaching each landmark, what the moon takes,
@@ -419,17 +426,30 @@ function landmarks(name, rounds, makePlayer, pick, seed, opts) {
     const roll12 = res.reduce((s, r) => s + r.counts.roll12, 0);
     const total = Object.values(b).reduce((s, v) => s + v, 0);
     const sh = k => `${Math.round(b[k] / Math.max(1, total) * 100)}%`;
-    const tall = res.filter(r => r.tallest >= 12);
-    const duskTall = tall.filter(r => r.end === 'dusk').length;
     const lostN = res.flatMap(r => r.brokeLost).sort((x, y) => x - y);
-    const brokeEnd = tall.filter(r => r.endBy === 'break').length;
     console.log(`${name.padEnd(28)} ${reach.join('  ')}  | moon takes ${moonN} pumpkins, at ${moonT}s` +
         `  | 12+ towers broken by: lean ${sh('lean')}, gust ${sh('gust')}, wind at landing ${sh('windLanding')}, heavy-on-light ${sh('heavy')}` +
         ` (${(total / rounds).toFixed(2)}/rd; top roll-offs at 12+ ${(roll12 / rounds).toFixed(2)}/rd)` +
         `  | a 12+ break drops ${lostN.length ? pct(lostN, 0.5) : '-'} pumpkins (median)` +
-        `  | rounds with a 12+ tower ending at sunset ${Math.round(duskTall / Math.max(1, tall.length) * 100)}%, on a break ${Math.round(brokeEnd / Math.max(1, tall.length) * 100)}%` +
         `  | stacked median ${pct(res.map(r => r.placed).sort((x, y) => x - y), 0.5)}`);
     return res;
+}
+
+// Mean score for each BOOM height (and never), the best one, and the lives bonus's share at the
+// best. Returns the best mean score.
+function boomTable(name, rounds, makePlayer, pick, seed) {
+    const heights = [4, 6, 8, 10, 12, 14, 18, 24, Infinity];
+    const rows = heights.map(b => {
+        const res = runMany(rounds, makePlayer, pick, seed, { bankAt: b });
+        const total = res.reduce((s, r) => s + r.score, 0);
+        return { b, mean: Math.round(total / rounds), bonus: res.reduce((s, r) => s + r.bonus, 0) / Math.max(1, total) };
+    });
+    const best = rows.reduce((a, r) => (r.mean > a.mean ? r : a));
+    const nm = b => (b === Infinity ? 'never' : String(b));
+    console.log(`${('  ' + name).padEnd(26)} ` + rows.map(r => `${nm(r.b)}:${r.mean}`).join(' ') +
+        `  | best ${nm(best.b)}; BOOM at 4 ${Math.round(rows[0].mean / best.mean * 100)}%, never ${Math.round(rows[rows.length - 1].mean / best.mean * 100)}% of it;` +
+        ` lives bonus ${Math.round(best.bonus * 100)}% of the best's score`);
+    return best.mean;
 }
 
 // Single drops at fixed offsets onto a fixed stack, in a given wind: how often does it fall?
@@ -473,17 +493,14 @@ if (require.main === module) {
     landmarks('expert 45ms, planner', N, PLAYERS.timer(0.045), pickPlan, 5);
     landmarks('near-perfect 25ms, grabber', N, PLAYERS.timer(0.025), pickGrab, 6);
 
-    console.log('\nPressing BOOM at a given height:');
-    for (const b of [8, 10, 14]) {
-        summarize(`  good 70ms, grabber, BOOM at ${b}`, N, PLAYERS.timer(0.07), pickGrab, 21, { bankAt: b });
-        summarize(`  good 70ms, planner, BOOM at ${b}`, N, PLAYERS.timer(0.07), pickPlan, 21, { bankAt: b });
+    console.log(`\nPush your luck: mean score when pressing BOOM every time the tower is this tall (${Math.round(N / 4)} rounds each):`);
+    const spread = {};
+    for (const [name, sig, seed] of [['casual 150ms', 0.15, 31], ['good 70ms', 0.07, 32], ['expert 45ms', 0.045, 33]]) {
+        for (const [style, pick] of [['grabber', pickGrab], ['planner', pickPlan]]) {
+            spread[name + style] = boomTable(`${name}, ${style}`, Math.round(N / 4), PLAYERS.timer(sig), pick, seed);
+        }
+        console.log(`  ${name}: planner's best against grabber's best ${Math.round((spread[name + 'planner'] / spread[name + 'grabber'] - 1) * 100)}%`);
     }
-    for (const b of [10, 14]) {
-        summarize(`  expert 45ms, grabber, BOOM at ${b}`, N, PLAYERS.timer(0.045), pickGrab, 22, { bankAt: b });
-        summarize(`  expert 45ms, planner, BOOM at ${b}`, N, PLAYERS.timer(0.045), pickPlan, 22, { bankAt: b });
-    }
-    summarize('  casual 150ms, grabber, BOOM at 8', N, PLAYERS.timer(0.15), pickGrab, 23, { bankAt: 8 });
-    summarize('  casual 150ms, planner, BOOM at 8', N, PLAYERS.timer(0.15), pickPlan, 23, { bankAt: 8 });
 
     console.log('\nWind (same rounds with gusts on and off, grabbers):');
     windReport('random tapper', N, PLAYERS.random, 1);
@@ -505,4 +522,4 @@ if (require.main === module) {
     row('light on HEAVY: gold_s onto deep_xl', ['pumpkin_orange_l', 'pumpkin_deep_xl'], 'pumpkin_gold_s', 0);
 }
 
-module.exports = { lib, playRound, fallRate, PLAYERS, rng, GROW, LAYOUT, RULES, MILESTONES, pickRandom, pickGrab, pickPlan, landmarks, runMany };
+module.exports = { lib, playRound, fallRate, PLAYERS, rng, GROW, LAYOUT, RULES, MILESTONES, pickRandom, pickGrab, pickPlan, landmarks, runMany, windReport, boomTable };

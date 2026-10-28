@@ -488,11 +488,14 @@ function calmFx(em) {
     return em;
 }
 
-// Crisp pixels: the patch is drawn 4 game px to an art pixel (Ansel 3), and the camera never zooms
-// (see baseZoom). So art is only ever drawn at sizes that keep each art pixel a whole number of
-// game pixels, turned only in quarter turns, and wiggles hop sideways instead of tilting. A sprite
-// at 0.8× or 7° resamples its pixels into uneven, shimmering steps.
+// Crisp pixels: the patch is drawn 4 game px to an art pixel (Ansel 3), and the camera only rests at
+// zooms where those stay whole (see ZOOM_OUT). So art is only ever drawn at sizes that keep each art
+// pixel a whole number of screen pixels, turned only in quarter turns, and wiggles hop sideways
+// instead of tilting. A sprite at 0.8× or 7° resamples its pixels into uneven, shimmering steps.
 const ART_PX = 4, ANSEL_PX = 3;
+// The camera's one zoom-out, for a tower too tall for the screen: at 3/4 each of the patch's art
+// pixels is exactly 3 screen px (Ansel's are drawn at 2, a touch smaller, by crispScene).
+const ZOOM_OUT = 0.75;
 function pxScale(s, art = ART_PX) { return Math.max(1, Math.round(s * art)) / art; }
 // ...and the largest such size that (about) fits in a box sized for s
 function pxFit(s, art = ART_PX) { return Math.max(1, Math.floor(s * art + 0.25)) / art; }
@@ -505,11 +508,12 @@ function artPx(key) {
 }
 
 // The safety net: just before each frame is drawn, every sprite and particle in the scene
-// snaps to the pixel grid (its size, counting the containers it's in, to whole art pixels; its
-// angle to a quarter turn), and right after, it gets its own values back. So any tween that
-// grows, squashes or turns a sprite plays in pixel steps, and the game's logic never sees the
-// difference. Text is left as it is.
-function crispScene(scene) {
+// snaps to the pixel grid (its size on screen, counting the containers it's in and the camera's
+// zoom, to whole art pixels; its angle to a quarter turn), and right after, it gets its own values
+// back. So any tween that grows, squashes or turns a sprite plays in pixel steps, and the game's
+// logic never sees the difference. Text is left as it is. zoom() is the camera zoom to count
+// (1 while it's between levels).
+function crispScene(scene, zoom = () => 1) {
     const { Image, Sprite, NineSlice, Container } = Phaser.GameObjects;
     const Emitter = Phaser.GameObjects.Particles.ParticleEmitter;
     const held = [];
@@ -520,8 +524,8 @@ function crispScene(scene) {
             if (o instanceof Emitter) {
                 for (const p of o.alive) { // particles: their own values are made fresh each frame
                     p.rotation = quarterTurn(p.rotation);
-                    p.scaleX = step(p.scaleX, ART_PX);
-                    p.scaleY = step(p.scaleY, ART_PX);
+                    p.scaleX = step(p.scaleX * sx, ART_PX) / sx;
+                    p.scaleY = step(p.scaleY * sy, ART_PX) / sy;
                 }
                 continue;
             }
@@ -537,7 +541,7 @@ function crispScene(scene) {
             if (o instanceof Container) snap(o.list, sx * o.scaleX, sy * o.scaleY);
         }
     };
-    scene.events.on('prerender', () => snap(scene.children.list, 1, 1));
+    scene.events.on('prerender', () => { const z = zoom(); snap(scene.children.list, z, z); });
     scene.events.on('render', () => {
         for (let i = 0; i < held.length; i += 4) {
             const o = held[i];
@@ -1078,7 +1082,7 @@ class PatchScene extends Phaser.Scene {
     }
 
     create() {
-        crispScene(this);
+        crispScene(this, () => (this.camZoom === this.zoomLevel ? this.camZoom : 1));
         this.started = false;
         this.best = loadBest();
         this.items = [];
@@ -1256,11 +1260,15 @@ class PatchScene extends Phaser.Scene {
             band.refresh();
             this.add.tileSprite(0, WORLD_H, WORLD_W, WORLD_FLOOR - WORLD_H, 'soilband').setOrigin(0).setDepth(3);
         }
-        this.camZoom = this.baseZoom();
+        this.camZoom = this.zoomLevel = 1;
         this.camX = 700;
         this.camY = WORLD_H - this.scale.height / (2 * this.camZoom);
         cam.setZoom(this.camZoom);
         cam.centerOn(this.camX, this.camY);
+        // Phaser only snaps to whole pixels at a whole-number zoom; at 3/4 the art is still whole
+        // pixels (see ZOOM_OUT), so snap there too
+        const preRender = cam.preRender.bind(cam);
+        cam.preRender = () => { preRender(); cam.renderRoundPixels = cam.roundPixels; };
         this.scale.on('resize', size => this.cameras.main.setSize(size.width, size.height));
 
         // Input
@@ -2866,6 +2874,7 @@ class PatchScene extends Phaser.Scene {
         if (v !== this.baleSignValue.text) this.baleSignValue.setText(v);
         const H = this.signSize.h;
         this.baleSignTitle.setY(v ? H / 2 - 12 : H / 2);
+        this.baleSignInner.setScale(this.camZoom < 1 ? 1 / ZOOM_OUT : 1); // readable when the camera backs out
         if (avail !== this.baleSignOn) {
             this.baleSignOn = avail;
             this.tweens.killTweensOf(sign);
@@ -2921,6 +2930,7 @@ class PatchScene extends Phaser.Scene {
     // The tower goes flying (no lives lost: it was on purpose) and the pumpkins land in the patch.
     blowUp(stack) {
         Sfx.boom();
+        this.zoomHoldUntil = this.time.now + 1800; // the camera stays out to watch them fly
         this.burst.explode(40, stack.x, stack.topY);
         const dirAway = this.ansel.x < stack.x ? 1 : -1;
         for (const it of stack.items) {
@@ -2994,6 +3004,10 @@ class PatchScene extends Phaser.Scene {
         if (this.ui && this.ui.ready) {
             const st = this.stack;
             this.updateBaleSign(dt, this.canBoom(st), st.danger, Rules.bank(st.unbanked, st.items.length));
+            // the pounds on the sign: what's banked plus what's still standing, so it climbs with each
+            // pumpkin, drops when some fall, and a BOOM adds the tall-tower bonus (the round's end
+            // shows its own BOOM)
+            if (!this.roundOver) this.ui.setScore(this.score + this.stacks.reduce((sum, s) => sum + s.unbanked, 0));
             this.updateBoomHold(dt);
             this.ui.setDusk(Math.min(1, this.dayT / RULES.day));
         }
@@ -3397,15 +3411,12 @@ class PatchScene extends Phaser.Scene {
         }
     }
 
-    // The world camera never zooms: at exactly 1 every art pixel is a whole number of screen
-    // pixels for both Ansel (3 px) and the patch (4 px), and Phaser only snaps sprites to whole
-    // pixels at a whole-number zoom. Anything in between bends the pixel art as it moves.
-    baseZoom() { return 1; }
-
     // The camera frames the ground (Ansel, the pumpkins, the bale and its BOOM sign) and shows as
-    // much of the tower as fits. Only while a pumpkin is swaying or falling does it climb to the
-    // top of a tower too tall to fit, then it comes back down, so nothing playable is ever stranded
-    // off-screen. The ground sits a little above the bottom edge (more on a tall phone).
+    // much of the tower as fits, backing out to ZOOM_OUT when the tower outgrows the screen (never
+    // to an in-between zoom, which would bend the pixel art; it only passes through those on the
+    // way). Only while a pumpkin is swaying or falling does it climb to the top of a tower too tall
+    // even for that, then it comes back down, so nothing playable is ever stranded off-screen. The
+    // ground sits a little above the bottom edge (more on a tall phone).
     updateCamera(dt) {
         const cam = this.cameras.main;
         const a = this.ansel;
@@ -3417,9 +3428,19 @@ class PatchScene extends Phaser.Scene {
         let focusTop = top.y;
         if (this.hovering) focusTop = Math.min(focusTop, this.hovering.img.y - this.hovering.bh);
         focusTop -= portrait ? 330 : 240; // headroom so the top of the stack sits below the HUD and banner
-        this.camZoom = this.baseZoom();
-        this.textScale = portrait ? 1.35 : 1;
-        const visH = h, visW = w;
+        // the zoom that would fit everything from the tower top down to the ground (at groundAt);
+        // a little slack each way so it doesn't flip back and forth at the edge
+        const fitZoom = groundAt * h / Math.max(1, GROUND - focusTop);
+        const minZoom = Math.max(w / WORLD_W, h / WORLD_FLOOR); // never show past the world's edges
+        const out = ZOOM_OUT >= minZoom && fitZoom < (this.zoomLevel < 1 ? 1.05 : 0.97);
+        const level = this.time.now < (this.zoomHoldUntil || 0) ? this.zoomLevel : out ? ZOOM_OUT : 1;
+        if (level !== this.zoomLevel) {
+            this.zoomLevel = level;
+            this.tweens.killTweensOf(this);
+            this.tweens.add({ targets: this, camZoom: level, duration: 450, ease: 'Sine.InOut' });
+        }
+        this.textScale = (portrait ? 1.35 : 1) / this.camZoom;
+        const visH = h / this.camZoom, visW = w / this.camZoom;
         // ground framing: the path at groundAt of the screen
         let cy = GROUND + (1 - groundAt) * visH - visH / 2;
         // still too tall to fit: only while aiming, follow the top instead
@@ -3811,7 +3832,8 @@ class UIScene extends Phaser.Scene {
         E.table.setScale(k).setPosition((b.l + b.r - tw * k) / 2, (b.t + b.b - th * k) / 2);
     }
 
-    // The HUD: the tower count and the pounds banked; streaks show as pitch.
+    // The HUD: the tower count and the pounds harvested (banked, plus the towers still standing);
+    // streaks show as pitch.
     applyHud() {
         this.scoreText.setVisible(true);
         this.bestText.setVisible(false);
@@ -3837,7 +3859,12 @@ class UIScene extends Phaser.Scene {
         this.setStreak(0);
     }
 
-    setScore(n) { this.scoreText.setText(n + ' LB'); this.fitPanel(); }
+    setScore(n) {
+        const text = n + ' LB';
+        if (text === this.scoreText.text) return;
+        this.scoreText.setText(text);
+        this.fitPanel();
+    }
 
     // The count panel grows with the score so the number never spills off the sign.
     fitPanel() {

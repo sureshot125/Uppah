@@ -183,7 +183,9 @@ const RULES = {
     maxLives: 5,          // ...and you can earn up to this many:
     lifeStreak: 3,        //   +1 for every this many perfect drops in a row
     boomLives: [[14, 2], [8, 1]], // +2 / +1 for banking a tower at least this tall with BOOM
-    lifeHeights: [400, 620, 900, 1300, 1750], // +1 the first time a round's tower tops each height (px above ground)
+    // +1 the first time a round's tower tops each height (px above ground): the landmarks from
+    // Gigi up, and halfway between the high ones so a long climb keeps paying
+    lifeHeights: [400, 620, 760, 900, 1100, 1300, 1550, 1750],
     goldenLife: 1,        //   +1 for harvesting a golden pumpkin
     assisted: 2,          // a player's very first round only: the first pumpkins are pulled in and can't fall
     assistKeep: 0.4,      // ...keeping this share of their miss
@@ -201,6 +203,15 @@ const RULES = {
     windK: 0.03,          // wind leverage: balance shift per unit of wind per px of height
     leverCap: 220,        // px: wind leverage stops growing above this height
     sail: 0.3,            // a crooked stack catches more wind: push x (1 + sail x its lean)
+    // A tall tower settles: its weight presses the lower pumpkins together, so their footing
+    // widens by up to `settle` (a share of the contact patch). It starts once the tower is
+    // settleFrom pumpkins tall and is complete settleN pumpkins later; the top settleTop
+    // pumpkins stay loose (a joint with k pumpkins on it gets k/settleTop of it). Without it
+    // a break anywhere past ~12 pumpkins ends the round, and the moon is out of reach.
+    settle: 0.5,
+    settleFrom: 18,
+    settleN: 4,
+    settleTop: 3,
     hoverDrift: 32,       // px a full gust pushes a medium hovering pumpkin (light ones further)
     fallDrift: 24,        // px a full gust pushes a medium pumpkin while it falls (aim upwind!)
     warn: 1.4,            // seconds of leaves and whoosh before a gust hits
@@ -263,6 +274,12 @@ const Rules = {
 
     supportHalf(sup, base) { return sup ? RULES.topFlat * sup.w / 2 : base.half; },
 
+    // How much wider a joint's footing is once a tower of n pumpkins has settled, for a joint
+    // with `above` pumpkins sitting on it (RULES.settle).
+    settled(n, above) {
+        return 1 + RULES.settle * clampN((n - RULES.settleFrom) / RULES.settleN, 0, 1) * clampN(above / RULES.settleTop, 0, 1);
+    },
+
     // Balance of every joint, bottom first. Joint i is piece i resting on the piece below (or
     // the hay): the weight of everything from i up has to sit over the patch where the two flat
     // faces touch. Wind pushes sideways with leverage that grows with the height and sail of
@@ -279,11 +296,12 @@ const Rules = {
             const sx = i ? P[i - 1].x : base.x, sh = this.supportHalf(i ? P[i - 1] : null, base);
             const bh = RULES.botFlat * p.w / 2;
             const lo = Math.max(p.x - bh, sx - sh), hi = Math.min(p.x + bh, sx + sh);
-            const push = (wind || 0) * RULES.windK * Math.min(AY / A - yb[i], RULES.leverCap) * A / M;
             let L;
             if (hi - lo < 1) L = p.x >= sx ? 9 : -9;
             else {
-                const half = (hi - lo) / 2, still = (MX / M - (lo + hi) / 2) / half;
+                const half = (hi - lo) / 2 * this.settled(n, n - i - 1);
+                const still = (MX / M - (lo + hi) / 2) / half;
+                const push = (wind || 0) * RULES.windK * Math.min(AY / A - yb[i], RULES.leverCap) * A / M;
                 L = still + push / half * (1 + RULES.sail * Math.min(1.5, Math.abs(still)));
             }
             per[i] = { L, lo, hi, y: yb[i] };
@@ -2433,8 +2451,9 @@ class PatchScene extends Phaser.Scene {
         // a short run of perfect drops wins a pumpkin life
         if (grade === 'perfect' && this.streak % RULES.lifeStreak === 0) this.earnLife(1, it.rx, it.topY, 500);
         // so does topping each big height for the first time this round
+        let k = 0;
         for (const h of RULES.lifeHeights) {
-            if (height >= h && !this.lifeHeights.has(h)) { this.lifeHeights.add(h); this.earnLife(1, it.rx, it.topY, 900); }
+            if (height >= h && !this.lifeHeights.has(h)) { this.lifeHeights.add(h); this.earnLife(1, it.rx, it.topY, 900 + 300 * k++); }
         }
         if (stack.stageIdx > Rules.stageAt(n - 1)) this.onStage(stack.stageIdx);
 

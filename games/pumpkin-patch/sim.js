@@ -27,6 +27,8 @@ const GROW_SPOTS = grab(/const GROW_SPOTS = (\[[\s\S]*?\n\]);/);
 const HAY_X = +src.match(/const HAY_X = (\d+)/)[1];
 const [WALK, HEAVY_WALK] = src.match(/const WALK_SPEED = (\d+), HEAVY_SPEED = (\d+)/).slice(1).map(Number);
 const BALE_H = +src.match(/HAY_H = (\d+)/)[1];                  // the hay bale's height (heights are from the ground)
+const MILESTONES = grab(/const MILESTONES = (\[[\s\S]*?\n\]);/); // the height landmarks (px above the ground)
+const MOON = MILESTONES[MILESTONES.length - 1].h;
 const { RULES, STAGES, Rules, Wind } = lib;
 // Try tunings without editing game.js:  SIM_RULES='{"impact":0.5}' SIM_STAGES='[{"speed":160},...]' node sim.js
 if (process.env.SIM_RULES) Object.assign(RULES, JSON.parse(process.env.SIM_RULES));
@@ -184,7 +186,11 @@ function playRound(makePlayer, pick, R, opts = {}) {
     let P = [], lives = RULES.lives, placed = 0, score = 0, lostPts = 0, streak = 0, tallest = 0, drops = 0, dayT = 0;
     const counts = { perfect: 0, good: 0, ok: 0, roll: 0, topple: 0, gustTopple: 0, windMiss: 0, windSave: 0, banks: 0, golden: 0,
         lost: 0, windLost: 0, more: 0, fromPath: 0, fromVine: 0, waterings: 0, pickTime: 0, picks: 0, waterTime: 0,
-        idle: 0, massSum: 0, big: 0 };
+        idle: 0, massSum: 0, big: 0, roll12: 0 };
+    // what broke towers 12 or more high: a gust between landings, a landing that the wind tipped,
+    // a heavy pumpkin landed on a lighter one, or the rest (lean built up, then a landing's wobble)
+    const broke = { gust: 0, windLanding: 0, heavy: 0, lean: 0 }, brokeLost = [];
+    let maxAbove = 0, moon = null;
     const earned = { streak: 0, boom: 0, height: 0, golden: 0, capped: 0 };
     const wind = new Wind(rng(opts.windSeed || 4242)), sway = { x: 0, v: 0 }, tip = { tipT: 0 };
     const reachedH = new Set();
@@ -197,8 +203,13 @@ function playRound(makePlayer, pick, R, opts = {}) {
         lives += g; earned[why] += g; earned.capped += k - g;
     };
     let windFault = false; // is the fall being handled now down to the wind?
-    const lose = n => { lives -= n; counts.lost += n; if (windFault) counts.windLost += n; if (lives <= 0) end = 'lives'; };
-    const loseFrom = (at) => { // joint `at` and everything above it fall: their points are lost
+    let endBy = null; // what took the last life: 'roll' (one pumpkin) or 'break' (a tower falling)
+    const lose = (n, kind) => {
+        lives -= n; counts.lost += n; if (windFault) counts.windLost += n;
+        if (lives <= 0) { end = 'lives'; endBy = kind; }
+    };
+    const loseFrom = (at, cause) => { // joint `at` and everything above it fall: their points are lost
+        if (P.length >= 12 && cause) { broke[cause]++; brokeLost.push(P.length - at); }
         const lost = P.slice(at);
         P = P.slice(0, at);
         // they tumble onto the path beside the bale, to be picked up again
@@ -206,7 +217,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
         lostPts += lost.reduce((s, p) => s + (p.pts || 0), 0);
         streak = 0;
         tip.tipT = 0;
-        lose(lost.length);
+        lose(lost.length, lost.length > 1 ? 'break' : 'roll');
     };
     const frame = () => {
         dayT += DT;
@@ -215,7 +226,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
         for (const sp of patch.spots) { if (!sp.busy && (sp.t -= DT) <= 0) grow(sp, R); }
         const r = Rules.analyze(P, BASE, w);
         Rules.swayStep(sway, DT, Rules.swayTarget(r.lean, r.height, w));
-        if (P.length && Rules.tipStep(tip, r.lean, DT)) { counts.gustTopple++; windFault = true; loseFrom(r.at); windFault = false; }
+        if (P.length && Rules.tipStep(tip, r.lean, DT)) { counts.gustTopple++; windFault = true; loseFrom(r.at, 'gust'); windFault = false; }
     };
     const wait = secs => { for (let t = 0; t < secs && !end; t += DT) frame(); };
 
@@ -319,17 +330,22 @@ function playRound(makePlayer, pick, R, opts = {}) {
             if (res.piece.m >= 2) counts.big++;
             if (streak && streak % RULES.lifeStreak === 0) earn(1, 'streak');
             const r = Rules.analyze(P, BASE, w), above = BALE_H + r.height;
+            maxAbove = Math.max(maxAbove, above);
+            if (!moon && above >= MOON) moon = { n: P.length, t: dayT };
             for (const hgt of RULES.lifeHeights) if (above >= hgt && !reachedH.has(hgt)) { reachedH.add(hgt); earn(1, 'height'); }
             Rules.swayKick(sway, aim.d >= 0 ? 1 : -1, res.kick, r.height);
         } else if (res.fall === 'roll') {
             counts.roll++;
+            if (P.length >= 12) counts.roll12++;
             patch.path.push({ key: pc.key, x: HAY_X + (R() < 0.5 ? -1 : 1) * (120 + 160 * R()) });
             streak = 0;
-            lose(1);
+            lose(1, 'roll');
         } else {
             counts.topple++;
+            const sup = P[P.length - 1];
+            const cause = windFault ? 'windLanding' : sup && pc.m > 1.5 * sup.m ? 'heavy' : 'lean';
             P.push(res.piece);
-            loseFrom(res.at);
+            loseFrom(res.at, cause);
         }
         windFault = false;
         tallest = Math.max(tallest, P.length);
@@ -344,7 +360,8 @@ function playRound(makePlayer, pick, R, opts = {}) {
     }
     // every round ends in a BOOM: a tower still standing at the end is banked with the height bonus
     if (P.length) score += Math.round(P.reduce((s, p) => s + (p.pts || 0), 0) * Rules.boomMult(P.length));
-    return { placed, tallest, score, lostPts, drops, counts, earned, livesLeft: Math.max(0, lives), end: end || 'drops' };
+    return { placed, tallest, score, lostPts, drops, counts, earned, livesLeft: Math.max(0, lives), end: end || 'drops',
+        maxAbove, moon, broke, brokeLost, endBy };
 }
 
 // ── Reporting ────────────────────────────────────────────────────────────────
@@ -388,6 +405,33 @@ function windReport(name, rounds, makePlayer, seed) {
         `  gust topples/round ${(sum(on, 'gustTopple') / rounds).toFixed(2)}  stacked p50 ${med(on, 'placed')} with wind, ${med(off, 'placed')} without`);
 }
 
+// How high do towers get? Share of rounds (no BOOM) reaching each landmark, what the moon takes,
+// and what broke towers once they were 12 or more high.
+function landmarks(name, rounds, makePlayer, pick, seed, opts) {
+    const res = runMany(rounds, makePlayer, pick, seed, opts);
+    const reach = MILESTONES.filter(m => m.h >= 400).map(m =>
+        `${m.text.replace(/[!]/g, '').replace('AS TALL AS ', '').replace('TALLER THAN THE ', '').replace('TOUCHING THE ', '').replace('UP IN THE ', '').replace('TO THE ', '').toLowerCase()} ${String(Math.round(res.filter(r => r.maxAbove >= m.h).length / rounds * 100)).padStart(3)}%`);
+    const moons = res.filter(r => r.moon);
+    const moonN = moons.length ? (moons.reduce((s, r) => s + r.moon.n, 0) / moons.length).toFixed(1) : '-';
+    const moonT = moons.length ? Math.round(moons.reduce((s, r) => s + r.moon.t, 0) / moons.length) : '-';
+    const b = { gust: 0, windLanding: 0, heavy: 0, lean: 0 };
+    res.forEach(r => { for (const k in b) b[k] += r.broke[k]; });
+    const roll12 = res.reduce((s, r) => s + r.counts.roll12, 0);
+    const total = Object.values(b).reduce((s, v) => s + v, 0);
+    const sh = k => `${Math.round(b[k] / Math.max(1, total) * 100)}%`;
+    const tall = res.filter(r => r.tallest >= 12);
+    const duskTall = tall.filter(r => r.end === 'dusk').length;
+    const lostN = res.flatMap(r => r.brokeLost).sort((x, y) => x - y);
+    const brokeEnd = tall.filter(r => r.endBy === 'break').length;
+    console.log(`${name.padEnd(28)} ${reach.join('  ')}  | moon takes ${moonN} pumpkins, at ${moonT}s` +
+        `  | 12+ towers broken by: lean ${sh('lean')}, gust ${sh('gust')}, wind at landing ${sh('windLanding')}, heavy-on-light ${sh('heavy')}` +
+        ` (${(total / rounds).toFixed(2)}/rd; top roll-offs at 12+ ${(roll12 / rounds).toFixed(2)}/rd)` +
+        `  | a 12+ break drops ${lostN.length ? pct(lostN, 0.5) : '-'} pumpkins (median)` +
+        `  | rounds with a 12+ tower ending at sunset ${Math.round(duskTall / Math.max(1, tall.length) * 100)}%, on a break ${Math.round(brokeEnd / Math.max(1, tall.length) * 100)}%` +
+        `  | stacked median ${pct(res.map(r => r.placed).sort((x, y) => x - y), 0.5)}`);
+    return res;
+}
+
 // Single drops at fixed offsets onto a fixed stack, in a given wind: how often does it fall?
 function fallRate(stackKeys, dropKey, d, wind = 0, trials = 4000, seed = 7) {
     const R = rng(seed);
@@ -418,6 +462,16 @@ if (require.main === module) {
     summarize('expert 45ms, planner', N, PLAYERS.timer(0.045), pickPlan, 5);
     summarize('near-perfect 25ms, grabber', N, PLAYERS.timer(0.025), pickGrab, 6);
     summarize('first round, casual (assisted)', N, PLAYERS.timer(0.15), pickGrab, 2, { firstRound: true });
+
+    console.log('\nHow high towers get (never pressing BOOM), and what breaks them:');
+    landmarks('random tapper, grabber', N, PLAYERS.random, pickGrab, 1);
+    landmarks('casual 150ms, grabber', N, PLAYERS.timer(0.15), pickGrab, 2);
+    landmarks('casual 150ms, planner', N, PLAYERS.timer(0.15), pickPlan, 2);
+    landmarks('good 70ms, grabber', N, PLAYERS.timer(0.07), pickGrab, 4);
+    landmarks('good 70ms, planner', N, PLAYERS.timer(0.07), pickPlan, 4);
+    landmarks('expert 45ms, grabber', N, PLAYERS.timer(0.045), pickGrab, 5);
+    landmarks('expert 45ms, planner', N, PLAYERS.timer(0.045), pickPlan, 5);
+    landmarks('near-perfect 25ms, grabber', N, PLAYERS.timer(0.025), pickGrab, 6);
 
     console.log('\nPressing BOOM at a given height:');
     for (const b of [8, 10, 14]) {
@@ -451,4 +505,4 @@ if (require.main === module) {
     row('light on HEAVY: gold_s onto deep_xl', ['pumpkin_orange_l', 'pumpkin_deep_xl'], 'pumpkin_gold_s', 0);
 }
 
-module.exports = { lib, playRound, fallRate, PLAYERS, rng, GROW, LAYOUT, RULES, pickRandom, pickGrab, pickPlan };
+module.exports = { lib, playRound, fallRate, PLAYERS, rng, GROW, LAYOUT, RULES, MILESTONES, pickRandom, pickGrab, pickPlan, landmarks, runMany };

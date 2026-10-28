@@ -161,38 +161,6 @@ def pumpkin(w, h, pal, lobes=5, seed=1, stripes=False, warts=False, curl=True):
     return outline(img, 0.6)
 
 
-def cracked_icon():
-    """A broken life for the life row: the life pumpkin, dulled and split down a jagged crack,
-    its right half pushed a pixel out."""
-    whole = pumpkin(9, 7, "orange", 3, curl=False)
-    W, H = whole.size
-    src = whole.load()
-    img = Image.new("RGBA", (W + 1, H), (0, 0, 0, 0))
-    p = img.load()
-    top = 6                      # pumpkin(): the stem sits above row `top`
-    cx = W // 2
-    crack = {y: cx + (0, 1, 1, 0, -1)[(y - top) % 5] for y in range(top, H)}
-    dull = hx("#8a6a52")
-    for y in range(H):
-        for x in range(W):
-            c = src[x, y]
-            if c[3] == 0:
-                continue
-            c = mix(c, dull, 0.35)
-            if y < top or x < crack[y]:
-                p[x, y] = c
-            elif x > crack[y]:
-                p[x + 1, y] = c
-    # the crack itself: the gap between the halves, dark
-    dark = mix(INK + (255,), hx("#5a3018"), 0.25)
-    for y in range(top, H):
-        row = [x for x in range(W + 1) if p[x, y][3]]
-        for x in range(W + 1):
-            if p[x, y][3] == 0 and any(xx < x for xx in row) and any(xx > x for xx in row):
-                p[x, y] = dark
-    return img
-
-
 PUMPKINS = [
     # name, w, h, palette, lobes, extras
     ("pumpkin_orange_m", 20, 15, "orange", 5, {}),
@@ -397,24 +365,6 @@ def wood_panel():
             p[x, y] = wood[t]
     for (x, y) in [(2, 2), (w - 3, 2), (2, h - 3), (w - 3, h - 3)]:
         p[x, y] = hx("#c7cbd2")
-    return img
-
-
-def score_chip(colours):
-    """9-slice painted chip for the score pop and the HUD (Balatro-style): blue for a drop's
-    points, red for the mult. Ink edge, rounded corners, a light top row and a dark lip."""
-    dark, base, light = [hx(c) for c in colours]
-    w, h = 12, 10
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    p = img.load()
-    for y in range(h):
-        for x in range(w):
-            if x in (0, w - 1) and y in (0, h - 1):
-                continue
-            if x in (0, w - 1) or y in (0, h - 1):
-                p[x, y] = INK + (255,)
-                continue
-            p[x, y] = light if y == 1 else dark if (y == h - 2 or x == w - 2) else base
     return img
 
 
@@ -2242,9 +2192,6 @@ def main():
     for name, w, h, pal, lobes, extra in PUMPKINS:
         save(pumpkin(w, h, pal, lobes, seed=zlib.crc32(name.encode()), **extra), name + ".png")
     save(pumpkin(9, 7, "orange", 3, curl=False), "icon_pumpkin.png")
-    save(cracked_icon(), "icon_pumpkin_cracked.png")   # a life that broke
-    save(score_chip(["#1c4a73", "#2e74b5", "#79b8ea"]), "chip_blue.png")   # a drop's points
-    save(score_chip(["#7a1f1a", "#c0392b", "#ef8064"]), "chip_red.png")    # the mult
     i = 0
     for col in ("red", "orange", "yellow", "brown"):
         save(leaf(MAPLE, col), f"leaf_{i}.png"); i += 1

@@ -1,6 +1,6 @@
 # Ansel's Pumpkin Patch
 
-An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them on a hay bale. A round is one afternoon (3½ minutes): the tower can fall, and every pumpkin that falls breaks one of your life pumpkins, which multiply everything you bank. The round always runs to sunset.
+An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them on a hay bale. A round is one afternoon (3½ minutes) and the score is the pounds of pumpkins you harvest: they're at risk on the tower until you BOOM it, and a tall tower banks a bonus.
 
 ## How to play
 
@@ -9,29 +9,17 @@ An Uppah minigame. Ansel picks up pumpkins around a fall patch and stacks them o
   - Vine pumpkins keep growing while they're left: sprout, then a small pumpkin (gold, orange or warty), medium (orange, white or green), large (orange), and finally XL (the deep orange giant). Now and then one grows golden instead of large. Each bigger size takes longer.
   - Tap a pumpkin of any size and Ansel puts on his straw hat, wades in, picks it and carries it to the bale.
   - Tap a bare spot or a sprout and he waters it. It jumps a size at once and grows half again as fast until it's picked. He doesn't pick anything on a watering trip; he steps back to the field's edge, ready for your next tap.
-  - **Water early, pick big:** a big pumpkin scores more (see Scoring) and is a wide, steady base. But it's heavy: a slower carry, it swings a little faster when tossed up, and on top of a smaller one it's a shaky joint.
+  - **Water early, pick big:** a big pumpkin weighs more (see Scoring) and is a wide, steady base. But it's heavy: a slower carry, it swings a little faster when tossed up, and on top of a smaller one it's a shaky joint.
   - BOOMed pumpkins are banked and spent: they fly off, settle and fade away.
   - Pumpkins that fall off a bad drop stay on the path to be picked up again.
 - **Tap again** to drop it. A plain ring on the stack shows where it will land (wind drift included). It doesn't tell you whether it will stay: that's for you to judge from weight, order and lean.
 - **Stack honestly.** A pumpkin lands where you drop it. A drop very near the centre (within 12% of the flat top's half-width) is PERFECT: it snaps to dead centre, so a careful tower never leans. If its centre is past the edge of the one below, it rolls off. Only a player's very first round gets help with the first two pumpkins (and the pointing hand shows the very first one); after that it's all on you.
-- **Solid and shaky joints.** Every pumpkin and the one under it make a joint. It's **solid** when the pumpkin landed well (placement 55 or more, see Scoring) and is no bigger a size than the one under it (and not much wider). A solid joint holds through any gust, at any height, and through any landing on top. A **shaky** joint (off-centre, or big on small) can give way to a gust or a heavy landing, and then only the pumpkins above it fall; the solid part below stays. So build big at the bottom, small on top, and centred, and the weather can't touch you.
+- **Solid and shaky joints.** Every pumpkin and the one under it make a joint. It's **solid** when the pumpkin landed in the middle half of the one under it (within half its flat top's half-width of centre) and is no bigger a size than it (and not much wider). A solid joint holds through any gust, at any height, and through any landing on top. A **shaky** joint (off-centre, or big on small) can give way to a gust or a heavy landing, and then only the pumpkins above it fall; the solid part below stays. So build big at the bottom, small on top, and centred, and the weather can't touch you.
 - **You can see the risk.** A tower with no shaky joints barely sways, even in a gale. A pumpkin on a shaky joint gives a small rock every few seconds, and when a gust that could take it is coming (the leaves are already streaming) it creaks and rocks harder. Cash in with BOOM, or keep going.
 - **Wind.** Watch the windsock beside the bale and the leaves; they start streaming a second before a gust. A gust pushes the hovering pumpkin and drifts it as it falls (aim upwind; the ring shows where it will really land), so aiming stays hard, and it can topple a shaky joint (more easily the more is stacked on it). Gusts get stronger as the tower grows and toward sunset.
-- **Scoring, Balatro-style.** Each pumpkin that lands and stays scores **(placement + size) × mult**:
-  - placement, out of 100: 100 for PERFECT, then down in steps of 5 the further off centre it lands (as a share of the flat top it lands on), 0 at the edge;
-  - size: +10 small, +25 medium, +50 large, +100 XL, +150 golden;
-  - mult: how many have landed in a row, ×1, ×2, ×3 ... Any pumpkin falling resets it to ×1, and so does BOOM. A low-scoring landing that stays still counts (it already scores little and its joint is shaky).
-
-  Over the pumpkin a small pop shows it: a blue chip with placement + size, a red chip with the mult, then the result, e.g. `[90+50] ×4 = 560`. The next drop's mult sits in a red chip beside the tower count.
-- **BOOM!** Once the tower is 3 tall, a wooden BOOM sign on the hay bale shows how many points it will bank. Tapping the bale (or holding B for half a second) sends Ansel to shove it: that banks the tower's drop scores × the lives multiplier, knocks it down and starts the mult over. If the tower falls first, the points on the fallen pumpkins are lost and the mult resets. Keep the mult climbing, or cash in now? Every round also ends in a BOOM: whatever is still standing at sunset is banked the same way. The moon is the top of the sky: a tower that reaches it is banked with a MOON BOOM.
-- **Pumpkin lives multiply what you bank.** Each whole life pumpkin adds ×0.1 to everything you bank (BOOMs and the last BOOM at sunset): 3 lives ×1.3, 5 lives ×1.5, none ×1.0. The multiplier shows beside the life row. Each pumpkin that falls off the tower breaks a life: its icon cracks with a soft crack and a small wobble, and the multiplier drops. With none left, a fall costs just its points; running out never ends the round. The landing pops show the drop's own score; the lives multiplier applies when you bank, so a fall before you BOOM also lowers what the standing tower is worth. You start with 3 and can earn lives back, up to 5 (an earned life mends a cracked one, or grows a new one):
-  - 3 perfect drops in a row: +1.
-  - BOOM a tower 8 tall: +1 (14 tall: +2).
-  - The first time a tower tops Gigi, the silo, the clouds, the sky and the moon in a round: +1 each. Also halfway between the high ones (760, 1100 and 1550 px), so a long climb keeps paying.
-  - Harvesting a golden pumpkin: +1.
-
-  Each one flies into the life row as a little pumpkin, with a chime.
-- **Rounds.** The afternoon lasts 3½ minutes and the sky turns gold, then dusky. A round only ends at sunset, when Ansel BOOMs whatever is still standing. The end card (SUNSET!) shows that last BOOM, what the lives multiplier added over the round (FROM LIVES), your score, the tallest tower, your best, and how many secrets (surprise stickers) you've found, with any new this round, beside a picture of the round's tallest tower and Ansel. Wide screens put the picture and the table side by side; tall and squarish ones stack them. Tap to play again. At sunset Hoppah hops over and jumps into Ansel's arms for NIGHT NIGHT before the end card.
+- **Scoring: pounds of pumpkins.** Each pumpkin that lands and stays puts its weight on the tower: small 5 lb, medium 10, large 20, XL 40, golden 50. A PERFECT drop counts double; a small, quiet PERFECT over the pumpkin is all it shows. Nothing else pops up when a pumpkin lands.
+- **BOOM!** Once the tower is 3 tall, a wooden BOOM sign on the hay bale shows what it would bank. Tapping the bale (or holding B for half a second) sends Ansel to shove it: that banks the tower's pounds plus a **tall-tower bonus** of +10% for every pumpkin over 3, up to double (+100% at 13), and knocks it down. One banner says it, e.g. "BOOM! 180 LB" and, under it, "+50% TALL TOWER". The pounds on the tower aren't safe until then: if it falls first, the pounds of the pumpkins that fell are lost. One more, or cash in now? Every round also ends in a BOOM: whatever is still standing at sunset is banked the same way. The moon is the top of the sky: a tower that reaches it is banked with a MOON BOOM. The landmark banners (OVER THE FENCE!, TO THE MOON! ...) are just celebrations.
+- **Rounds.** The afternoon lasts 3½ minutes and the sky turns gold, then dusky. A round only ends at sunset, when Ansel BOOMs whatever is still standing. The end card (SUNSET!) shows that last BOOM, TODAY'S HARVEST (the round's pounds), the tallest tower, your best harvest, and how many secrets (surprise stickers) you've found, with any new this round, beside a picture of the round's tallest tower and Ansel. Wide screens put the picture and the table side by side; tall and squarish ones stack them. Tap to play again. At sunset Hoppah hops over and jumps into Ansel's arms for NIGHT NIGHT before the end card.
 - Leaf piles hide surprise pumpkins. **MORE!** If there's no pumpkin to pick anywhere (path or vines), tap empty ground or Ansel and he shouts MORE!: every plant in the patch grows a size and the leaf piles fill again. It needs 20 seconds before it works again; until then, water. Ansel, the trees, Hoppah the bunny and lots of the scenery react when tapped.
 
 Keyboard: arrows or A/D to walk; Down or S to pick up, pick or water the nearest vine spot, or dive into a leaf pile; Up, W or Space to drop, ask for more or play again; hold B to BOOM (a single press does nothing, so a stray key can't bank the tower); P or Esc to pause; M to mute (remembered). While Ansel carries a pumpkin back to the bale, the walking keys, Up and Down do nothing.
@@ -68,14 +56,12 @@ One tap, one action: no double taps or long presses. Which zone a tap lands in d
 | No outcome hints: the ring shows where it lands, not whether it stays; help is for a player's first round only | UX review ("tap when the ring is gold") |
 | Ansel speaks up only for big moments (UPPAH!, MORE!, BOOM, golden, milestones, falls, surprises) | UX review; the players aren't toddlers |
 | Honest stacking: centre of weight over the joint or it goes; weight and size change how a drop behaves | Owner feedback; Jenga / Mount Your Friends physical stakes |
-| Push your luck: points ride on the tower until BOOM banks them | Can't Stop / "press your luck" games |
+| Push your luck: pounds ride on the tower until BOOM banks them, and a tall tower banks a bonus | Can't Stop / "press your luck" games |
 | Wind is telegraphed (~1.4 s of leaves and whoosh), alternates sides, and is present but not dominant | Paper Toss; owner feedback |
-| Achievements earn lives back, each with a pumpkin flying into the life row | Owner feedback; arcade extra lives |
-| A round always runs to sunset; falls cost lives, and lives left are an end-of-day bonus | Owner feedback ("the game ending before the time limit ... doesn't make sense") |
-| Lives are a live points multiplier that breaks when a pumpkin falls; a slightly longer day | Owner feedback ("the pumpkin health could be a point multiplier that broke when it fell", "the day slightly longer") |
-| Points per drop are (placement out of 100 + size points) × how many in a row, shown as chips | Owner feedback ("a Balatro style system ... the amount consecutive is the mult") |
+| A round always runs to sunset (3½ minutes) | Owner feedback ("the game ending before the time limit ... doesn't make sense", "the day slightly longer") |
+| One score unit, pounds harvested; a PERFECT drop counts double; no lives, no mults, no number pops | Owner feedback ("this is getting overwhelming ... the numbers themselves aren't very significant or interpretable") |
 | A well-built tower never falls: only shaky joints (off-centre, or big on small) can give way | Owner feedback ("a tower that was built robustly shouldn't just fall over randomly") |
-| Perfect drops sparkle and climb in pitch | Stack (Ketchapp) |
+| Perfect drops say PERFECT quietly and climb in pitch | Stack (Ketchapp) |
 | Up to three touches; only a contact bigger than any thumb (or a broad one beside another finger) is ignored; 120 ms double-hit guard per spot | A resting palm can't block a finger, and a thumb is never mistaken for a palm |
 | Thumb-sized targets; when two are close, the one that matters for play wins; the drop works anywhere | Owner feedback ("tapping on the landing spot should drop") |
 
@@ -91,21 +77,19 @@ One tap, one action: no double taps or long presses. Which zone a tap lands in d
 ## Tuning
 
 - The rules live in the `<rules>` block near the top of `game.js`:
-  - `RULES`: lives, how to earn them and what each multiplies banked points by (`lifeMult`), first-round help, scoring (`perfectZone`, `placeStep`, `sizePts`, `goldenPts`), what makes a joint solid (`solidPlace`, `wideTol`) and how much wind a shaky one catches (`shakyWind`), flat-top widths, wobble, wind, sway (`solidSway`), BOOM, the 3½-minute day (`day`; gusts and dusk are timed as fractions of it).
-  - `SIZE_OF`: each variety's size class (small, medium, large, XL), for size points and joint order.
+  - `RULES`: first-round help, scoring (`lb`, `goldenLb`, `perfectZone`; the tall-tower bonus `tallFrom`, `tallPer`, `tallCap`), what makes a joint solid (`solidShare`, `wideTol`) and how much wind a shaky one catches (`shakyWind`), flat-top widths, wobble, wind, sway (`solidSway`), BOOM, the 3½-minute day (`day`; gusts and dusk are timed as fractions of it).
+  - `SIZE_OF`: each variety's size class (small, medium, large, XL), for its pounds and joint order.
   - `HEFT`: how heavy each variety is.
   - `STAGES`: CALM, BREEZY, WINDY, GUSTY, STORMY and WILD WIND, by tower height, each with the hover's sway width and speed and the gust strength.
-- The patch: `LAYOUT` (path pumpkins at the start), `GROW` (how long each size takes, how much faster a watered plant grows, the golden chance, each spot's starting stage, the MORE! cooldown), `GROW_SIZES` (the varieties at each size) and `GROW_SPOTS`. `RULES.sizePow` sets how much size is worth, `RULES.heavyKick` how hard a big one lands, `RULES.hoverHeft` how weight changes its swing.
+- The patch: `LAYOUT` (path pumpkins at the start), `GROW` (how long each size takes, how much faster a watered plant grows, the golden chance, each spot's starting stage, the MORE! cooldown), `GROW_SIZES` (the varieties at each size) and `GROW_SPOTS`. `RULES.heavyKick` sets how hard a big one lands, `RULES.hoverHeft` how weight changes its swing.
 - `PatchScene.harvest(sp)` is the one entry point for a tap on a vine spot: it picks a pumpkin, or waters a bare spot or a sprout.
 - Per-tower state lives in a `Stack` object (one per hay bale), so more bales are a small change.
-- Items may carry `it.golden` (scores ×3) and `it.heft` (overrides the variety's weight).
-- `PatchScene.earnLife(n, x, y)` awards lives from anywhere, with the fly-in. `PatchScene.scorePop(it, sc)` shows a drop's chips. `PatchScene.shakyCues()` rocks and creaks shaky joints. `PatchScene.endRound()` (sunset) does the last BOOM, then shows the end card, which `UIScene.layoutEnd(w, h)` lays out: every piece gets its own box, and the score table scales down as one piece to fit.
+- Items may carry `it.golden` and `it.heft` (overrides the variety's balance weight).
+- `Rules.pounds(key, perfect)` is a pumpkin's pounds, `Rules.bank(lbs, n)` what BOOM banks. `PatchScene.perfectWord(it)` shows the quiet PERFECT, `PatchScene.boomLine()` the BOOM banner. `PatchScene.shakyCues()` rocks and creaks shaky joints. `PatchScene.endRound()` (sunset) does the last BOOM, then shows the end card, which `UIScene.layoutEnd(w, h)` lays out: every piece gets its own box, and the score table scales down as one piece to fit.
 - `PatchScene.say()` filters what Ansel says: lines in `SAY_LINES`, or calls that pass `important`.
 - One-time help is remembered per device in `localStorage` (`uppah.pumpkinpatch.played`, `.hinted`).
 
-Measured with `sim.js` (2000 rounds each, 3½-minute day, a returning player with no first-round help). Every round runs the whole afternoon. Each action costs a real trip with the game's timings: walking, wading into and out of a vine row, the pick and the slower heavy carry, or 12 frames of watering at 85 ms. Timing players aim the landing ring at the centre with the given timing error. Two styles:
-- **grabbers** take the nearest pumpkin of any size;
-- **planners** water bare spots and sprouts early and pick large ones (large, golden or XL), or else the biggest around.
+Measured with `sim.js` (1000 rounds each, 3½-minute day, a returning player with no first-round help). Every round runs the whole afternoon. Each action costs a real trip with the game's timings: walking, wading into and out of a vine row, the pick and the slower heavy carry, or 12 frames of watering at 85 ms. Timing players aim the landing ring at the centre with the given timing error.
 
 Three ways to choose pumpkins:
 - **grabbers** take the nearest pumpkin of any size;
@@ -116,43 +100,43 @@ Pumpkins stacked per round, never pressing BOOM (p10 / median / p90; a pumpkin t
 
 | Player | Grabber | Builder | Planner |
 |---|---|---|---|
-| Random tapper | 17 / 22 / 26 | | |
-| Casual (150 ms) | 27 / 33 / 39 | 37 / 42 / 47 | 19 / 23 / 26 |
-| Good (70 ms) | 42 / 48 / 54 | 44 / 52 / 59 | 24 / 27 / 31 |
-| Expert (45 ms) | 51 / 57 / 61 | 45 / 50 / 59 | 26 / 27 / 31 |
-| Near-perfect (25 ms) | | 45 / 47 / 51 | |
+| Random tapper | 17 / 21 / 26 | | |
+| Casual (150 ms) | 27 / 33 / 39 | 36 / 41 / 46 | 19 / 23 / 26 |
+| Good (70 ms) | 42 / 49 / 54 | 44 / 50 / 58 | 24 / 27 / 31 |
+| Expert (45 ms) | 51 / 56 / 61 | 45 / 49 / 56 | 26 / 27 / 31 |
+| Near-perfect (25 ms) | | 45 / 47 / 50 | |
 
 How high towers get, never pressing BOOM (share of rounds whose tower tops each landmark):
 
 | Player | Clouds (900) | Sky (1300) | Moon (1750) |
 |---|---|---|---|
-| Casual grabber / builder / planner | 70% / 98% / 95% | 7% / 54% / 45% | 0% / 3% / 1% |
-| Good grabber / builder / planner | 98% / 100% / 100% | 37% / 83% / 87% | 0% / 27% / 17% |
-| Expert grabber / builder / planner | 100% / 100% / 100% | 60% / 98% / 97% | 0% / 68% / 40% |
-| Near-perfect builder | 100% | 100% | 99% |
+| Casual grabber / builder / planner | 72% / 99% / 96% | 7% / 64% / 47% | 0% / 5% / 2% |
+| Good grabber / builder / planner | 99% / 100% / 100% | 35% / 88% / 88% | 0% / 35% / 20% |
+| Expert grabber / builder / planner | 100% / 100% / 100% | 62% / 99% / 98% | 0% / 78% / 40% |
+| Near-perfect builder | 100% | 100% | 100% |
 
-- The moon takes about 30 pumpkins for builders (at about 173–190 s) and 23 big ones for planners (at about 183–197 s). Grabbers stack big on small all the time, so their towers keep breaking: they never get there.
-- **Stability:** no collapse ever starts at a solid joint (0.00 a round, for every player). Collapses come from your own joints: off-centre ones (builders about 3–6 a round, grabbers 2–4) and bigger-on-smaller ones (grabbers 1.5–3 a round, builders none). Shaky joints are 10% (expert builder) to 43% (casual grabber) of landings.
+- The moon takes about 30 pumpkins for builders (at about 170–190 s) and 23 big ones for planners (at about 182–200 s). Grabbers stack big on small all the time, so their towers keep breaking: they don't get there.
+- **Stability:** no collapse ever starts at a solid joint (0.00 a round, for every player). Collapses come from your own joints: off-centre ones (builders about 3–5 a round, grabbers 1.5–3.5) and bigger-on-smaller ones (grabbers 1.6–3.4 a round, builders none). Shaky joints are 9% (expert builder) to 41% (casual grabber) of landings.
 
-**Push your luck.** Mean score for each BOOM strategy (250 rounds each). "at 8": BOOM every time the tower is 8 tall; "shaky 1": BOOM as soon as any joint is shaky; "shaky 3": once a shaky joint carries 3 pumpkins.
+**Push your luck.** Mean pounds banked for each BOOM strategy (250 rounds each). "at 8": BOOM every time the tower is 8 tall; "shaky 1": BOOM as soon as any joint is shaky; "shaky 3": once a shaky joint carries 3 pumpkins.
 
-| Player | Never | At 8 | At 14 | At 20 | Shaky 1 | Shaky 3 | Best |
-|---|---|---|---|---|---|---|---|
-| Casual grabber | 1,657 | 5,610 | 3,732 | 2,272 | 5,422 | 6,229 | shaky 3 |
-| Casual builder | 3,556 | 10,443 | 7,535 | 5,512 | 9,406 | 9,765 | at 8 |
-| Casual planner | 4,130 | 9,771 | 7,283 | 4,759 | 9,555 | 9,714 | at 8 |
-| Good grabber | 2,905 | 14,340 | 12,776 | 7,587 | 11,228 | 13,974 | at 8 |
-| Good builder | 9,983 | 24,176 | 23,440 | 18,739 | 26,945 | 27,472 | shaky 3 |
-| Good planner | 11,045 | 19,726 | 23,781 | 21,535 | 20,977 | 21,995 | at 14 |
-| Expert grabber | 4,143 | 22,556 | 27,631 | 20,494 | 21,583 | 27,591 | at 14 |
-| Expert builder | 22,750 | 29,151 | 39,893 | 43,032 | 47,805 | 47,246 | shaky 1 |
-| Expert planner | 23,691 | 22,761 | 35,360 | 35,979 | 27,054 | 28,052 | at 20 |
+| Player | Never | At 3 | At 8 | At 11 | At 14 | At 20 | Shaky 1 | Shaky 3 | Best |
+|---|---|---|---|---|---|---|---|---|---|
+| Casual grabber | 236 | 408 | 531 | 500 | 454 | 289 | 434 | 492 | at 8 |
+| Casual builder | 472 | 531 | 748 | 810 | 841 | 682 | 684 | 773 | at 14 |
+| Casual planner | 629 | 629 | 856 | 903 | 879 | 661 | 790 | 871 | at 11 |
+| Good grabber | 304 | 475 | 669 | 764 | 765 | 593 | 555 | 628 | at 14 |
+| Good builder | 673 | 619 | 871 | 980 | 1,062 | 1,030 | 971 | 1,007 | at 14 |
+| Good planner | 841 | 762 | 1,073 | 1,229 | 1,299 | 1,129 | 1,131 | 1,185 | at 14 |
+| Expert grabber | 357 | 519 | 723 | 841 | 898 | 801 | 654 | 718 | at 14 |
+| Expert builder | 987 | 683 | 955 | 1,088 | 1,171 | 1,194 | 1,146 | 1,188 | at 20 |
+| Expert planner | 1,069 | 859 | 1,195 | 1,376 | 1,558 | 1,377 | 1,329 | 1,385 | at 14 |
 
-- Never pressing BOOM pays 15–66% of the best; the best skilled play cashes in when its own building gets shaky.
-- **Building big at the bottom wins:** a builder's best beats a grabber's by +68% (casual), +92% (good) and +73% (expert), and a planner's by about 7%, 16% and 33%.
-- **Where the points come from** (at each player's best): placement is 58–83% of the chips and size 17–42% (planners, with their big pumpkins, the most); the mult multiplies the chips by about ×2 (casual) to ×7 (expert) on average; the lives multiplier is 5% (casual grabbers) to 33% (expert builders) of the score.
+- Without the tall-tower bonus, BOOMing at every 3 was always the safest and best. With it, the best is in the middle (8–20, mostly 14): BOOMing at 3 pays 47–77% of the best, never BOOMing 40–83%.
+- **Big and centred wins:** planners (big pumpkins) bank +70% to +73% over grabbers at their best, builders (big at the bottom, never bigger on smaller) +33% to +58%, and every step of accuracy (casual to good to expert) adds 12–44%.
+- **Where the pounds come from** (at each player's best): the pumpkins' own weight 34–52%, PERFECT doubling 10–17%, the tall-tower bonus 32–49%.
 - **Watering:** planners water 17–20 times a round, each trip about 2.8 s; grabbers and builders hardly ever. Builders shout MORE! now and then (up to 0.4 a round) when nothing small enough is ripe.
-- **Wind** (builders, never pressing BOOM, gusts on and off): the tallest tower's median is 20 vs 26 (casual), 26 vs 32 (good) and 32 vs 32 (expert). Gusts only ever take shaky joints.
+- **Wind** (builders, never pressing BOOM, gusts on and off): the tallest tower's median is 21 vs 26 (casual), 28 vs 32 (good) and 32 vs 32 (expert). Gusts only ever take shaky joints.
 
 The game picks its resolution from the screen's shape (720 on the short side) and re-fits when a phone rotates, so it fills both landscape and portrait screens.
 
@@ -183,7 +167,7 @@ All of it lives in the SURPRISES section near the end of `game.js` (one-line hoo
 
 ## How to play card, title and pause extras
 
-After the first tap on the title, a four-panel how-to-play card explains the game before the round starts: STACK 'EM UP (the goal, the landing ring, heavy pumpkins at the bottom, the controls), DON'T LET IT FALL (life pumpkins break when a pumpkin falls and multiply what you bank, gusts, the ways to earn lives back), BOOM! (banking the tower, what's lost if it falls first) and BEAT THE SUNSET (the afternoon is the clock, the last BOOM at the end of a round, vines, leaf piles, MORE! and the scenery). Each panel has a small looping scene built from the game's own sprites. Touch screens see taps; a mouse and keyboard (`DESKTOP`) see keycaps.
+After the first tap on the title, a four-panel how-to-play card explains the game before the round starts: STACK 'EM UP (the goal, the landing ring, heavy pumpkins at the bottom, the controls), DON'T LET IT FALL (centred and big at the bottom never blows over, gusts only topple shaky spots, a PERFECT drop counts double), BOOM! (your score is pounds, not safe until you BOOM; the tall-tower bonus; what's lost if it falls first) and BEAT THE SUNSET (the afternoon is the clock, the last BOOM at the end of a round, vines, leaf piles, MORE! and the scenery). Each panel has a small looping scene built from the game's own sprites. Touch screens see taps; a mouse and keyboard (`DESKTOP`) see keycaps.
 
 - It opens by itself until the player has started 3 rounds (`HTP_AUTO`, counted in `localStorage` as `uppah.pumpkinpatch.rounds`). After that it's on the title's "?" button (or ? / H), and on the pause menu's HOW TO PLAY button.
 - NEXT / BACK / SKIP, a swipe, a tap on the card, the page pumpkins, or keys: → Space Enter next, ← back, 1-4 a page, Esc skip. M still mutes.

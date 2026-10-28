@@ -161,6 +161,38 @@ def pumpkin(w, h, pal, lobes=5, seed=1, stripes=False, warts=False, curl=True):
     return outline(img, 0.6)
 
 
+def cracked_icon():
+    """A broken life for the life row: the life pumpkin, dulled and split down a jagged crack,
+    its right half pushed a pixel out."""
+    whole = pumpkin(9, 7, "orange", 3, curl=False)
+    W, H = whole.size
+    src = whole.load()
+    img = Image.new("RGBA", (W + 1, H), (0, 0, 0, 0))
+    p = img.load()
+    top = 6                      # pumpkin(): the stem sits above row `top`
+    cx = W // 2
+    crack = {y: cx + (0, 1, 1, 0, -1)[(y - top) % 5] for y in range(top, H)}
+    dull = hx("#8a6a52")
+    for y in range(H):
+        for x in range(W):
+            c = src[x, y]
+            if c[3] == 0:
+                continue
+            c = mix(c, dull, 0.35)
+            if y < top or x < crack[y]:
+                p[x, y] = c
+            elif x > crack[y]:
+                p[x + 1, y] = c
+    # the crack itself: the gap between the halves, dark
+    dark = mix(INK + (255,), hx("#5a3018"), 0.25)
+    for y in range(top, H):
+        row = [x for x in range(W + 1) if p[x, y][3]]
+        for x in range(W + 1):
+            if p[x, y][3] == 0 and any(xx < x for xx in row) and any(xx > x for xx in row):
+                p[x, y] = dark
+    return img
+
+
 PUMPKINS = [
     # name, w, h, palette, lobes, extras
     ("pumpkin_orange_m", 20, 15, "orange", 5, {}),
@@ -2192,6 +2224,7 @@ def main():
     for name, w, h, pal, lobes, extra in PUMPKINS:
         save(pumpkin(w, h, pal, lobes, seed=zlib.crc32(name.encode()), **extra), name + ".png")
     save(pumpkin(9, 7, "orange", 3, curl=False), "icon_pumpkin.png")
+    save(cracked_icon(), "icon_pumpkin_cracked.png")   # a life that broke
     i = 0
     for col in ("red", "orange", "yellow", "brown"):
         save(leaf(MAPLE, col), f"leaf_{i}.png"); i += 1

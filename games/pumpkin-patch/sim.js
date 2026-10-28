@@ -5,7 +5,7 @@
 // scoring), then plays thousands of rounds with simulated players and prints how far they get,
 // how many lives they earn back, how much the wind matters, which BOOM height pays best, plus
 // fall rates for single drops. Every round runs the whole afternoon: falls cost lives, and the
-// lives left at sunset add a bonus.
+// each whole life multiplies what's banked.
 // Run:  node games/pumpkin-patch/sim.js [rounds]
 //
 // The fetch-and-carry part of each pumpkin is modelled as a 2.6-4.2 s wait; the hover, tap,
@@ -206,6 +206,14 @@ function playRound(makePlayer, pick, R, opts = {}) {
     };
     let windFault = false; // is the fall being handled now down to the wind?
     // each fallen pumpkin costs a life (none left: just its points); the round still runs to sunset
+    // BOOM: the tower's points x the height bonus x the lives multiplier (fromLives: what the lives added)
+    let fromLives = 0;
+    const bank = () => {
+        const base = P.reduce((s, p) => s + (p.pts || 0), 0) * Rules.boomMult(P.length);
+        const pts = Math.round(base * Rules.livesMult(lives));
+        score += pts;
+        fromLives += pts - Math.round(base);
+    };
     const lose = n => {
         lives = Math.max(0, lives - n); counts.lost += n; if (windFault) counts.windLost += n;
     };
@@ -351,7 +359,7 @@ function playRound(makePlayer, pick, R, opts = {}) {
         windFault = false;
         tallest = Math.max(tallest, P.length);
         if (!end && P.length >= bankAt) { // BOOM: bank it and knock it down (those pumpkins are spent)
-            score += Math.round(P.reduce((s, p) => s + p.pts, 0) * Rules.boomMult(P.length));
+            bank();
             earn(Rules.boomLives(P.length), 'boom');
             P = [];
             streak = 0; // a BOOM ends the perfect streak
@@ -361,11 +369,8 @@ function playRound(makePlayer, pick, R, opts = {}) {
         }
     }
     // every round ends in a BOOM: a tower still standing at the end is banked with the height bonus
-    if (P.length) score += Math.round(P.reduce((s, p) => s + (p.pts || 0), 0) * Rules.boomMult(P.length));
-    // then the lives left at sunset add their bonus
-    const bonus = Rules.livesBonus(score, lives);
-    score += bonus;
-    return { placed, tallest, score, bonus, lostPts, drops, counts, earned, livesLeft: lives, end: end || 'drops',
+    if (P.length) bank();
+    return { placed, tallest, score, fromLives, lostPts, drops, counts, earned, livesLeft: lives, end: end || 'drops',
         maxAbove, moon, broke, brokeLost };
 }
 
@@ -385,13 +390,13 @@ function summarize(name, rounds, makePlayer, pick, seed, opts) {
     const drops = res.reduce((s, r) => s + r.drops, 0);
     const lives = res.reduce((s, r) => s + r.earned.streak + r.earned.boom + r.earned.height + r.earned.golden, 0) / rounds;
     const left = res.reduce((s, r) => s + r.livesLeft, 0) / rounds;
-    const bonusShare = res.reduce((s, r) => s + r.bonus, 0) / Math.max(1, res.reduce((s, r) => s + r.score, 0));
+    const bonusShare = res.reduce((s, r) => s + r.fromLives, 0) / Math.max(1, res.reduce((s, r) => s + r.score, 0));
     const pc = k => (sum(k) / drops * 100).toFixed(0).padStart(2) + '%';
     const placed = res.reduce((s, r) => s + r.placed, 0);
     const per = k => (sum(k) / rounds).toFixed(1);
     console.log(
         `${name.padEnd(32)} stacked ${p3(sorted('placed'))}  score p50 ${String(pct(sorted('score'), 0.5)).padStart(6)} mean ${String(Math.round(res.reduce((s, r) => s + r.score, 0) / rounds)).padStart(6)}` +
-        `  lives+ ${lives.toFixed(1)}  left at sunset ${left.toFixed(1)} (bonus ${(bonusShare * 100).toFixed(0)}% of score)` +
+        `  lives+ ${lives.toFixed(1)}  left at sunset ${left.toFixed(1)} (lives multiplier: ${(bonusShare * 100).toFixed(0)}% of score)` +
         `  | waterings/rd ${per('waterings').padStart(4)}  picks/rd ${per('picks').padStart(4)} (vine ${(sum('fromVine') / Math.max(1, sum('picks')) * 100).toFixed(0)}%)` +
         `  pick trip ${(sum('pickTime') / Math.max(1, sum('picks'))).toFixed(1)}s  water trip ${(sum('waterTime') / Math.max(1, sum('waterings'))).toFixed(1)}s` +
         `  avg weight ${(sum('massSum') / Math.max(1, placed)).toFixed(2)} (large+ ${(sum('big') / Math.max(1, placed) * 100).toFixed(0)}%)` +
@@ -435,20 +440,20 @@ function landmarks(name, rounds, makePlayer, pick, seed, opts) {
     return res;
 }
 
-// Mean score for each BOOM height (and never), the best one, and the lives bonus's share at the
+// Mean score for each BOOM height (and never), the best one, and the lives multiplier's share at the
 // best. Returns the best mean score.
 function boomTable(name, rounds, makePlayer, pick, seed) {
     const heights = [4, 6, 8, 10, 12, 14, 18, 24, Infinity];
     const rows = heights.map(b => {
         const res = runMany(rounds, makePlayer, pick, seed, { bankAt: b });
         const total = res.reduce((s, r) => s + r.score, 0);
-        return { b, mean: Math.round(total / rounds), bonus: res.reduce((s, r) => s + r.bonus, 0) / Math.max(1, total) };
+        return { b, mean: Math.round(total / rounds), bonus: res.reduce((s, r) => s + r.fromLives, 0) / Math.max(1, total) };
     });
     const best = rows.reduce((a, r) => (r.mean > a.mean ? r : a));
     const nm = b => (b === Infinity ? 'never' : String(b));
     console.log(`${('  ' + name).padEnd(26)} ` + rows.map(r => `${nm(r.b)}:${r.mean}`).join(' ') +
         `  | best ${nm(best.b)}; BOOM at 4 ${Math.round(rows[0].mean / best.mean * 100)}%, never ${Math.round(rows[rows.length - 1].mean / best.mean * 100)}% of it;` +
-        ` lives bonus ${Math.round(best.bonus * 100)}% of the best's score`);
+        ` lives multiplier ${Math.round(best.bonus * 100)}% of the best's score`);
     return best.mean;
 }
 
@@ -471,7 +476,7 @@ if (require.main === module) {
     console.log(`Rounds per player: ${N} (a returning player: no assisted pumpkins). stacked = pumpkins that stayed`);
     console.log('on this round; tallest = tallest tower; columns are p10 p50 p90; score = banked points.\n');
 
-    console.log('Never pressing BOOM, 3-minute afternoon. Grabbers take the nearest pumpkin; planners water early and pick big:');
+    console.log(`Never pressing BOOM, a ${RULES.day / 60}-minute afternoon. Grabbers take the nearest pumpkin; planners water early and pick big:`);
     summarize('random tapper, grabber', N, PLAYERS.random, pickGrab, 1);
     summarize('casual 150ms, grabber', N, PLAYERS.timer(0.15), pickGrab, 2);
     summarize('casual 150ms, planner', N, PLAYERS.timer(0.15), pickPlan, 2);

@@ -179,9 +179,9 @@ const MILESTONES = [
 // game headless (node games/pumpkin-patch/sim.js). Keep it self-contained.
 // <rules>
 const RULES = {
-    lives: 3,             // pumpkin lives at the start: each pumpkin that falls off costs one (none
+    lives: 3,             // pumpkin lives at the start: each pumpkin that falls off breaks one (none
                           // left: it costs just its points). The round always runs to sunset.
-    livesBonus: 0.08,     // at sunset, after the last BOOM, each life left adds this share of the score
+    lifeMult: 0.1,        // each whole life adds this much to the multiplier on everything banked
     maxLives: 5,          // ...and you can earn up to this many:
     lifeStreak: 3,        //   +1 for every this many perfect drops in a row
     boomLives: [[14, 2], [8, 1]], // +2 / +1 for banking a tower at least this tall with BOOM
@@ -221,7 +221,7 @@ const RULES = {
     goldenMult: 3,        // golden pumpkins (it.golden) score this many times more
     boomMin: 3,           // the BOOM sign shows up once the tower is this tall
     boomPer: 0.2,         // BOOM banks the tower's points x (1 + this x pumpkins in it)
-    day: 180,             // seconds from afternoon to sunset (the round's clock)
+    day: 210,             // seconds from afternoon to sunset (the round's clock)
     duskWind: 0.3,        // gusts get this much stronger by sunset, even on short towers
 };
 // How heavy each variety is for its size (a medium orange pumpkin = 1). Weight = heft x size.
@@ -238,8 +238,8 @@ const STAGES = [
     { at: 4,  name: 'BREEZY', amp: 42,  speed: 170, perfect: 12, wind: 0.35, gap: [7, 10] },
     { at: 8,  name: 'WINDY',  amp: 56,  speed: 195, perfect: 10, wind: 0.5,  gap: [5, 8] },
     { at: 13, name: 'GUSTY',  amp: 72,  speed: 220, perfect: 9,  wind: 0.65, gap: [4, 7] },
-    { at: 20, name: 'STORMY', amp: 90,  speed: 245, perfect: 8,  wind: 0.8,  gap: [3.5, 6] },
-    { at: 30, name: 'WILD WIND', amp: 104, speed: 270, perfect: 7, wind: 1,  gap: [3, 5] },
+    { at: 20, name: 'STORMY', amp: 90,  speed: 245, perfect: 8,  wind: 1.1,  gap: [3, 5] },
+    { at: 30, name: 'WILD WIND', amp: 104, speed: 270, perfect: 7, wind: 1.25, gap: [2.5, 4.5] },
 ];
 
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -346,7 +346,8 @@ const Rules = {
 
     ordered(sup, pc) { return !sup || pc.m <= sup.m * 1.05; },
     boomMult(n) { return 1 + RULES.boomPer * n; },
-    livesBonus(score, lives) { return Math.round(score * RULES.livesBonus * Math.max(0, lives)); },
+    // The life pumpkins multiply everything banked (BOOMs and the last BOOM at sunset).
+    livesMult(lives) { return 1 + RULES.lifeMult * Math.max(0, lives); },
     boomLives(n) { for (const [h, k] of RULES.boomLives) if (n >= h) return k; return 0; },
     combo(streak) { for (const [n, x] of RULES.combos) if (streak >= n) return x; return 1; },
     // A big pumpkin scores more (but it's heavy: a slower carry and a risky top).
@@ -786,6 +787,15 @@ const Sfx = {
         this._tone('square', 330, 990, 0.12, 0.16);
     },
 
+    // a life pumpkin breaking: two soft ticks and a small hollow knock
+    crack() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        this._noise(0.04, 'bandpass', 2200, 2, 0.1, now);
+        this._noise(0.05, 'bandpass', 1500, 2, 0.08, now + 0.06);
+        this._tone('triangle', 220, 140, 0.12, 0.07, now + 0.03);
+    },
+
     boom() {
         if (!this.ctx) return;
         this._noise(0.7, 'lowpass', 420, 0.8, 0.9);
@@ -933,7 +943,7 @@ class PatchScene extends Phaser.Scene {
         this.load.image('hoppah_jump', SHARED + 'hoppah_jumping.png');
         this.eggsPreload(); // surprises
         const art = ['background', 'haybale', 'leafpile_a', 'leafpile_b',
-            'bubble', 'bubble_tail', 'panel', 'icon_pumpkin', 'sound_on', 'sound_off',
+            'bubble', 'bubble_tail', 'panel', 'icon_pumpkin', 'icon_pumpkin_cracked', 'sound_on', 'sound_off',
             'hand', 'sparkle', 'dust', 'shadow', 'target',
             'foreground', 'silo_pumpkin', 'silo_pumpkin_wink',
             'sprout', 'pumpkin_unripe',
@@ -2517,6 +2527,7 @@ class PatchScene extends Phaser.Scene {
         this.reached.clear();
         this.lifeHeights = new Set();
         this.foundAtStart = this.found ? this.found.size : 0; // secrets found before this round
+        this.fromLives = 0; // points the life multiplier has added this round
         this.wind.reset();
         this.windV = 0;
         for (const st of this.stacks) {
@@ -2567,8 +2578,7 @@ class PatchScene extends Phaser.Scene {
     }
 
     // Sunset is the only way a round ends. Whatever is still standing is BOOMed with the full
-    // height bonus, then each pumpkin life left adds RULES.livesBonus of the score: the lives fly
-    // into the score one by one.
+    // height bonus and the lives multiplier, like any BOOM.
     endRound() {
         if (this.roundOver) return;
         this.roundOver = true;
@@ -2586,18 +2596,20 @@ class PatchScene extends Phaser.Scene {
         // bonus, so there's never a reason to cash in just before sunset. (Pumpkins that already
         // fell took their points with them.)
         const booms = this.stacks.filter(st => st.items.length > 0)
-            .map(st => ({ st, pts: Math.round(st.unbanked * Rules.boomMult(st.items.length)) }));
+            .map(st => {
+                const base = st.unbanked * Rules.boomMult(st.items.length), pts = Math.round(base * Rules.livesMult(this.lives));
+                this.fromLives += pts - Math.round(base);
+                return { st, pts };
+            });
         const finalBoom = booms.reduce((sum, b) => sum + b.pts, 0);
         this.score += finalBoom;
-        const lives = this.lives, before = this.score, livesBonus = Rules.livesBonus(before, lives);
-        this.score += livesBonus;
         const newBest = this.score > (this.best.score || 0);
         if (newBest) { this.best.score = this.score; saveBest(this.best); }
         this.ui.banner('SUNSET!');
         const wait = booms.length ? 700 : 0;
         if (booms.length) {
             this.time.delayedCall(wait, () => {
-                this.ui.setScore(before);
+                this.ui.setScore(this.score);
                 this.ui.banner('BOOM! +' + finalBoom);
                 this.say('BOOM!', 900, true);
                 if (!a.carrying) {
@@ -2613,16 +2625,15 @@ class PatchScene extends Phaser.Scene {
                 }
                 this.time.delayedCall(250, () => Sfx.fanfare());
             });
-        } else this.ui.setScore(before);
+        } else this.ui.setScore(this.score);
         this.time.delayedCall(wait + 1100, () => {
             if (!a.busy && !a.carrying) this.setPose('cheer');
             this.say('NIGHT NIGHT!', 1600);
             if (!booms.length) Sfx.fanfare();
         });
-        const cashAt = wait + 1500, cashFor = this.ui.cashLives(lives, before, livesBonus, cashAt);
-        this.time.delayedCall(Math.max(wait + 2300, cashAt + cashFor + 700), () => this.ui.showEnd({
+        this.time.delayedCall(wait + 2300, () => this.ui.showEnd({
             tallest: this.tallest, score: this.score, best: this.best.score, newBest,
-            finalBoom, livesBonus, tower: this.tallestTower,
+            finalBoom, fromLives: this.fromLives, tower: this.tallestTower,
             secrets: this.eggJ && this.found ? {
                 found: this.found.size, total: this.eggJ.stickers.length,
                 fresh: Math.max(0, this.found.size - (this.foundAtStart || 0)),
@@ -2638,14 +2649,15 @@ class PatchScene extends Phaser.Scene {
         }));
     }
 
-    // Each fallen pumpkin costs a pumpkin life; with none left it costs just its points. Lives
-    // never end the round (it always runs to sunset): the ones left then add a bonus.
+    // Each fallen pumpkin breaks a life pumpkin, and the multiplier on everything banked drops;
+    // with none left a fall costs just its points. Lives never end the round (it runs to sunset).
     loseLives(n) {
         if (this.roundOver) return;
         const k = Math.min(n, this.lives);
         if (!k) return;
         this.lives -= k;
-        this.ui.setLives(this.lives, true);
+        this.ui.setLives(this.lives, 'broke');
+        Sfx.crack();
     }
 
     // Earn pumpkin lives (up to RULES.maxLives): a little pumpkin flies from (wx, wy) in the world
@@ -2671,7 +2683,8 @@ class PatchScene extends Phaser.Scene {
         stack = stack || this.stack;
         if (!this.canBoom(stack)) return false;
         const n = stack.items.length;
-        const pts = Math.round(stack.unbanked * Rules.boomMult(n));
+        const base = stack.unbanked * Rules.boomMult(n), pts = Math.round(base * Rules.livesMult(this.lives));
+        this.fromLives += pts - Math.round(base); // what the life pumpkins added
         this.score += pts;
         this.ui.setScore(this.score);
         this.ui.banner('BOOM! +' + pts);
@@ -2832,7 +2845,8 @@ class PatchScene extends Phaser.Scene {
         this.updateWindsock();
         if (this.ui && this.ui.ready) {
             const st = this.stack;
-            this.updateBaleSign(dt, this.canBoom(st), st.danger, Math.round(st.unbanked * Rules.boomMult(st.items.length)));
+            this.updateBaleSign(dt, this.canBoom(st), st.danger,
+                Math.round(st.unbanked * Rules.boomMult(st.items.length) * Rules.livesMult(this.lives)));
             this.updateBoomHold(dt);
             this.ui.setDusk(Math.min(1, this.dayT / RULES.day));
         }
@@ -3544,6 +3558,9 @@ class UIScene extends Phaser.Scene {
         this.scoreText = this.add.text(112, 96, '', txt(22, '#ffd35a', 7)).setOrigin(0, 0.5);
         this.lifeIcons = Array.from({ length: RULES.maxLives }, (_, i) => this.add.image(58 + i * 46, 148, 'icon_pumpkin').setScale(LIFE_SCALE));
         this.lifeShown = RULES.lives;
+        this.lifeSlots = RULES.lives; // whole and cracked pumpkins showing (at least RULES.lives)
+        // what the lives multiply everything banked by
+        this.multText = this.add.text(0, 150, '', txt(18, '#ffe3a6', 6)).setOrigin(0, 0.5);
 
 
         // end card
@@ -3653,8 +3670,7 @@ class UIScene extends Phaser.Scene {
         this.countText.setText('0');
         this.setScore(0);
         this.lifeFlying = 0;
-        this.cashing = false;
-        this.setLives(RULES.lives, false);
+        this.setLives(RULES.lives, 'reset');
         this.setStreak(0);
     }
 
@@ -3662,26 +3678,39 @@ class UIScene extends Phaser.Scene {
 
     // The count panel grows with the score so the number never spills off the sign.
     fitPanel() {
-        const w = Math.max(270, 112 + this.scoreText.width + 4);
+        const m = this.multText && this.multText.visible ? this.multText.x + this.multText.width - 12 : 0;
+        const w = Math.max(270, 112 + this.scoreText.width + 4, m);
         if (w !== this.panel.width) this.panel.setSize(w, 176);
         else if (this.panel.height !== 176) this.panel.setSize(w, 176);
     }
 
-    // Shows max(3, lives) slots: filled for each life, dim for lost ones.
-    setLives(n, lost) {
+    // The life row: a whole pumpkin for each life and a cracked one for each that broke (at least
+    // RULES.lives places), then what the lives multiply everything banked by. how: 'broke' (the
+    // newly cracked ones and the multiplier give a small wobble), 'earned' (the newest one pops in,
+    // mending a crack) or 'reset' (a new round).
+    setLives(n, how) {
+        const prev = this.lifeShown;
         this.lifeShown = n;
+        if (how === 'reset') this.lifeSlots = RULES.lives;
+        this.lifeSlots = Math.min(RULES.maxLives, Math.max(this.lifeSlots || RULES.lives, n));
+        const wobble = (o, delay) => this.tweens.add({
+            targets: o, angle: { from: -8, to: 8 }, duration: 90, yoyo: true, repeat: 1, delay, ease: 'Sine.InOut',
+            onComplete: () => o.setAngle(0),
+        });
         this.lifeIcons.forEach((ic, i) => {
-            const on = i < n;
-            ic.setVisible(i < Math.max(RULES.lives, n));
-            ic.setAlpha(on ? 1 : 0.3).setTint(on ? 0xffffff : 0x5a4a3a);
-            if (lost && i === n) {
-                this.tweens.add({ targets: ic, scale: LIFE_SCALE * 1.25, duration: 160, yoyo: true, ease: 'Sine.InOut' });
-                const tint = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0xb03018, 0.14).setOrigin(0).setDepth(80);
-                this.tweens.add({ targets: tint, alpha: 0, duration: 380, ease: 'Sine.Out', onComplete: () => tint.destroy() });
-            } else if (!lost && on && i === n - 1) {
+            this.tweens.killTweensOf(ic);
+            ic.setScale(LIFE_SCALE).setAngle(0).setAlpha(1).clearTint()
+                .setVisible(i < this.lifeSlots).setTexture(i < n ? 'icon_pumpkin' : 'icon_pumpkin_cracked');
+            if (how === 'broke' && i >= n && i < prev) wobble(ic, (i - n) * 70);
+            else if (how === 'earned' && i === n - 1) {
                 this.tweens.add({ targets: ic, scale: LIFE_SCALE * 1.35, duration: 140, yoyo: true });
             }
         });
+        this.tweens.killTweensOf(this.multText);
+        this.multText.setAngle(0).setText('×' + Rules.livesMult(n).toFixed(1))
+            .setX(this.lifeIcons[this.lifeSlots - 1].x + 26);
+        if (how === 'broke' && n < prev) wobble(this.multText, 0);
+        this.fitPanel();
     }
 
     // An earned life: a pumpkin flies from (sx, sy) on screen into the next life slot and pops in.
@@ -3701,7 +3730,7 @@ class UIScene extends Phaser.Scene {
             onComplete: () => {
                 ic.destroy();
                 this.lifeFlying = Math.max(0, this.lifeFlying - 1);
-                if (!this.cashing) this.setLives(Math.min(this.patch.lives, this.lifeShown + 1), false);
+                this.setLives(Math.min(this.patch.lives, this.lifeShown + 1), 'earned');
                 this.endSparkles.explode(10, tx, ty);
                 Sfx.bonus();
             },
@@ -3722,42 +3751,13 @@ class UIScene extends Phaser.Scene {
         this.sky.setFillStyle((mix(16) << 16) | (mix(8) << 8) | mix(0));
     }
 
-    // At sunset, after the last BOOM: the n lives left fly from the life row into the score one
-    // by one (from `delay` ms on), each adding its share of the bonus. Calm: no bursts, a soft
-    // note as each lands. Returns how long it takes.
-    cashLives(n, from, bonus, delay) {
-        if (!n) return 0;
-        const tx = this.scoreText.x + this.scoreText.width / 2, ty = this.scoreText.y;
-        this.time.delayedCall(delay, () => {
-            // exactly n lives showing (one earned just before sunset may still be on its way in)
-            this.cashing = true;
-            this.lifeIcons.forEach((ic, i) => { if (i < n) ic.setVisible(true).setAlpha(1).clearTint(); });
-        });
-        for (let i = 0; i < n; i++) {
-            const slot = this.lifeIcons[n - 1 - i];
-            this.time.delayedCall(delay + i * 350, () => {
-                slot.setAlpha(0.3).setTint(0x5a4a3a);
-                const ic = this.add.image(slot.x, slot.y, 'icon_pumpkin').setScale(LIFE_SCALE).setDepth(95);
-                this.tweens.add({
-                    targets: ic, x: tx, y: ty, scale: LIFE_SCALE * 0.7, alpha: 0.4, duration: 600, ease: 'Sine.InOut',
-                    onComplete: () => {
-                        ic.destroy();
-                        this.setScore(from + Math.round(bonus * (i + 1) / n));
-                        Sfx.pickup();
-                    },
-                });
-            });
-        }
-        return (n - 1) * 350 + 600;
-    }
-
     showEnd(info) {
         const E = this.end;
         E.title.setText('SUNSET!');
         E.hero.setTexture(this.patch.anselKey(ANSEL_POSES.hero));
         const rows = [];
         if (info.finalBoom) rows.push(['LAST BOOM', '+' + info.finalBoom]);
-        rows.push(['LIVES BONUS', '+' + info.livesBonus]);
+        rows.push(['FROM LIVES', '+' + info.fromLives]); // what the life multiplier added to this round's BOOMs
         rows.push(['SCORE', info.score], ['TALLEST', info.tallest], ['BEST', info.best]);
         const S = info.secrets;
         if (S) rows.push(['SECRETS', S.found + '/' + S.total + (S.fresh ? '  +' + S.fresh + ' NEW' : '')]);
@@ -5614,7 +5614,7 @@ const HTP_PAGES = [
         { desk: true, ic: { keys: ['SPACE'] }, t: 'LIFT, DROP (↑, W)' },
     ] },
     { title: "DON'T LET IT FALL", art: 'htpArtFall', rows: [
-        { p: 'A PUMPKIN THAT FALLS OFF THE TOWER COSTS A LIFE. LIVES LEFT AT SUNSET ADD TO YOUR SCORE.' },
+        { p: 'A PUMPKIN THAT FALLS OFF BREAKS A LIFE. LIVES MULTIPLY WHAT YOU BANK: 3 LIVES, ×1.3.' },
         { ic: { img: 'windsock', f: 6, s: 0.3 }, t: 'GUSTS PUSH THE PUMPKIN AND TIP CROOKED TOWERS.' },
         { p: 'START WITH 3. EARN UP TO 5:', c: 'gold' },
         { ic: { img: 'sparkle', n: 3 }, t: '3 PERFECT DROPS IN A ROW' },
@@ -5632,7 +5632,7 @@ const HTP_PAGES = [
     ] },
     { title: 'BEAT THE SUNSET', art: 'htpArtDay', rows: [
         { p: 'A ROUND IS ONE AFTERNOON: GOLD, THEN DUSK.' },
-        { p: "AT SUNSET, ANSEL BOOMS WHAT'S STILL STANDING. LIVES LEFT ADD A BONUS.", c: 'gold' },
+        { p: "AT SUNSET, ANSEL BOOMS WHAT'S STILL STANDING.", c: 'gold' },
         { ic: { img: 'sprout', s: 1 }, t: 'VINE PUMPKINS GROW BIGGER OVER TIME. TAP ONE TO PICK IT, OR A SPROUT TO WATER IT.' },
         { ic: { img: 'leafpile_a', s: 0.55 }, t: 'LEAF PILES HIDE SOME. NOTHING LEFT? TAP: MORE!' },
         { ic: { img: 'sparkle', n: 2 }, t: 'TAP THE SCENERY, TOO.' },

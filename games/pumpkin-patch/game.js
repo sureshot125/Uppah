@@ -6484,7 +6484,7 @@ const UIHtp = {
         c.add(flash);
         this.htpLoop(5600, () => {
             pk.setPosition(top.x + 60, hoverY).setAngle(0).setAlpha(1);
-            lives.forEach(l => l.setAlpha(1).clearTint().setScale(1.25));
+            lives.forEach(l => l.setTexture('icon_pumpkin').setAlpha(1).clearTint().setScale(1.25));
             this.tweens.add({ targets: pk, y: restY, delay: 500, duration: 200, ease: 'Quad.In', onComplete: () => {
                 this.htpSfx('thunk', 20, 3);
                 this.tweens.add({ targets: pk, angle: 16, x: pk.x + 14, duration: 320, ease: 'Sine.In', onComplete: () => {
@@ -6493,7 +6493,7 @@ const UIHtp = {
                     this.tweens.add({ targets: pk, y: groundY, duration: 700, ease: 'Quad.In', onComplete: () => {
                         this.tweens.add({ targets: pk, y: groundY - 26, duration: 140, yoyo: true, ease: 'Quad.Out' });
                         this.htpPop(c, pk.x, groundY - 90, '-1', 28, HTP_COL.red);
-                        lives[2].setAlpha(0.3).setTint(0x5a4a3a);
+                        lives[2].setTexture('icon_pumpkin_cracked');   // a fall breaks a life, like the HUD
                         this.tweens.add({ targets: lives[2], scale: 1.0, duration: 90, yoyo: true, repeat: 2 });
                         flash.setFillStyle(0xff3020, 0.3);
                         this.tweens.add({ targets: flash, fillAlpha: 0, duration: 300 });
@@ -6509,7 +6509,7 @@ const UIHtp = {
                 this.tweens.add({ targets: fly, x: tx, duration: 750, ease: 'Sine.InOut' });
                 this.tweens.add({ targets: fly, y: { value: ty, ease: 'Back.In' }, angle: 360, scale: 1.25, duration: 750, onComplete: () => {
                     fly.destroy();
-                    lives[2].setAlpha(1).clearTint();
+                    lives[2].setTexture('icon_pumpkin').setAlpha(1).clearTint();
                     this.tweens.add({ targets: lives[2], scale: 1.6, duration: 140, yoyo: true });
                     fx.explode(12, tx, ty);
                     this.htpPop(c, tx + 120, ty + 30, '+1', 26, HTP_COL.gold);

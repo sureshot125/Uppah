@@ -57,7 +57,7 @@ const GIRAFFE_LOOK = 4; // giraffe.png: 4 walk frames, then looking out at us, t
 // art/ansel/<outfit>/<frame>.png, all on one canvas with his feet at the same spot
 // (art/ansel/frames.json), 3 game px per art pixel. Everyday clothes (cap) until his first
 // trip into the vine rows; the farmer outfit (straw hat, gloves, boots) is worn for field work and
-// comes off again afterwards (see updateOutfit).
+// comes off as he steps back out (leaveLane).
 const ANSEL_ART = ART + 'ansel/';
 const ANSEL_FRAMES = {
     everyday: ['walk_1', 'walk_2', 'walk_3', 'walk_4', 'walk_5', 'walk_6', 'pick_1', 'pick_2', 'pick_3',
@@ -135,6 +135,9 @@ const MORE_BATCH = 5;
 // Gigi's visit: she stands between the two vine rows (the front row hides her feet), at
 // roughly Ansel's height, and jogs rather than sprints.
 const GIGI = { y: 1962, depth: 5, scale: 0.55, speed: 250 };
+// Leaves come off the trees: drifting ones start no higher than just above the tallest crown
+// (y 1484), and gust-blown ones a little higher; never up in the sky with a tall tower.
+const LEAF_CEIL = 1400, GUST_LEAF_CEIL = 1240;
 const LANES = [
     { y: 1930, scale: 0.8, depth: 4 },   // back row
     { y: 1994, scale: 0.9, depth: 6 },   // front row
@@ -1075,9 +1078,13 @@ class PatchScene extends Phaser.Scene {
         this.bubbleTimer = 0;
 
         // Leaves: ambient drift + bursts
+        // (spawned along the top of whatever the camera shows, then left alone in the world, so
+        // they never slide around when the view pans; updateWind blows them with the real wind)
+        const leafView = () => this.cameras.main.worldView;
         this.ambient = this.add.particles(0, 0, 'leaves', {
             frame: [0, 1, 2, 3, 4, 5, 6, 7],
-            x: { min: 0, max: WORLD_W + 400 }, y: 0,
+            x: { onEmit: () => { const v = leafView(); return v.x - 160 + Math.random() * (v.width + 320); } },
+            y: { onEmit: () => Math.max(leafView().y - 30, LEAF_CEIL) },   // never above the trees
             lifespan: 11000, speedY: { min: 35, max: 80 }, speedX: { min: -45, max: 15 },
             rotate: { start: 0, end: 540 }, scale: { min: 0.7, max: 1.1 },
             frequency: 260, quantity: 1,
@@ -1916,17 +1923,8 @@ class PatchScene extends Phaser.Scene {
         });
     }
 
-    // The straw hat is for field work. It goes on as Ansel heads into the vines (harvest) and
-    // comes off when he goes back to other work: picking a path pumpkin, or after a few seconds
-    // out of the field. A string of vine trips keeps it on, so it doesn't flicker.
-    updateOutfit(dt) {
-        const a = this.ansel;
-        if (!a.farming) return;
-        const working = a.busy || a.walkingLane || a.carrying || this.hovering || this.dropping;
-        a.farmT = working ? 0 : (a.farmT || 0) + dt;
-        if (a.farmT > 4) this.hatOff();
-    }
-
+    // The straw hat is for field work: it goes on as Ansel steps into the vine rows (harvest)
+    // and comes off as he steps back out onto the path (leaveLane).
     hatOff() {
         const a = this.ansel;
         if (!a.farming) return;
@@ -1953,6 +1951,7 @@ class PatchScene extends Phaser.Scene {
                 a.walkingLane = false;
                 a.img.setDepth(20);
                 a.shadow.setDepth(9);
+                this.hatOff();
                 if (a.carrying) a.carrying.img.setDepth(a.img.depth + 0.1);
                 if (then) then();
             } });
@@ -2386,7 +2385,6 @@ class PatchScene extends Phaser.Scene {
 
         if (this.started) this.idleT += dt;
         this.updateHint(time);
-        this.updateOutfit(dt);
         this.eggsUpdate(dt, time); // surprises
         this.updateHoppah(dt);
         this.updateScenery(dt);
@@ -2491,7 +2489,10 @@ class PatchScene extends Phaser.Scene {
         this.windLeaves = this.add.particles(0, 0, 'leaves', {
             frame: [0, 1, 2, 3, 4, 5, 6, 7],
             x: { onEmit: () => { const v = view(); return this.windDir > 0 ? v.x - 30 : v.right + 30; } },
-            y: { onEmit: () => { const v = view(); return v.y + Math.random() * v.height * 0.9; } },
+            y: { onEmit: () => {                       // a gust lifts them a bit, but not into the sky
+                const v = view(), y0 = Math.max(v.y, GUST_LEAF_CEIL);
+                return y0 + Math.random() * Math.max(60, (v.bottom - y0) * 0.9);
+            } },
             speedX: { onEmit: () => this.windDir * (420 + Math.random() * 380) * (0.6 + Math.abs(this.windV)) / this.camZoom },
             speedY: { min: -50, max: 70 },
             lifespan: 3800,
@@ -2541,6 +2542,7 @@ class PatchScene extends Phaser.Scene {
     resetRound() {
         const a = this.ansel;
         if (a.busy) { this.time.delayedCall(150, () => this.resetRound()); return; }
+        this.clearSunsetHug();
         this.hovering = null;
         this.dropping = null;
         this.tipGroups = [];
@@ -2626,12 +2628,14 @@ class PatchScene extends Phaser.Scene {
                 this.time.delayedCall(250, () => Sfx.fanfare());
             });
         } else this.ui.setScore(this.score);
+        const hug = this.planSunsetHug(); // Hoppah hops over and jumps into his arms
         this.time.delayedCall(wait + 1100, () => {
             if (!a.busy && !a.carrying) this.setPose('cheer');
-            this.say('NIGHT NIGHT!', 1600);
             if (!booms.length) Sfx.fanfare();
+            this.sunsetHug(hug);
         });
-        this.time.delayedCall(wait + 2300, () => this.ui.showEnd({
+        const hugDone = wait + 1100 + (hug ? hug.ms + 1300 : 1200);
+        this.time.delayedCall(hugDone, () => this.ui.showEnd({
             tallest: this.tallest, score: this.score, best: this.best.score, newBest,
             finalBoom, fromLives: this.fromLives, tower: this.tallestTower,
             secrets: this.eggJ && this.found ? {
@@ -2639,6 +2643,78 @@ class PatchScene extends Phaser.Scene {
                 fresh: Math.max(0, this.found.size - (this.foundAtStart || 0)),
             } : null,
         }));
+    }
+
+    // At sunset Hoppah hops in from the edge of the view and jumps into Ansel's arms for
+    // NIGHT NIGHT. Planned when the round ends, so the end card waits for the cuddle.
+    planSunsetHug() {
+        const a = this.ansel;
+        if (a.carrying || this.eggGrab || !this.textures.exists('hoppah_jump')) return null;
+        const v = this.cameras.main.worldView;
+        const fromLeft = a.x - v.x > v.right - a.x;            // from the side with more room
+        const startX = fromLeft ? v.x - 70 : v.right + 70;
+        const face = fromLeft ? -1 : 1;                         // Ansel turns toward the bunny
+        const holdX = a.x + face * 30, holdY = GROUND - 92;
+        const hops = Math.max(2, Math.ceil(Math.abs(holdX - startX) / 240));
+        return { startX, face, holdX, holdY, hops, ms: hops * 340 };
+    }
+
+    sunsetHug(P) {
+        const a = this.ansel, h = this.hop;
+        if (!P) { this.say('NIGHT NIGHT!', 1600); return; }
+        if (h.active) { h.img.setVisible(false); h.shadow.setVisible(false); h.active = false; }
+        h.next = 999;                                           // the real one sits this out
+        a.busy = true;
+        a.goal = null;
+        a.dir = P.face;
+        const moveDir = Math.sign(P.holdX - P.startX) || 1;
+        const b = this.sunsetBunny = this.add.image(P.startX, GROUND, 'hoppah_stand')
+            .setOrigin(0.5, 305 / 327).setScale(0.3).setDepth(21).setFlipX(moveDir < 0);
+        const sh = this.sunsetBunnyShadow = this.add.image(P.startX, GROUND + 4, 'shadow').setScale(0.6, 0.8).setDepth(9);
+        let i = 0;
+        const hop = () => {
+            const last = i === P.hops - 1;
+            const x0 = b.x, y0 = b.y;
+            const x1 = last ? P.holdX : P.startX + (P.holdX - P.startX) * (i + 1) / P.hops;
+            const y1 = last ? P.holdY : GROUND, peak = last ? 110 : 55;
+            b.setTexture('hoppah_jump');
+            if (last) Sfx.boing(); else Sfx.boop(14);
+            this.tweens.addCounter({
+                from: 0, to: 1, duration: 320,
+                onUpdate: tw => {
+                    const k = tw.getValue();
+                    b.x = x0 + (x1 - x0) * k;
+                    b.y = y0 + (y1 - y0) * k - Math.sin(Math.PI * k) * peak;
+                    if (last) b.setScale(0.3 - 0.03 * k);
+                    sh.setPosition(b.x, GROUND + 4).setAlpha(last ? 1 - k : 1 - (GROUND - b.y) / 250);
+                },
+                onComplete: () => {
+                    i += 1;
+                    if (!last) {
+                        b.setTexture('hoppah_stand');
+                        this.dust.explode(2, b.x, GROUND);
+                        this.time.delayedCall(20, hop);
+                        return;
+                    }
+                    // caught: a cuddle and a little wriggle
+                    b.setTexture('hoppah_stand');
+                    sh.setVisible(false);
+                    this.setPose('hug');
+                    Sfx.giggle();
+                    this.say('NIGHT NIGHT!', 1600);
+                    this.tweens.add({ targets: b, angle: { from: -6, to: 6 }, duration: 140, yoyo: true, repeat: 2, ease: 'Sine.InOut',
+                        onComplete: () => b.setAngle(0) });
+                    this.time.delayedCall(900, () => { a.busy = false; });  // a new round may start
+                },
+            });
+        };
+        hop();
+    }
+
+    clearSunsetHug() {
+        if (this.sunsetBunny) { this.tweens.killTweensOf(this.sunsetBunny); this.sunsetBunny.destroy(); this.sunsetBunny = null; }
+        if (this.sunsetBunnyShadow) { this.sunsetBunnyShadow.destroy(); this.sunsetBunnyShadow = null; }
+        if (this.hop && this.hop.next > 100) this.hop.next = 14;
     }
 
     // A picture of a tower for the end card: each pumpkin's sprite and where it sat on the bale.
@@ -2865,6 +2941,12 @@ class PatchScene extends Phaser.Scene {
     }
 
     updateWind(dt) {
+        // the drifting leaves blow with the same wind that fills the windsock and pushes the tower
+        const target = -12 + (this.windV || 0) * 520, k = 1 - Math.pow(0.2, dt), now = this.time.now;
+        this.ambient.forEachAlive(p => {
+            const flutter = Math.sin((now + p.y * 7) * 0.002) * 22;
+            p.velocityX += (target + flutter - p.velocityX) * k;
+        });
         const live = this.started && !this.roundOver;
         const before = this.wind.phase;
         if (live) {
@@ -3266,8 +3348,6 @@ class PatchScene extends Phaser.Scene {
         this.camY = Phaser.Math.Linear(this.camY, cy, 1 - Math.pow(aiming ? 0.03 : 0.05, dt));
         cam.setZoom(this.camZoom);
         cam.centerOn(this.camX, this.camY);
-        const v = cam.worldView;
-        this.ambient.setPosition(-200, v.y - 40);
     }
 }
 

@@ -135,6 +135,9 @@ const MORE_BATCH = 5;
 // Gigi's visit: she stands between the two vine rows (the front row hides her feet), at
 // roughly Ansel's height, and jogs rather than sprints.
 const GIGI = { y: 1962, depth: 5, scale: 0.55, speed: 250 };
+// Leaves come off the trees: drifting ones start no higher than just above the tallest crown
+// (y 1484), and gust-blown ones a little higher; never up in the sky with a tall tower.
+const LEAF_CEIL = 1400, GUST_LEAF_CEIL = 1240;
 const LANES = [
     { y: 1930, scale: 0.8, depth: 4 },   // back row
     { y: 1994, scale: 0.9, depth: 6 },   // front row
@@ -1071,7 +1074,7 @@ class PatchScene extends Phaser.Scene {
         this.ambient = this.add.particles(0, 0, 'leaves', {
             frame: [0, 1, 2, 3, 4, 5, 6, 7],
             x: { onEmit: () => { const v = leafView(); return v.x - 160 + Math.random() * (v.width + 320); } },
-            y: { onEmit: () => leafView().y - 30 },
+            y: { onEmit: () => Math.max(leafView().y - 30, LEAF_CEIL) },   // never above the trees
             lifespan: 11000, speedY: { min: 35, max: 80 }, speedX: { min: -45, max: 15 },
             rotate: { start: 0, end: 540 }, scale: { min: 0.7, max: 1.1 },
             frequency: 260, quantity: 1,
@@ -2476,7 +2479,10 @@ class PatchScene extends Phaser.Scene {
         this.windLeaves = this.add.particles(0, 0, 'leaves', {
             frame: [0, 1, 2, 3, 4, 5, 6, 7],
             x: { onEmit: () => { const v = view(); return this.windDir > 0 ? v.x - 30 : v.right + 30; } },
-            y: { onEmit: () => { const v = view(); return v.y + Math.random() * v.height * 0.9; } },
+            y: { onEmit: () => {                       // a gust lifts them a bit, but not into the sky
+                const v = view(), y0 = Math.max(v.y, GUST_LEAF_CEIL);
+                return y0 + Math.random() * Math.max(60, (v.bottom - y0) * 0.9);
+            } },
             speedX: { onEmit: () => this.windDir * (420 + Math.random() * 380) * (0.6 + Math.abs(this.windV)) / this.camZoom },
             speedY: { min: -50, max: 70 },
             lifespan: 3800,

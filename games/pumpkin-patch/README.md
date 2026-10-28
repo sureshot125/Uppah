@@ -181,4 +181,4 @@ After the first tap on the title, a four-panel how-to-play card explains the gam
 
 All of it lives in the HOW TO PLAY section near the end of `game.js` (one-line hooks elsewhere are marked `how to play`; UIScene's tap and key handlers ask `htpTap()` / `htpKey()` first) and the how-to-play section of `make_art.py` (`keys.png`, `key_wide.png`, `icon_home.png`).
 
-Leaves: the drifting leaves are spawned across the top of the view and then stay put in the world (they don't follow the camera), and they blow with the same wind (`windV`) that fills the windsock and pushes the tower; gusts add a stream of leaves across the view a moment before they hit.
+Leaves: the drifting leaves are spawned across the top of the view (never higher than just above the tree tops, `LEAF_CEIL`; gust-blown ones a little higher, `GUST_LEAF_CEIL`) and then stay put in the world (they don't follow the camera), and they blow with the same wind (`windV`) that fills the windsock and pushes the tower; gusts add a stream of leaves across the view a moment before they hit.

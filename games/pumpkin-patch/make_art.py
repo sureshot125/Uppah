@@ -400,6 +400,24 @@ def wood_panel():
     return img
 
 
+def score_chip(colours):
+    """9-slice painted chip for the score pop and the HUD (Balatro-style): blue for a drop's
+    points, red for the mult. Ink edge, rounded corners, a light top row and a dark lip."""
+    dark, base, light = [hx(c) for c in colours]
+    w, h = 12, 10
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    p = img.load()
+    for y in range(h):
+        for x in range(w):
+            if x in (0, w - 1) and y in (0, h - 1):
+                continue
+            if x in (0, w - 1) or y in (0, h - 1):
+                p[x, y] = INK + (255,)
+                continue
+            p[x, y] = light if y == 1 else dark if (y == h - 2 or x == w - 2) else base
+    return img
+
+
 # ─────────────────────────────────────────────────────────── background ──
 SILO_X0, SILO_X1, SILO_TOP = 170, 197, 398   # art px; the pumpkin sits on SILO_TOP
 
@@ -2225,6 +2243,8 @@ def main():
         save(pumpkin(w, h, pal, lobes, seed=zlib.crc32(name.encode()), **extra), name + ".png")
     save(pumpkin(9, 7, "orange", 3, curl=False), "icon_pumpkin.png")
     save(cracked_icon(), "icon_pumpkin_cracked.png")   # a life that broke
+    save(score_chip(["#1c4a73", "#2e74b5", "#79b8ea"]), "chip_blue.png")   # a drop's points
+    save(score_chip(["#7a1f1a", "#c0392b", "#ef8064"]), "chip_red.png")    # the mult
     i = 0
     for col in ("red", "orange", "yellow", "brown"):
         save(leaf(MAPLE, col), f"leaf_{i}.png"); i += 1

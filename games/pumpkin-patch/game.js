@@ -95,8 +95,6 @@ const ANSEL_POSES = {
 const HEAD_TOP = 255;    // feet → top of his cap, walk frames (the straw hat is a few px taller)
 const WALK_SPEED = 480, HEAVY_SPEED = 340;
 
-// Perfect-drop streak lengths that get a fanfare.
-const TIMING = { combos: [3, 5, 10] };
 
 // ── Things to stack (w/h are the pumpkin body in art pixels) ─────────────────
 const PUMPKIN_SPECS = {
@@ -186,7 +184,7 @@ const RULES = {
                           // left: it costs just its points). The round always runs to sunset.
     lifeMult: 0.1,        // each whole life adds this much to the multiplier on everything banked
     maxLives: 5,          // ...and you can earn up to this many:
-    lifeStreak: 3,        //   +1 for every this many perfect drops in a row
+    lifeStreak: 3,        //   +1 for every this many PERFECT drops in a row
     boomLives: [[14, 2], [8, 1]], // +2 / +1 for banking a tower at least this tall with BOOM
     // +1 the first time a round's tower tops each height (px above ground): the landmarks from
     // Gigi up, and halfway between the high ones so a long climb keeps paying
@@ -194,7 +192,27 @@ const RULES = {
     goldenLife: 1,        //   +1 for harvesting a golden pumpkin
     assisted: 2,          // a player's very first round only: the first pumpkins are pulled in and can't fall
     assistKeep: 0.4,      // ...keeping this share of their miss
-    perfectKeep: 0.25,    // a perfect drop snaps most of the way in but keeps this share of its miss
+    // Scoring, per pumpkin that lands and stays: (placement + size) x mult.
+    //   placement: out of 100, from how far off the centre of the one below it lands (as a share
+    //     of that one's flat half-width). Within perfectZone it's PERFECT: it snaps to dead centre
+    //     and scores 100; further out it falls off in steps of placeStep (0 at the edge, where it
+    //     rolls off).
+    //   size: extra points by size class (small, medium, large, XL; golden is special).
+    //   mult: how many have landed in a row (x1, x2, x3 ...). Any pumpkin falling resets it to
+    //     x1, and so does BOOM. A low-scoring landing that stays still counts.
+    // BOOM banks the tower's drop scores x the lives multiplier.
+    perfectZone: 0.12,
+    placeStep: 5,
+    sizePts: [10, 25, 50, 100],
+    goldenPts: 150,
+    // Stability: a joint (a pumpkin and the one under it) is SOLID when it landed with placement
+    // solidPlace or better, is no bigger a size than the one under it, and is no more than
+    // wideTol times as wide. Solid joints hold through any gust or landing; only SHAKY ones can
+    // give way, and then everything above them falls (never the solid part below).
+    solidPlace: 55,
+    wideTol: 1.3,
+    shakyWind: 3,         // a shaky joint catches this many times a gust's push
+    solidSway: 0.3,       // a tower with no shaky joints sways this much in a gust
     topFlat: 0.9,         // share of a pumpkin's half-width it can land on (its centre past that rolls off)
     botFlat: 0.8,         // share of its own half-width a pumpkin stands on
     hayHalf: 76,          // flat top of the hay bale (half-width, px)
@@ -217,13 +235,7 @@ const RULES = {
     swayHz: 0.6,          // the tower's springy sway
     swayDamp: 0.2,
     swayPx: h => 12 + Math.min(h, 1400) * 0.03, // top sway (px) at full lean
-    points: { perfect: 100, good: 50, ok: 25 },
-    sizePow: 0.6,         // bigger pumpkins score more: points x (weight / a medium's) ^ this, 0.6x to 2.2x
-    orderBonus: 25,       // landing on a pumpkin at least as heavy (big at the bottom, small on top)
-    combos: [[10, 4], [5, 3], [3, 2]], // perfect streak -> score multiplier
-    goldenMult: 3,        // golden pumpkins (it.golden) score this many times more
     boomMin: 3,           // the BOOM sign shows up once the tower is this tall
-    boomPer: 0.2,         // BOOM banks the tower's points x (1 + this x pumpkins in it)
     day: 210,             // seconds from afternoon to sunset (the round's clock)
     duskWind: 0.3,        // gusts get this much stronger by sunset, even on short towers
 };
@@ -231,21 +243,29 @@ const RULES = {
 const HEFT = {
     pumpkin_deep_xl: 1.5, pumpkin_orange_l: 1.25, pumpkin_green_m: 1.1, pumpkin_white_m: 1.05,
     pumpkin_orange_m: 1, pumpkin_warty_s: 0.85, pumpkin_orange_s: 0.8, pumpkin_gold_s: 0.7,
-    pumpkin_golden: 1.35, // the rare golden one: worth x3, but heavy
+    pumpkin_golden: 1.35, // the rare golden one: special size points, but heavy
 };
 // Difficulty stages, by how many pumpkins are on the tower now (BOOM starts you over at CALM).
-// amp/speed: hover sway half-width (px) and glide speed (px/s); perfect: snap zone (px);
+// amp/speed: hover sway half-width (px) and glide speed (px/s);
 // wind: gust strength (plus RULES.duskWind toward sunset); gap: calm seconds between gusts.
 const STAGES = [
-    { at: 0,  name: 'CALM',   amp: 34,  speed: 145, perfect: 22, wind: 0.2,  gap: [7, 10] },
-    { at: 4,  name: 'BREEZY', amp: 42,  speed: 170, perfect: 12, wind: 0.35, gap: [7, 10] },
-    { at: 8,  name: 'WINDY',  amp: 56,  speed: 195, perfect: 10, wind: 0.5,  gap: [5, 8] },
-    { at: 13, name: 'GUSTY',  amp: 72,  speed: 220, perfect: 9,  wind: 0.65, gap: [4, 7] },
-    { at: 20, name: 'STORMY', amp: 90,  speed: 245, perfect: 8,  wind: 1.1,  gap: [3, 5] },
-    { at: 30, name: 'WILD WIND', amp: 104, speed: 270, perfect: 7, wind: 1.25, gap: [2.5, 4.5] },
+    { at: 0,  name: 'CALM',   amp: 34,  speed: 145, wind: 0.2,  gap: [7, 10] },
+    { at: 4,  name: 'BREEZY', amp: 42,  speed: 170, wind: 0.35, gap: [7, 10] },
+    { at: 8,  name: 'WINDY',  amp: 56,  speed: 195, wind: 0.5,  gap: [5, 8] },
+    { at: 13, name: 'GUSTY',  amp: 72,  speed: 220, wind: 0.65, gap: [4, 7] },
+    { at: 20, name: 'STORMY', amp: 90,  speed: 245, wind: 1.5,  gap: [3, 5] },
+    { at: 30, name: 'WILD WIND', amp: 104, speed: 270, wind: 1.7, gap: [2.5, 4.5] },
 ];
 
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Size classes (0 small, 1 medium, 2 large, 3 XL): what a pumpkin scores for its size, and
+// what can sit solidly on what (a bigger class on a smaller one is shaky).
+const SIZE_OF = {
+    pumpkin_gold_s: 0, pumpkin_orange_s: 0, pumpkin_warty_s: 0,
+    pumpkin_orange_m: 1, pumpkin_white_m: 1, pumpkin_green_m: 1,
+    pumpkin_orange_l: 2, pumpkin_golden: 2, pumpkin_deep_xl: 3,
+};
 
 const Rules = {
     stageAt(placed) {
@@ -274,12 +294,12 @@ const Rules = {
     // the hay): the weight of everything from i up has to sit over the patch where the two flat
     // faces touch. Wind pushes sideways with leverage that grows with the height and sail of
     // what's above, and weight resists it; a crooked stack catches more of it (RULES.sail).
-    // per[i].L: 0 = centred, +-1 = on the edge, beyond = tips.
+    // per[i].L: 0 = centred, +-1 = on the edge, beyond = tips. Only shaky joints can tip.
     analyze(P, base, wind) {
         const n = P.length, per = new Array(n), yb = new Array(n);
         let y = 0;
         for (let i = 0; i < n; i++) { yb[i] = y; y += P[i].h; }
-        let M = 0, MX = 0, A = 0, AY = 0, lean = 0, at = -1;
+        let M = 0, MX = 0, A = 0, AY = 0, lean = 0, at = -1, shaky = 0, shakyLean = 0;
         for (let i = n - 1; i >= 0; i--) {
             const p = P[i];
             M += p.m; MX += p.m * p.x; A += p.a; AY += p.a * (yb[i] + p.h / 2);
@@ -287,16 +307,21 @@ const Rules = {
             const bh = RULES.botFlat * p.w / 2;
             const lo = Math.max(p.x - bh, sx - sh), hi = Math.min(p.x + bh, sx + sh);
             const push = (wind || 0) * RULES.windK * Math.min(AY / A - yb[i], RULES.leverCap) * A / M;
+            const solid = p.solid !== false;
             let L;
             if (hi - lo < 1) L = p.x >= sx ? 9 : -9;
             else {
                 const half = (hi - lo) / 2, still = (MX / M - (lo + hi) / 2) / half;
-                L = still + push / half * (1 + RULES.sail * Math.min(1.5, Math.abs(still)));
+                // a solid joint holds whatever leans on it (and the wind can't move it); a shaky
+                // one carries the weight above it and catches the gusts
+                L = solid ? clampN(still, -0.95, 0.95)
+                    : still + RULES.shakyWind * push / half * (1 + RULES.sail * Math.min(1.5, Math.abs(still)));
             }
-            per[i] = { L, lo, hi, y: yb[i] };
+            per[i] = { L, lo, hi, y: yb[i], solid };
             if (Math.abs(L) > Math.abs(lean)) { lean = L; at = i; }
+            if (!solid) { shaky++; if (Math.abs(L) > Math.abs(shakyLean)) shakyLean = L; }
         }
-        return { lean, at, per, height: y };
+        return { lean, at, per, height: y, shaky, shakyLean };
     },
 
     // How hard a landing rocks the stack: heavier than what it lands on, and further off-centre,
@@ -312,8 +337,11 @@ const Rules = {
     // opts: { roll, topple } say which falls are allowed; rand() in 0..1 varies the wobble.
     // fall: 'none' | 'roll' (only the new one goes) | 'topple' (joint `at` and everything above).
     land(P, base, pc, d, wind, opts, rand) {
-        const sup = P[P.length - 1] || null;
+        const sup = P[P.length - 1] || null, sh = this.supportHalf(sup, base);
         const q = Object.assign({}, pc, { x: (sup ? sup.x : base.x) + d });
+        q.place = this.placement(Math.abs(d) / sh);
+        q.weak = this.weakness(q, sup);
+        q.solid = !q.weak;
         const Q = P.concat([q]), r = this.analyze(Q, base, wind);
         const kick = opts.topple ? this.kick(sup, q, d, base) * (1 - RULES.kickSpread + 2 * RULES.kickSpread * rand()) : 0;
         // it rocks toward the side it landed on (a centred one sags the way the stack already leans)
@@ -322,43 +350,53 @@ const Rules = {
         for (let i = Q.length - 1; i >= 0; i--) {
             M += Q[i].m;
             const still = r.per[i].L, rock = still + dir * kick * q.m / M; // lower joints rock by its share of the weight
-            const L = Math.abs(rock) > Math.abs(still) ? rock : still;
+            const L = Q[i].solid !== false || Math.abs(rock) < Math.abs(still) ? still : rock; // solid joints don't rock
             if (Math.abs(L) > Math.abs(peak)) { peak = L; at = i; }
         }
         const top = Q.length - 1;
         let fall = 'none';
-        if (Math.abs(r.per[top].L) > 1 && (opts.roll || opts.topple)) { fall = 'roll'; at = top; peak = r.per[top].L; }
+        if (Math.abs(d) > sh && (opts.roll || opts.topple)) { fall = 'roll'; at = top; peak = d > 0 ? 9 : -9; } // centre past the edge
         else if (opts.topple && Math.abs(peak) > 1) fall = at === top ? 'roll' : 'topple';
         return { fall, at, peak, kick, x: q.x, piece: q, analysis: r };
     },
 
-    // A drop for a tap `off` px from the target (wind drift included): where it lands and how
-    // it scores if it stays. A perfect drop snaps most of the way to centre.
-    aim(P, base, pc, off, stage, assisted, wind) {
-        const perfect = Math.abs(off) <= stage.perfect * (assisted ? 1.5 : 1);
-        let d = perfect ? off * RULES.perfectKeep : off;
-        if (assisted && !perfect) {
-            const sh = this.supportHalf(P[P.length - 1], base);
-            d = clampN(off * RULES.assistKeep, -0.5 * sh, 0.5 * sh);
-        }
+    // A drop for a tap `off` px from the target (wind drift included): where it lands, its
+    // placement and whether its joint is solid. A PERFECT drop snaps to dead centre.
+    aim(P, base, pc, off, assisted, wind) {
+        const sh = this.supportHalf(P[P.length - 1], base);
+        const perfect = Math.abs(off) <= RULES.perfectZone * sh * (assisted ? 1.5 : 1);
+        let d = perfect ? 0 : off;
+        if (assisted && !perfect) d = clampN(off * RULES.assistKeep, -0.5 * sh, 0.5 * sh);
         const res = this.land(P, base, pc, d, wind, { roll: !assisted, topple: !assisted }, () => 0.5);
-        const L = Math.abs(res.peak);
-        const kind = perfect ? 'perfect' : L > 0.6 || res.fall !== 'none' ? 'ok' : 'good';
-        return { grade: res.fall !== 'none' ? 'miss' : kind, kind, d, peak: res.peak, fall: res.fall };
+        const kind = perfect ? 'perfect' : res.piece.solid ? 'good' : 'ok';
+        return { grade: res.fall !== 'none' ? 'miss' : kind, kind, perfect, d, place: res.piece.place,
+            solid: res.piece.solid, peak: res.peak, fall: res.fall };
     },
 
-    ordered(sup, pc) { return !sup || pc.m <= sup.m * 1.05; },
-    boomMult(n) { return 1 + RULES.boomPer * n; },
+    // Placement, out of 100, for a landing `share` of the support's flat half-width off centre.
+    placement(share) {
+        if (share > 1) return 0;
+        if (share <= RULES.perfectZone) return 100;
+        return Math.max(RULES.placeStep, Math.round(100 * (1 - share) / RULES.placeStep) * RULES.placeStep);
+    },
+    sizeRank(key) { return key in SIZE_OF ? SIZE_OF[key] : 1; },
+    sizePts(key) { return key === 'pumpkin_golden' ? RULES.goldenPts : RULES.sizePts[this.sizeRank(key)]; },
+    // Why the joint of pc on sup is shaky ('placement', 'size' or 'width'), or null when it's solid.
+    weakness(pc, sup) {
+        if ((pc.place === undefined ? 100 : pc.place) < RULES.solidPlace) return 'placement';
+        if (!sup) return null; // on the bale
+        if (this.sizeRank(pc.key) > this.sizeRank(sup.key)) return 'size';
+        if (pc.w > sup.w * RULES.wideTol) return 'width';
+        return null;
+    },
+    // One drop's score: (placement + size) x mult.
+    dropScore(place, key, mult) {
+        const size = this.sizePts(key);
+        return { place, size, chips: place + size, mult, total: (place + size) * mult };
+    },
     // The life pumpkins multiply everything banked (BOOMs and the last BOOM at sunset).
     livesMult(lives) { return 1 + RULES.lifeMult * Math.max(0, lives); },
     boomLives(n) { for (const [h, k] of RULES.boomLives) if (n >= h) return k; return 0; },
-    combo(streak) { for (const [n, x] of RULES.combos) if (streak >= n) return x; return 1; },
-    // A big pumpkin scores more (but it's heavy: a slower carry and a risky top).
-    sizeMult(m) { return clampN(Math.pow((m || 1.34) / 1.34, RULES.sizePow), 0.6, 2.2); },
-    score(grade, stageIdx, streak, ordered, golden, m) {
-        const mult = (grade === 'perfect' ? this.combo(streak) : 1) * (golden ? RULES.goldenMult : 1) * this.sizeMult(m);
-        return Math.round((RULES.points[grade] + (ordered ? RULES.orderBonus : 0)) * (1 + 0.25 * stageIdx) * mult);
-    },
 
     // Hovering: how a pumpkin's weight changes its glide (RULES.hoverHeft); light ones also get
     // blown further than heavy ones.
@@ -376,8 +414,8 @@ const Rules = {
         s.v += (-w * w * (s.x - target) - 2 * RULES.swayDamp * w * s.v) * dt;
         s.x += s.v * dt;
     },
-    swayTarget(lean, height, wind) {
-        return clampN(lean, -1.4, 1.4) * RULES.swayPx(height) + (wind || 0) * RULES.windSway(height);
+    swayTarget(lean, height, wind, shaky) {
+        return clampN(lean, -1.4, 1.4) * RULES.swayPx(height) + (wind || 0) * RULES.windSway(height) * (shaky ? 1 : RULES.solidSway);
     },
     swayKick(s, dir, kick, height) { s.v += dir * kick * RULES.swayPx(height) * 2 * Math.PI * RULES.swayHz; },
 
@@ -914,7 +952,7 @@ class Stack {
         this.wobblySaid = false;
     }
     get stageIdx() { return Rules.stageAt(this.items.length); }
-    // points riding on the tower: lost if it falls, banked x Rules.boomMult by BOOM
+    // points riding on the tower: lost if it falls, banked x the lives multiplier by BOOM
     get unbanked() { let s = 0; for (const it of this.items) s += it.pts || 0; return s; }
     pieces() { return this.items.map(pieceOf); }
     // top surface y, x where it is now (swaying), rx where it rests
@@ -946,7 +984,7 @@ class PatchScene extends Phaser.Scene {
         this.load.image('hoppah_jump', SHARED + 'hoppah_jumping.png');
         this.eggsPreload(); // surprises
         const art = ['background', 'haybale', 'leafpile_a', 'leafpile_b',
-            'bubble', 'bubble_tail', 'panel', 'icon_pumpkin', 'icon_pumpkin_cracked', 'sound_on', 'sound_off',
+            'bubble', 'bubble_tail', 'panel', 'icon_pumpkin', 'icon_pumpkin_cracked', 'chip_blue', 'chip_red', 'sound_on', 'sound_off',
             'hand', 'sparkle', 'dust', 'shadow', 'target',
             'foreground', 'silo_pumpkin', 'silo_pumpkin_wink',
             'sprout', 'pumpkin_unripe',
@@ -2405,46 +2443,28 @@ class PatchScene extends Phaser.Scene {
         this.tallest = Math.max(this.tallest, n);
         this.ui.setCount(n);
 
-        // perfect drops sparkle, and a run of them climbs in pitch (like Stack)
-        const grade = it.grade || 'ok';
-        if (grade === 'perfect') {
+        // a PERFECT drop sparkles a little, and a run of them climbs in pitch (like Stack)
+        const perfect = it.grade === 'perfect', pc = pieceOf(it);
+        if (perfect) {
             this.streak += 1;
-            this.sparkles.explode(10 + Math.min(10, this.streak * 2), it.rx, it.topY);
+            this.sparkles.explode(6, it.rx, it.topY);
             this.time.delayedCall(140, () => Sfx.perfect(this.streak));
-            if (TIMING.combos.includes(this.streak)) {
-                this.time.delayedCall(420, () => {
-                    Sfx.fanfare();
-                    this.ui.banner(this.streak + ' IN A ROW! x' + Rules.combo(this.streak));
-                    this.sparkles.explode(30, it.body ? it.body.position.x : stack.x, top.y);
-                });
-            }
         } else {
             this.streak = 0;
-            if (grade === 'good') {
-                this.sparkles.explode(4, it.rx, it.topY);
-                this.time.delayedCall(120, () => Sfx.good());
-            }
+            if (pc.solid) this.time.delayedCall(120, () => Sfx.good());
         }
-        if (it.golden) this.sparkles.explode(16, it.rx, it.ry);
-        // points ride on the tower until BOOM banks them: by grade, more higher up, x2/x3/x4 for
-        // perfect streaks, x3 for golden, plus a bonus for landing on something at least as heavy
-        // (big at the bottom, small on top)
-        const pts = Rules.score(grade, Rules.stageAt(n - 1), this.streak,
-            Rules.ordered(sup ? pieceOf(sup) : null, pieceOf(it)), it.golden, pieceOf(it).m);
-        // one popup over the pumpkin: its points
-        const num = this.add.text(it.rx, it.topY - 20, '+' + pts, {
-            fontFamily: FONT, fontSize: '40px', color: '#ffd35a',
-            stroke: INK, strokeThickness: 12,
-        }).setOrigin(0.5, 1).setDepth(62).setScale(0.4 * this.textScale);
-        this.tweens.add({ targets: num, scale: this.textScale, duration: 220, ease: 'Back.Out' });
-        this.tweens.add({ targets: num, y: num.y - 90, alpha: 0, delay: 500, duration: 700, onComplete: () => num.destroy() });
+        // its score rides on the tower until BOOM banks it: (placement + size) x mult, where the
+        // mult is how many have landed in a row
+        const sc = Rules.dropScore(pc.place === undefined ? 100 : pc.place, it.key, this.mult);
+        this.scorePop(it, sc);
+        this.mult += 1;
+        this.ui.setMult(this.mult);
         this.ui.setStreak(this.streak);
         it.perfect = false;
         it.grade = null;
-
-        it.pts = pts;
-        // a short run of perfect drops wins a pumpkin life
-        if (grade === 'perfect' && this.streak % RULES.lifeStreak === 0) this.earnLife(1, it.rx, it.topY, 500);
+        it.pts = sc.total;
+        // a short run of PERFECT drops wins a pumpkin life
+        if (perfect && this.streak % RULES.lifeStreak === 0) this.earnLife(1, it.rx, it.topY, 500);
         // so does topping each big height for the first time this round
         let k = 0;
         for (const h of RULES.lifeHeights) {
@@ -2465,6 +2485,38 @@ class PatchScene extends Phaser.Scene {
                 break;
             }
         }
+        // the moon is the top of the sky: a tower that reaches it is banked with a MOON BOOM
+        if (height >= MILESTONES[MILESTONES.length - 1].h && !this.moonBoomAt) {
+            this.moonBoomAt = this.time.now;
+            this.time.delayedCall(1400, () => {
+                this.moonBoomAt = 0;
+                if (stack.items.length && this.canBoom(stack)) this.boomPress();
+            });
+        }
+    }
+
+    // The score for a drop, Balatro-style, over the pumpkin that just landed: a blue chip with its
+    // placement + size, a red chip with the mult, then what they make. Calm: it eases in, drifts
+    // up and fades; nothing flashes or shakes.
+    scorePop(it, sc) {
+        const k = this.textScale, style = { fontFamily: FONT, fontSize: '20px', color: '#fff6e0', stroke: INK, strokeThickness: 6 };
+        const C = this.add.container(it.rx, it.topY - 26 * k).setDepth(62).setScale(0.85 * k).setAlpha(0);
+        const chip = (key, text, x, color) => {
+            const t = this.add.text(0, 0, text, Object.assign({}, style, { color })).setOrigin(0.5);
+            const w = t.width + 22, bg = this.add.nineslice(x + w / 2, 0, key, null, w, 38, 8, 8, 8, 8);
+            t.setPosition(x + w / 2, 1);
+            C.add([bg, t]);
+            return x + w;
+        };
+        let x = chip('chip_blue', sc.place + '+' + sc.size, 0, sc.place === 100 ? '#ffe680' : '#fff6e0');
+        x = chip('chip_red', '×' + sc.mult, x + 6, '#fff6e0');
+        const eq = this.add.text(x + 10, 0, '= ' + sc.total, Object.assign({}, style, { fontSize: '22px', color: '#ffd35a' }))
+            .setOrigin(0, 0.5).setAlpha(0);
+        C.add(eq);
+        C.list.forEach(o => { o.x -= (x + 10 + eq.width) / 2; });
+        this.tweens.add({ targets: C, alpha: 1, scale: k, duration: 220, ease: 'Sine.Out' });
+        this.tweens.add({ targets: eq, alpha: 1, delay: 260, duration: 200 });
+        this.tweens.add({ targets: C, y: C.y - 70 * k, alpha: 0, delay: 1250, duration: 650, onComplete: () => C.destroy() });
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -2529,6 +2581,8 @@ class PatchScene extends Phaser.Scene {
         this.lifeHeights = new Set();
         this.foundAtStart = this.found ? this.found.size : 0; // secrets found before this round
         this.fromLives = 0; // points the life multiplier has added this round
+        this.mult = 1;      // the next drop's mult: how many have landed in a row (falls and BOOM reset it)
+        this.moonBoomAt = 0; // a MOON BOOM is on its way
         this.wind.reset();
         this.windV = 0;
         for (const st of this.stacks) {
@@ -2599,8 +2653,8 @@ class PatchScene extends Phaser.Scene {
         // fell took their points with them.)
         const booms = this.stacks.filter(st => st.items.length > 0)
             .map(st => {
-                const base = st.unbanked * Rules.boomMult(st.items.length), pts = Math.round(base * Rules.livesMult(this.lives));
-                this.fromLives += pts - Math.round(base);
+                const base = st.unbanked, pts = Math.round(base * Rules.livesMult(this.lives));
+                this.fromLives += pts - base;
                 return { st, pts };
             });
         const finalBoom = booms.reduce((sum, b) => sum + b.pts, 0);
@@ -2759,8 +2813,10 @@ class PatchScene extends Phaser.Scene {
         stack = stack || this.stack;
         if (!this.canBoom(stack)) return false;
         const n = stack.items.length;
-        const base = stack.unbanked * Rules.boomMult(n), pts = Math.round(base * Rules.livesMult(this.lives));
-        this.fromLives += pts - Math.round(base); // what the life pumpkins added
+        const base = stack.unbanked, pts = Math.round(base * Rules.livesMult(this.lives));
+        this.fromLives += pts - base; // what the life pumpkins added
+        this.mult = 1;                // BOOM starts the mult over
+        this.ui.setMult(1);
         this.score += pts;
         this.ui.setScore(this.score);
         this.ui.banner('BOOM! +' + pts);
@@ -2899,7 +2955,7 @@ class PatchScene extends Phaser.Scene {
     planDrop(it, off) {
         const stack = this.stack, pc = pieceOf(it);
         return Rules.aim(stack.pieces(), stack.base, pc, off + Rules.fallDrift(this.windV, pc),
-            STAGES[stack.stageIdx], this.assisted(), this.windV);
+            this.assisted(), this.windV);
     }
 
     // Landing marker: a plain ring where the pumpkin would land, wind drift included. It doesn't
@@ -2922,7 +2978,7 @@ class PatchScene extends Phaser.Scene {
         if (this.ui && this.ui.ready) {
             const st = this.stack;
             this.updateBaleSign(dt, this.canBoom(st), st.danger,
-                Math.round(st.unbanked * Rules.boomMult(st.items.length) * Rules.livesMult(this.lives)));
+                Math.round(st.unbanked * Rules.livesMult(this.lives)));
             this.updateBoomHold(dt);
             this.ui.setDusk(Math.min(1, this.dayT / RULES.day));
         }
@@ -3001,6 +3057,8 @@ class PatchScene extends Phaser.Scene {
         const safe = this.assisted();
         const opts = safe ? { roll: false, topple: false } : { roll: true, topple: true };
         const res = Rules.land(stack.pieces(), stack.base, pieceOf(it), plan.d, this.windV, opts, Math.random);
+        // its placement and whether its joint is solid stay with it while it's in the tower
+        Object.assign(pieceOf(it), { place: res.piece.place, weak: res.piece.weak, solid: res.piece.solid });
         this.placeStatic(stack, it, res.x, top.y);
         this.landFx(stack, it, sup, res);
         if (res.fall === 'none') { this.lockIntoTower(it, stack); return; }
@@ -3050,8 +3108,9 @@ class PatchScene extends Phaser.Scene {
     updateTower(stack, dt) {
         const P = stack.pieces();
         const r = stack.balance = Rules.analyze(P, stack.base, this.windV);
-        Rules.swayStep(stack.sway, dt, Rules.swayTarget(r.lean, r.height, P.length ? this.windV : 0));
-        const danger = !P.length || this.roundOver ? 0 : Phaser.Math.Clamp((Math.abs(r.lean) - 0.7) / 0.3, 0, 1);
+        Rules.swayStep(stack.sway, dt, Rules.swayTarget(r.lean, r.height, P.length ? this.windV : 0, r.shaky));
+        const danger = !P.length || this.roundOver ? 0 : Phaser.Math.Clamp((Math.abs(r.shakyLean) - 0.7) / 0.3, 0, 1);
+        this.shakyCues(stack, r, dt);
         stack.danger = danger;
         const H = Math.max(1, r.height);
         for (const it of stack.items) {
@@ -3088,6 +3147,32 @@ class PatchScene extends Phaser.Scene {
         }
     }
 
+    // Shaky joints show themselves (solid ones never move): every few seconds the pumpkin on a
+    // shaky joint gives a small rock, and when a gust that could take one is on its way (the
+    // leaves are already streaming), it creaks and rocks a little harder.
+    shakyCues(stack, r, dt) {
+        const items = stack.items;
+        if (!r.shaky || this.roundOver) { stack.shakyT = 1.5; stack.warned = false; return; }
+        const rock = (i, amp) => {
+            const it = items[i];
+            if (it && it.state === 'tower' && !it.rock) it.rock = { amp: (Math.random() < 0.5 ? -1 : 1) * amp, t: 0 };
+        };
+        stack.shakyT = (stack.shakyT ?? 1.5) - dt;
+        if (stack.shakyT <= 0) {
+            stack.shakyT = 3.2;
+            r.per.forEach((j, i) => { if (!j.solid) rock(i, 0.035); });
+        }
+        const W = this.wind;
+        if (W.phase !== 'warn') { stack.warned = false; return; }
+        if (stack.warned) return;
+        stack.warned = true;
+        const ahead = Rules.analyze(stack.pieces(), stack.base, W.dir * W.peak);
+        const at = ahead.per.findIndex(j => !j.solid && Math.abs(j.L) > 1);
+        if (at < 0) return;
+        for (let i = at; i < items.length; i++) rock(i, 0.07);
+        Sfx.creak(pieceOf(items[at]).m);
+    }
+
     // Joint `at` gave way: everything from there up teeters over the edge for a moment, then
     // goes fully physical and tumbles into the patch (where it can be picked up again).
     // Its unbanked points are lost, and each pumpkin that falls costs a life.
@@ -3108,6 +3193,8 @@ class PatchScene extends Phaser.Scene {
         this.tipGroups.push(G);
         this.streak = 0;
         this.ui.setStreak(0);
+        this.mult = 1; // a fall resets the mult
+        this.ui.setMult(1);
         if (stack === this.stack) this.ui.setCount(stack.items.length);
         if (lost) this.popText(G.px, G.py - 40, '-' + lost, '#ff6a50', 34);
         if (pieces.length === 1) {
@@ -3367,6 +3454,14 @@ class UIScene extends Phaser.Scene {
         this.countText = this.add.text(112, 40, '0', {
             fontFamily: FONT, fontSize: '30px', color: '#fff6e0', stroke: INK, strokeThickness: 6,
         });
+        // the next drop's mult, Balatro-style: a small red chip beside the count
+        this.dropChip = this.add.nineslice(0, 31, 'chip_red', null, 60, 34, 8, 8, 8, 8).setOrigin(0, 0);
+        this.dropMultText = this.add.text(0, 49, '×1', {
+            fontFamily: FONT, fontSize: '18px', color: '#fff6e0', stroke: INK, strokeThickness: 5,
+        }).setOrigin(0.5);
+        // placed inside the count panel from the start (the title hides what sits in the panel)
+        this.dropChip.setX(this.countText.x + this.countText.width + 14);
+        this.dropMultText.setX(this.dropChip.x + 30);
         this.bestText = this.add.text(112, 92, 'BEST ' + this.patch.best.count, {
             fontFamily: FONT, fontSize: '12px', color: '#ffe3a6', stroke: INK, strokeThickness: 4,
         }).setOrigin(0, 0.5);
@@ -3600,6 +3695,25 @@ class UIScene extends Phaser.Scene {
     setCount(n) {
         this.countText.setText(String(n));
         this.tweens.add({ targets: this.countText, scale: 1.35, duration: 110, yoyo: true });
+        this.placeDropChip();
+    }
+
+    // The next drop's mult beside the count: one more for every pumpkin that stays, back to x1
+    // after a fall or a BOOM.
+    setMult(n) {
+        const t = this.dropMultText, grew = n > 1 && t.text !== '×' + n;
+        t.setText('×' + n);
+        this.placeDropChip();
+        this.tweens.killTweensOf(t);
+        t.setScale(1);
+        if (grew) this.tweens.add({ targets: t, scale: 1.18, duration: 110, yoyo: true });
+    }
+    placeDropChip() {
+        if (!this.dropChip) return;
+        const w = this.dropMultText.width + 20, x = this.countText.x + this.countText.width + 14;
+        this.dropChip.setSize(w, 34).setPosition(x, 31);
+        this.dropMultText.setPosition(x + w / 2, 49);
+        this.fitPanel();
     }
 
     setBest(n) {
@@ -3751,6 +3865,7 @@ class UIScene extends Phaser.Scene {
         this.setScore(0);
         this.lifeFlying = 0;
         this.setLives(RULES.lives, 'reset');
+        this.setMult(1);
         this.setStreak(0);
     }
 
@@ -3759,7 +3874,8 @@ class UIScene extends Phaser.Scene {
     // The count panel grows with the score so the number never spills off the sign.
     fitPanel() {
         const m = this.multText && this.multText.visible ? this.multText.x + this.multText.width - 12 : 0;
-        const w = Math.max(270, 112 + this.scoreText.width + 4, m);
+        const c = this.dropChip ? this.dropChip.x + this.dropChip.width - 6 : 0;
+        const w = Math.max(270, 112 + this.scoreText.width + 4, m, c);
         if (w !== this.panel.width) this.panel.setSize(w, 176);
         else if (this.panel.height !== 176) this.panel.setSize(w, 176);
     }
@@ -5695,7 +5811,7 @@ const HTP_PAGES = [
     ] },
     { title: "DON'T LET IT FALL", art: 'htpArtFall', rows: [
         { p: 'A PUMPKIN THAT FALLS OFF BREAKS A LIFE. LIVES MULTIPLY WHAT YOU BANK: 3 LIVES, ×1.3.' },
-        { ic: { img: 'windsock', f: 6, s: 0.3 }, t: 'GUSTS PUSH THE PUMPKIN AND TIP CROOKED TOWERS.' },
+        { ic: { img: 'windsock', f: 6, s: 0.3 }, t: 'GUSTS ONLY TOPPLE SHAKY SPOTS: OFF CENTRE, OR BIG ON SMALL.' },
         { p: 'START WITH 3. EARN UP TO 5:', c: 'gold' },
         { ic: { img: 'sparkle', n: 3 }, t: '3 PERFECT DROPS IN A ROW' },
         { ic: { img: 'haybale', s: 0.5 }, t: 'BOOM A TALL TOWER' },
@@ -5703,9 +5819,9 @@ const HTP_PAGES = [
         { ic: { img: 'pumpkin_golden', s: 0.6 }, t: 'GOLDEN PUMPKINS' },
     ] },
     { title: 'BOOM!', art: 'htpArtBoom', rows: [
-        { p: 'ONCE THE TOWER IS 3 TALL, A BOOM SIGN SHOWS UP AT THE FOOT OF THE BALE.' },
-        { p: "BOOM BANKS THE TOWER'S POINTS AND KNOCKS IT DOWN. TALLER TOWER, BIGGER BONUS." },
-        { p: 'IF IT FALLS FIRST, THOSE POINTS ARE LOST.', c: 'orange' },
+        { p: 'EACH PUMPKIN SCORES (CENTRE + SIZE) × MULT, LIKE [90+50]×4=560.' },
+        { p: 'THE MULT GOES UP 1 FOR EVERY PUMPKIN THAT STAYS. A FALL OR A BOOM RESETS IT.' },
+        { p: "AT 3 TALL, BOOM BANKS THE TOWER'S POINTS. IF IT FALLS FIRST, THEY'RE LOST.", c: 'orange' },
         { p: 'ONE MORE, OR CASH IN NOW?', c: 'gold' },
         { touch: true, ic: { img: 'hand' }, t: 'TAP THE BALE TO BOOM.' },
         { desk: true, ic: { keys: ['B'] }, t: 'HOLD B TO BOOM, OR CLICK THE BALE.' },

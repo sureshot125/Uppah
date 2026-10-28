@@ -31,7 +31,6 @@
 (() => {
 'use strict';
 
-const SHARED = window.UPPAH_SHARED || '../../assets/';
 const ART = 'art/';
 
 // ── World layout (game pixels; art is drawn at 4 game px per art pixel) ──────
@@ -131,13 +130,15 @@ const MORE_BATCH = 5;
 // early, pick big.
 // Gigi's visit: she stands between the two vine rows (the front row hides her feet), at
 // roughly Ansel's height, and jogs rather than sprints.
-const GIGI = { y: 1962, depth: 5, scale: 0.55, speed: 250 };
+const GIGI = { y: 1962, depth: 5, speed: 250 };
 // Leaves come off the trees: drifting ones start no higher than just above the tallest crown
 // (y 1484), and gust-blown ones a little higher; never up in the sky with a tall tower.
 const LEAF_CEIL = 1400, GUST_LEAF_CEIL = 1240;
+// Vine pumpkins in the back row are drawn at 3/4 size (3 game px to an art pixel, still whole
+// pixels); the front row at full size. Ansel stays full size in both rows, as pixel-art characters do.
 const LANES = [
-    { y: 1930, scale: 0.8, depth: 4 },   // back row
-    { y: 1994, scale: 0.9, depth: 6 },   // front row
+    { y: 1930, scale: 0.75, depth: 4 },  // back row
+    { y: 1994, scale: 1, depth: 6 },     // front row
 ];
 const GROW_SPOTS = [
     { lane: 0, x: 300 }, { lane: 0, x: 560 }, { lane: 0, x: 790 }, { lane: 0, x: 1190 },
@@ -218,7 +219,6 @@ const RULES = {
     fallDrift: 24,        // px a full gust pushes a medium pumpkin while it falls (aim upwind!)
     warn: 1.4,            // seconds of leaves and whoosh before a gust hits
     windSway: h => 7 + Math.min(h, 1000) * 0.012, // extra px the top visibly sways in a full gust
-    hoverLean: 7,         // degrees the hovering pumpkin leans in a full gust
     hoverHeft: 0.06,      // hover glide speed x (weight / a medium's) ^ this: a big one swings a bit faster
     swayHz: 0.6,          // the tower's springy sway
     swayDamp: 0.2,
@@ -486,6 +486,113 @@ function calmFx(em) {
     const explode = em.explode.bind(em);
     em.explode = (n, x, y) => explode(Math.max(1, Math.round((n || 1) * FX_SCALE)), x, y);
     return em;
+}
+
+// Crisp pixels: the patch is drawn 4 game px to an art pixel (Ansel 3), and the camera never zooms
+// (see baseZoom). So art is only ever drawn at sizes that keep each art pixel a whole number of
+// game pixels, turned only in quarter turns, and wiggles hop sideways instead of tilting. A sprite
+// at 0.8× or 7° resamples its pixels into uneven, shimmering steps.
+const ART_PX = 4, ANSEL_PX = 3;
+function pxScale(s, art = ART_PX) { return Math.max(1, Math.round(s * art)) / art; }
+// ...and the largest such size that (about) fits in a box sized for s
+function pxFit(s, art = ART_PX) { return Math.max(1, Math.floor(s * art + 0.25)) / art; }
+function quarterTurn(rad) { return Math.round(rad / (Math.PI / 2)) * (Math.PI / 2); }
+
+// Game px per art pixel of a texture: Ansel and Gigi are drawn 3 to one, the sticker sheet 2,
+// everything else 4.
+function artPx(key) {
+    return key.startsWith('ansel:') || key.startsWith('gigi_') ? ANSEL_PX : key === 'egg_stickers' ? 2 : ART_PX;
+}
+
+// The safety net: just before each frame is drawn, every sprite and particle in the scene
+// snaps to the pixel grid (its size, counting the containers it's in, to whole art pixels; its
+// angle to a quarter turn), and right after, it gets its own values back. So any tween that
+// grows, squashes or turns a sprite plays in pixel steps, and the game's logic never sees the
+// difference. Text is left as it is.
+function crispScene(scene) {
+    const { Image, Sprite, NineSlice, Container } = Phaser.GameObjects;
+    const Emitter = Phaser.GameObjects.Particles.ParticleEmitter;
+    const held = [];
+    const step = (v, k) => Math.sign(v) * Math.round(Math.abs(v) * k) / k;
+    const snap = (list, sx, sy) => {
+        for (const o of list) {
+            if (!o.visible) continue;
+            if (o instanceof Emitter) {
+                for (const p of o.alive) { // particles: their own values are made fresh each frame
+                    p.rotation = quarterTurn(p.rotation);
+                    p.scaleX = step(p.scaleX, ART_PX);
+                    p.scaleY = step(p.scaleY, ART_PX);
+                }
+                continue;
+            }
+            const art = o instanceof Image || o instanceof Sprite || o instanceof NineSlice;
+            if (!art && !(o instanceof Container)) continue;
+            held.push(o, o.scaleX, o.scaleY, o.rotation);
+            o.rotation = quarterTurn(o.rotation);
+            if (art && sx && sy) {
+                const k = artPx(o.texture.key);
+                o.scaleX = step(o.scaleX * sx, k) / sx;
+                o.scaleY = step(o.scaleY * sy, k) / sy;
+            }
+            if (o instanceof Container) snap(o.list, sx * o.scaleX, sy * o.scaleY);
+        }
+    };
+    scene.events.on('prerender', () => snap(scene.children.list, 1, 1));
+    scene.events.on('render', () => {
+        for (let i = 0; i < held.length; i += 4) {
+            const o = held[i];
+            o.scaleX = held[i + 1];
+            o.scaleY = held[i + 2];
+            o.rotation = held[i + 3];
+        }
+        held.length = 0;
+    });
+}
+
+// A pixel-art wiggle: the sprite hops a whole art pixel left and right, then settles back.
+function pixelWiggle(scene, img, hops = 4, ms = 70, px = ART_PX) {
+    if (img.wiggle) { img.wiggle.remove(); img.x = img.wiggleX0; }
+    const x0 = img.wiggleX0 = img.x;
+    let i = 0;
+    img.wiggle = scene.time.addEvent({ delay: ms, repeat: hops, callback: () => {
+        i++;
+        img.x = i > hops ? x0 : x0 + (i % 2 ? px : -px);
+        if (i > hops) img.wiggle = null;
+    } });
+}
+
+// The landing ring for a pumpkin this wide, drawn in whole art pixels (make_art.py's target_ring,
+// redrawn per width: stretching the one ring to fit would squash its pixels).
+function ringTexture(scene, bw) {
+    const W = Math.max(10, Math.round(bw / ART_PX)), H = 10, key = 'ring_' + W;
+    if (scene.textures.exists(key)) return key;
+    const w = W - 2, h = H - 2, art = [];
+    for (let y = 0; y < H; y++) art.push(new Array(W).fill(null));
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const nx = (x + 0.5 - w / 2) / (w / 2), ny = (y + 0.5 - h / 2) / (h / 2), d = nx * nx + ny * ny;
+            if (d > 0.45 && d <= 1) art[y + 1][x + 1] = ny < 0.2 ? [255, 246, 208] : [232, 215, 154];
+        }
+    }
+    // its edge, as make_art's outline(): the colour it touches, pulled toward the ink
+    const ink = [43, 24, 16], px = art.map(r => r.slice());
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            if (art[y][x]) continue;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const c = art[y + dy] && art[y + dy][x + dx];
+                if (c) { px[y][x] = c.map((v, i) => Math.round(v + (ink[i] - v) * 0.85)); break; }
+            }
+        }
+    }
+    const tex = scene.textures.createCanvas(key, W * ART_PX, H * ART_PX), ctx = tex.context;
+    px.forEach((row, y) => row.forEach((c, x) => {
+        if (!c) return;
+        ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+        ctx.fillRect(x * ART_PX, y * ART_PX, ART_PX, ART_PX);
+    }));
+    tex.refresh();
+    return key;
 }
 
 // A resting palm (or the side of a hand) is not a tap, but a thumb always is. Phones report a
@@ -950,9 +1057,11 @@ class PatchScene extends Phaser.Scene {
             ANSEL_FRAMES[outfit].forEach(f => this.load.image(`ansel:${outfit}/${f}`, `${ANSEL_ART}${outfit}/${f}.png`));
         }
         this.load.json('ansel_frames', ANSEL_ART + 'frames.json');
-        for (let i = 1; i <= 8; i++) this.load.image('gigi_' + i, `${SHARED}Gigi Running frames/frame_0${i}.png`);
-        this.load.image('hoppah_stand', SHARED + 'hoppah_standing.png');
-        this.load.image('hoppah_jump', SHARED + 'hoppah_jumping.png');
+        // Gigi and Hoppah from the Uppah runner, redrawn on the patch's pixel grid (make_cameo_sprites.py)
+        for (let i = 1; i <= 8; i++) this.load.image('gigi_' + i, ART + `gigi_${i}.png`);
+        this.load.image('hoppah_stand', ART + 'hoppah_stand.png');
+        this.load.image('hoppah_jump', ART + 'hoppah_jump.png');
+        this.load.json('cameos', ART + 'cameos.json');
         this.eggsPreload(); // surprises
         const art = ['background', 'haybale', 'leafpile_a', 'leafpile_b',
             'bubble', 'bubble_tail', 'panel', 'icon_pumpkin', 'sound_on', 'sound_off',
@@ -969,6 +1078,7 @@ class PatchScene extends Phaser.Scene {
     }
 
     create() {
+        crispScene(this);
         this.started = false;
         this.best = loadBest();
         this.items = [];
@@ -1030,7 +1140,7 @@ class PatchScene extends Phaser.Scene {
         this.signSize = { w: SIGN_W, h: SIGN_H };
         this.boomHold = 0; this.boomLatch = false;
         this.baleSignOn = false;
-        this.add.image(HAY_X, GROUND + 4, 'shadow').setScale(1.35, 1).setDepth(7);
+        this.add.image(HAY_X, GROUND + 4, 'shadow').setScale(pxScale(1.35), 1).setDepth(7);
 
         // Leaf piles (each hides one pumpkin the first time Ansel dives in)
         this.piles = PILES.map(p => {
@@ -1063,9 +1173,8 @@ class PatchScene extends Phaser.Scene {
 
         // Hoppah the bunny (from the Uppah runner) hops through now and then
         this.hop = {
-            img: this.add.image(-300, GROUND, 'hoppah_stand').setOrigin(0.5, 305 / 327).setScale(0.3)
-                .setDepth(21).setVisible(false),
-            shadow: this.add.image(-300, GROUND + 4, 'shadow').setScale(0.6, 0.8).setDepth(9).setVisible(false),
+            img: this.cameo(this.add.image(-300, GROUND, 'hoppah_stand'), 'hoppah_stand').setDepth(21).setVisible(false),
+            shadow: this.add.image(-300, GROUND + 4, 'shadow').setScale(pxScale(0.6), pxScale(0.8)).setDepth(9).setVisible(false),
             active: false, next: 14, phase: 'sit', t: 0, x: -300, y: GROUND, dir: 1, scared: false,
         };
 
@@ -1130,7 +1239,7 @@ class PatchScene extends Phaser.Scene {
         // Gigi cameo actor
         // Gigi visits from the back of the patch, between the vine rows: small enough to be part of the
         // scene, never a giant running across the front of the screen.
-        this.gigi = this.add.image(-400, GIGI.y, 'gigi_1').setOrigin(0.5, 1 - 37 / 496).setDepth(GIGI.depth).setVisible(false);
+        this.gigi = this.cameo(this.add.image(-400, GIGI.y, 'gigi_1'), 'gigi_1').setDepth(GIGI.depth).setVisible(false);
         this.gigiState = null;
 
         // Physics events → sounds
@@ -1181,6 +1290,14 @@ class PatchScene extends Phaser.Scene {
         it.shadow = this.add.image(x, GROUND + 3, 'shadow').setDepth(9).setVisible(false);
         this.items.push(it);
         return it;
+    }
+
+    // Gigi or Hoppah showing this picture (make_cameo_sprites.py), standing on its own feet.
+    cameo(img, key) {
+        if (img.texture.key === key && img.cameo) return img;
+        img.cameo = true;
+        const o = (this.cache.json.get('cameos') || {})[key] || [0.5, 1];
+        return img.setTexture(key).setOrigin(o[0], o[1]);
     }
 
     addBody(it, x, y, angle) {
@@ -1281,8 +1398,9 @@ class PatchScene extends Phaser.Scene {
         this.bubbleText.setText(text);
         const w = Math.max(96, this.bubbleText.width + 40);
         this.bubbleBg.setSize(w, 64);
-        this.bubble.setVisible(true).setScale(0.4);
-        this.tweens.add({ targets: this.bubble, scale: 1, duration: 160, ease: 'Back.Out' });
+        this.tweens.killTweensOf(this.bubble);
+        this.bubble.setVisible(true).setAlpha(0);
+        this.tweens.add({ targets: this.bubble, alpha: 1, duration: 140, ease: 'Sine.Out' });
         this.bubbleTimer = ms;
     }
 
@@ -1412,8 +1530,10 @@ class PatchScene extends Phaser.Scene {
             Sfx.crunch();
             this.burst.explode(34, pile.x, GROUND - 30);
             this.say('LEAVES!');
-            this.tweens.add({ targets: pile.img, scaleY: 0.45, scaleX: 1.12, duration: 160, ease: 'Quad.Out' });
-            this.tweens.add({ targets: pile.img, scaleY: 1, scaleX: 1, duration: 2600, delay: 2500, ease: 'Sine.InOut' });
+            // flattened, then it fills back up a step at a time
+            const sq = { y: 1 }, flat = () => pile.img.setScale(1, pxScale(sq.y));
+            this.tweens.add({ targets: sq, y: 0.5, duration: 160, ease: 'Quad.Out', onUpdate: flat });
+            this.tweens.add({ targets: sq, y: 1, duration: 2600, delay: 2500, ease: 'Sine.InOut', onUpdate: flat });
             const h = pile.hidden;
             if (h && h.state === 'hidden') {
                 pile.hidden = null;
@@ -1749,10 +1869,7 @@ class PatchScene extends Phaser.Scene {
     // ...and a plant in the vines wiggles (a bare spot just boops).
     wiggleSpot(sp) {
         const img = sp.img;
-        if (img) {
-            this.tweens.add({ targets: img, angle: { from: -6, to: 6 }, duration: 70, yoyo: true,
-                onComplete: () => { img.angle = 0; } });
-        }
+        if (img) pixelWiggle(this, img, 2, 70);
         Sfx.boop(40);
     }
 
@@ -1868,7 +1985,7 @@ class PatchScene extends Phaser.Scene {
         sp.stage += 1;
         const lane = LANES[sp.lane];
         let key, scale = lane.scale;
-        if (sp.stage === 1) { key = 'sprout'; scale *= 1.4; }
+        if (sp.stage === 1) { key = 'sprout'; scale = pxScale(scale * 1.25); }
         else {
             if (sp.stage === 4 && Math.random() < GROW.goldenChance) sp.golden = true;
             sp.key = sp.golden ? 'pumpkin_golden' : Phaser.Utils.Array.GetRandom(GROW_SIZES[sp.stage]);
@@ -1879,8 +1996,11 @@ class PatchScene extends Phaser.Scene {
         sp.t = this.growTime(sp);
         if (fx) {
             this.tweens.killTweensOf(sp.img);
-            sp.img.setScale(scale * (sp.stage === 1 ? 0.5 : 0.85));
-            this.tweens.add({ targets: sp.img, scale, duration: 450, ease: 'Sine.Out' });
+            const g = { s: scale * (sp.stage === 1 ? 0.5 : 0.75) }, img = sp.img;
+            img.setScale(pxScale(g.s));
+            if (sp.growTw) sp.growTw.remove();
+            sp.growTw = this.tweens.add({ targets: g, s: scale, duration: 450, ease: 'Sine.Out',
+                onUpdate: () => { if (img.active) img.setScale(pxScale(g.s)); } });
         }
     }
 
@@ -1948,14 +2068,14 @@ class PatchScene extends Phaser.Scene {
         a.walkingLane = true;
         a.img.setDepth(lane.depth + 0.5);
         a.shadow.setDepth(lane.depth + 0.4);
-        this.tweens.add({ targets: a, laneY: GROUND - lane.y, depthScale: lane.scale, duration: 420, ease: 'Sine.InOut',
+        this.tweens.add({ targets: a, laneY: GROUND - lane.y, duration: 420, ease: 'Sine.InOut',
             onComplete: () => { a.walkingLane = false; then(); } });
     }
 
     leaveLane(heavy, then) {
         const a = this.ansel;
         a.walkingLane = true;
-        this.tweens.add({ targets: a, laneY: 0, depthScale: 1, duration: heavy ? 950 : 460, ease: 'Sine.InOut',
+        this.tweens.add({ targets: a, laneY: 0, duration: heavy ? 950 : 460, ease: 'Sine.InOut',
             onComplete: () => {
                 a.walkingLane = false;
                 a.img.setDepth(20);
@@ -1978,8 +2098,9 @@ class PatchScene extends Phaser.Scene {
         [160, 280, 400, 520].forEach((ms, i) => this.time.delayedCall(ms, () => this.setPose(i % 2 ? 'tug2' : 'tug1')));
         this.time.delayedCall(150, () => {
             Sfx.tug();
-            this.tweens.add({ targets: img, angle: { from: -9, to: 9 }, duration: 75, yoyo: true, repeat: 2,
-                onRepeat: () => Sfx.tug(), onComplete: () => { img.angle = 0; } });
+            pixelWiggle(this, img, 5, 70); // done before it pops off at 600 ms
+            this.time.delayedCall(140, () => Sfx.tug());
+            this.time.delayedCall(280, () => Sfx.tug());
         });
         this.time.delayedCall(600, () => {
             // pop! off the vine
@@ -1990,7 +2111,7 @@ class PatchScene extends Phaser.Scene {
             it.golden = golden;
             if (golden) it.heavy = true;
             it.state = 'lifting';
-            it.img.setScale(ds).setDepth(a.img.depth + 0.1);
+            it.img.setScale(pxScale(ds)).setDepth(a.img.depth + 0.1);
             this.tweens.killTweensOf(img);
             img.destroy();
             sp.img = null; sp.stage = 0; sp.key = null; sp.golden = false; sp.busy = false; sp.watered = false;
@@ -2077,10 +2198,7 @@ class PatchScene extends Phaser.Scene {
         this.time.delayedCall(tapped ? 900 : 450, () => p.setTexture('silo_pumpkin'));
         if (tapped) {
             Sfx.giggle();
-            this.tweens.killTweensOf(p);
-            p.angle = 0;
-            this.tweens.add({ targets: p, angle: { from: -7, to: 7 }, duration: 110, yoyo: true, repeat: 2,
-                onComplete: () => { p.angle = 0; } });
+            pixelWiggle(this, p, 5, 100);
         }
     }
 
@@ -2129,7 +2247,7 @@ class PatchScene extends Phaser.Scene {
         }
         if (h.phase === 'sit') {
             h.t -= dt;
-            h.img.setTexture('hoppah_stand');
+            this.cameo(h.img, 'hoppah_stand');
             if (h.t <= 0) {
                 h.phase = 'hop'; h.t = 0; h.fromX = h.x;
                 h.toX = h.x + h.dir * (h.scared ? 200 : 110);
@@ -2140,7 +2258,7 @@ class PatchScene extends Phaser.Scene {
             const k = Math.min(1, h.t);
             h.x = Phaser.Math.Linear(h.fromX, h.toX, k);
             h.y = GROUND - Math.sin(Math.PI * k) * h.height;
-            h.img.setTexture('hoppah_jump');
+            this.cameo(h.img, 'hoppah_jump');
             if (k >= 1) {
                 h.y = GROUND; h.phase = 'sit';
                 h.t = h.scared ? 0.08 : (Math.random() < 0.2 ? 1.6 : Phaser.Math.FloatBetween(0.25, 0.7));
@@ -2217,11 +2335,10 @@ class PatchScene extends Phaser.Scene {
             it.lastSound = now;
             Sfx.thunk(it.size / 4, rv);
             if (rv > 3 && it.body) {
-                // dust puff where it hit, and a quick squash
+                // dust puff where it hit
                 const c = pair.collision && pair.collision.supports && pair.collision.supports[0];
                 this.dust.explode(Math.min(10, 3 + Math.round(rv)), c ? c.x : it.body.position.x,
                     c ? c.y : it.body.bounds.max.y);
-                this.tweens.add({ targets: it.img, scaleX: 1.12, scaleY: 0.88, duration: 70, yoyo: true });
                 if (it.heavy && rv > 6 && !it.blown) this.cameras.main.shake(90, 0.0012); // a BOOM never shakes
             }
         }
@@ -2289,16 +2406,15 @@ class PatchScene extends Phaser.Scene {
         a.img.y = feetY + idleBob - a.jumpY;
         a.img.setScale(a.baseScale * ds);
         const ak = 1 - a.jumpY / 200;
-        a.shadow.setPosition(a.x, feetY + 4).setScale(0.95 * ak * ds, ak * ds).setAlpha(ak);
+        a.shadow.setPosition(a.x, feetY + 4).setScale(pxScale(0.95 * ak * ds), pxScale(ak * ds)).setAlpha(ak);
 
         // Carried pumpkin: in his hands where this frame's own pumpkin was (on his head, or at
         // his chest for a heavy one), in front of him with his hands tucked behind it
         if (a.carrying && a.carrying.state === 'carried' && (!a.busy || a.walkingLane)) {
             const p = this.holdPos(a.carrying, a.frameName);
-            a.carrying.img.setScale(ds).setDepth(a.img.depth + 0.1);
+            a.carrying.img.setScale(pxScale(ds)).setDepth(a.img.depth + 0.1).setAngle(0);
             a.carrying.img.x = p.x;
             a.carrying.img.y = p.y + idleBob - a.jumpY;
-            a.carrying.img.angle = a.moving ? Math.sin(time / 120) * 2 : 0;
             if (a.carrying.golden && Math.random() < 0.04) {
                 this.sparkles.explode(1, a.carrying.img.x + Phaser.Math.Between(-30, 30), a.carrying.img.y);
             }
@@ -2320,7 +2436,6 @@ class PatchScene extends Phaser.Scene {
             this.hoverOff = this.hoverBaseX + off + this.hoverDrift - top.rx; // over the resting tower
             it.img.x = top.x + this.hoverOff;                                 // ...drawn on the swaying top
             it.img.y = Phaser.Math.Linear(it.img.y, targetY + Math.sin(this.hoverT * 5) * 5, 0.15);
-            it.img.angle = Math.sin(this.hoverT * 3) * 4 + gust * RULES.hoverLean;
             this.hoverBaseX = Phaser.Math.Linear(this.hoverBaseX, top.rx, 0.05);
             // a plain marker on top of the stack shows where it would land (wind included)
             const plan = this.planDrop(it, this.hoverOff);
@@ -2335,13 +2450,14 @@ class PatchScene extends Phaser.Scene {
         for (const it of this.items) {
             if (!it.body) { it.shadow.setVisible(false); continue; }
             it.img.x = it.body.position.x;
-            it.img.y = it.body.position.y;
-            it.img.rotation = it.body.angle;
+            it.img.y = it.body.position.y + (it.dipT > 0 ? ART_PX : 0);
+            it.img.rotation = quarterTurn(it.body.angle);
+            if (it.dipT > 0) it.dipT -= dt;
             if (it.state === 'tower' || it.body.isStatic) continue;
             // contact shadow, shrinking as the pumpkin rises off the ground
             const k = Phaser.Math.Clamp(1 - (GROUND - it.body.bounds.max.y) / 450, 0.25, 1);
             it.shadow.setVisible(true).setPosition(it.body.position.x, GROUND + 3)
-                .setScale((it.bw / 136) * k, k).setAlpha(k);
+                .setScale(pxScale((it.bw / 136) * k), pxScale(k)).setAlpha(k);
             it.airT += dt;
             const v = Math.hypot(it.body.velocity.x, it.body.velocity.y);
             const resting = it.body.isSleeping || (v < 0.3 && Math.abs(it.body.angularVelocity) < 0.02);
@@ -2374,7 +2490,7 @@ class PatchScene extends Phaser.Scene {
             const headY = feet - over * a.depthScale;
             const ts = this.textScale;
             const r = this.bubbleRoot;
-            r.setScale(ts);
+            r.setScale(pxScale(ts));
             // The bubble hangs off his head on the side away from the stack and never enters the
             // column where pumpkins sway and land, so it can't hide the drop.
             const bw = this.bubbleBg.width * ts;
@@ -2658,16 +2774,17 @@ class PatchScene extends Phaser.Scene {
         a.goal = null;
         a.dir = P.face;
         const moveDir = Math.sign(P.holdX - P.startX) || 1;
-        const b = this.sunsetBunny = this.add.image(P.startX, GROUND, 'hoppah_stand')
-            .setOrigin(0.5, 305 / 327).setScale(0.3).setDepth(21).setFlipX(moveDir < 0);
-        const sh = this.sunsetBunnyShadow = this.add.image(P.startX, GROUND + 4, 'shadow').setScale(0.6, 0.8).setDepth(9);
+        const b = this.sunsetBunny = this.cameo(this.add.image(P.startX, GROUND, 'hoppah_stand'), 'hoppah_stand')
+            .setDepth(21).setFlipX(moveDir < 0);
+        const sh = this.sunsetBunnyShadow = this.add.image(P.startX, GROUND + 4, 'shadow')
+            .setScale(pxScale(0.6), pxScale(0.8)).setDepth(9);
         let i = 0;
         const hop = () => {
             const last = i === P.hops - 1;
             const x0 = b.x, y0 = b.y;
             const x1 = last ? P.holdX : P.startX + (P.holdX - P.startX) * (i + 1) / P.hops;
             const y1 = last ? P.holdY : GROUND, peak = last ? 110 : 55;
-            b.setTexture('hoppah_jump');
+            this.cameo(b, 'hoppah_jump');
             if (last) Sfx.boing(); else Sfx.boop(14);
             this.tweens.addCounter({
                 from: 0, to: 1, duration: 320,
@@ -2675,25 +2792,23 @@ class PatchScene extends Phaser.Scene {
                     const k = tw.getValue();
                     b.x = x0 + (x1 - x0) * k;
                     b.y = y0 + (y1 - y0) * k - Math.sin(Math.PI * k) * peak;
-                    if (last) b.setScale(0.3 - 0.03 * k);
                     sh.setPosition(b.x, GROUND + 4).setAlpha(last ? 1 - k : 1 - (GROUND - b.y) / 250);
                 },
                 onComplete: () => {
                     i += 1;
                     if (!last) {
-                        b.setTexture('hoppah_stand');
+                        this.cameo(b, 'hoppah_stand');
                         this.dust.explode(2, b.x, GROUND);
                         this.time.delayedCall(20, hop);
                         return;
                     }
                     // caught: a cuddle and a little wriggle
-                    b.setTexture('hoppah_stand');
+                    this.cameo(b, 'hoppah_stand');
                     sh.setVisible(false);
                     this.setPose('hug');
                     Sfx.giggle();
                     this.say('NIGHT NIGHT!', 1600);
-                    this.tweens.add({ targets: b, angle: { from: -6, to: 6 }, duration: 140, yoyo: true, repeat: 2, ease: 'Sine.InOut',
-                        onComplete: () => b.setAngle(0) });
+                    pixelWiggle(this, b, 5, 140);
                     this.time.delayedCall(900, () => { a.busy = false; });  // a new round may start
                 },
             });
@@ -2744,33 +2859,22 @@ class PatchScene extends Phaser.Scene {
         return true;
     }
 
-    // The BOOM sign on the hay bale: pops up when a tower can be banked, shows what it would bank,
-    // and the bale gives a little shimmy now and then (faster when the tower is in danger).
+    // The BOOM sign on the hay bale: fades in when a tower can be banked and shows what it would bank.
     updateBaleSign(dt, avail, danger, value) {
         const sign = this.baleSign;
         const v = value ? value + ' LB' : '';
         if (v !== this.baleSignValue.text) this.baleSignValue.setText(v);
         const H = this.signSize.h;
         this.baleSignTitle.setY(v ? H / 2 - 12 : H / 2);
-        // keep the words readable when the camera pulls back for a tall tower
-        this.baleSignInner.setScale(Phaser.Math.Clamp(0.9 / (this.camZoom || 1), 1, 1.3));
         if (avail !== this.baleSignOn) {
             this.baleSignOn = avail;
             this.tweens.killTweensOf(sign);
             if (avail) {
                 sign.setVisible(true).setScale(1).setAngle(0).setAlpha(0);
                 this.tweens.add({ targets: sign, alpha: 1, duration: 400, ease: 'Sine.Out' });
-                this.baleSwayT = 2;
             } else {
                 sign.setVisible(false);
             }
-        }
-        if (!avail) return;
-        this.baleSwayT = (this.baleSwayT ?? 2) - dt * (1 + (danger || 0));
-        if (this.baleSwayT <= 0) {
-            this.baleSwayT = 6;
-            this.tweens.add({ targets: sign, angle: { from: -1.5, to: 1.5 }, duration: 700, yoyo: true, ease: 'Sine.InOut',
-                onComplete: () => sign.setAngle(0) });
         }
     }
 
@@ -2875,7 +2979,7 @@ class PatchScene extends Phaser.Scene {
     showRing(it, top, plan, time) {
         this.ghost.setVisible(true)
             .setPosition(top.x + plan.d, top.y + 6)
-            .setScale(it.bw / 128, 1)
+            .setTexture(ringTexture(this, it.bw))
             .setTint(0xffffff)
             .setAlpha(0.75);
     }
@@ -2995,16 +3099,16 @@ class PatchScene extends Phaser.Scene {
         stack.items.push(it);
     }
 
-    // Thud by weight, squash the one below (more if this one is heavier), rock and sway.
+    // Thud by weight, sink it (and the one below, longer if this one is heavier) one art pixel for a
+    // moment, rock and sway.
     landFx(stack, it, sup, res) {
         const m = pieceOf(it).m;
         const ratio = sup ? m / pieceOf(sup).m : 0.3;
         Sfx.thunk(it.bw / 4, 2 + m * 1.6);
         this.dust.explode(Math.min(12, 3 + Math.round(m * 2)), it.rx, it.ry + it.bh / 2);
-        this.tweens.add({ targets: it.img, scaleX: 1.16, scaleY: 0.86, duration: 100, yoyo: true, ease: 'Quad.Out' });
+        it.dipT = 0.1;
         if (sup) {
-            const sq = Math.min(0.24, 0.05 * ratio);
-            this.tweens.add({ targets: sup.img, scaleX: 1 + sq * 0.8, scaleY: 1 - sq, duration: 90 + 20 * Math.min(ratio, 4), yoyo: true, ease: 'Quad.Out' });
+            sup.dipT = 0.09 + 0.02 * Math.min(ratio, 4);
             if (ratio > 1.5) this.cameras.main.shake(100, Math.min(0.0025, 0.0008 * ratio));
         }
         const dir = res.x >= (sup ? sup.rx : stack.x) ? 1 : -1;
@@ -3029,15 +3133,13 @@ class PatchScene extends Phaser.Scene {
             const f = Math.pow(Phaser.Math.Clamp(h / H, 0, 1), 1.3);
             let dx = stack.sway.x * f;
             if (danger) dx += (Math.random() - 0.5) * 5 * danger * f;
-            let ang = 1.3 * stack.sway.x * f / Math.max(60, h);
-            if (it.rock) {
+            if (it.rock) { // a rock is a little sideways shuffle (a tilted pumpkin smears its pixels)
                 it.rock.t += dt;
                 const k = Math.exp(-it.rock.t * 3.2);
-                ang += it.rock.amp * k * Math.sin(it.rock.t * 15);
+                dx += Math.round(it.rock.amp * k * Math.sin(it.rock.t * 15) * 40);
                 if (k < 0.02) it.rock = null;
             }
             MB().setPosition(it.body, { x: it.rx + dx, y: it.ry });
-            MB().setAngle(it.body, ang);
         }
         if (danger > 0) {
             stack.creakT -= dt;
@@ -3209,7 +3311,7 @@ class PatchScene extends Phaser.Scene {
         const stopX = fromLeft ? v.x + v.width * 0.16 : v.right - v.width * 0.16;
         this.gigiState = { phase: 'in', t: 0, frame: 0, dir: fromLeft ? 1 : -1,
             stopX: Phaser.Math.Clamp(stopX, PLAY_L + 100, PLAY_R - 100) };
-        this.gigi.setVisible(true).setScale(GIGI.scale).setFlipX(!fromLeft).setAlpha(0).setY(GIGI.y);
+        this.gigi.setVisible(true).setFlipX(!fromLeft).setAlpha(0).setY(GIGI.y);
         this.gigi.x = fromLeft ? v.x - 80 : v.right + 80;
         this.tweens.add({ targets: this.gigi, alpha: 1, duration: 500 });
     }
@@ -3229,7 +3331,7 @@ class PatchScene extends Phaser.Scene {
             if ((g.dir > 0 && this.gigi.x >= g.stopX) || (g.dir < 0 && this.gigi.x <= g.stopX)) {
                 g.phase = 'cheer'; g.t = 0; g.frame = 0;
                 this.gigi.setTexture('gigi_1');
-                const headY = GIGI.y - this.gigi.displayHeight * (1 - 37 / 496);
+                const headY = GIGI.y - this.gigi.displayHeight * this.gigi.originY;
                 this.gigiSay = this.add.text(this.gigi.x, headY - 30, 'WOW, ANSEL!', {
                     fontFamily: FONT, fontSize: '22px', color: '#fff6e0', stroke: INK, strokeThickness: 7,
                 }).setOrigin(0.5).setDepth(61).setScale(this.textScale);
@@ -3284,10 +3386,10 @@ class PatchScene extends Phaser.Scene {
             // press-and-lift tapping motion, fingertip on the target
             const ph = (time % 1100) / 1100;
             const press = ph < 0.18 ? 1 : 0;
-            const hs = Math.max(1, this.textScale * 0.9);
+            const hs = pxScale(Math.max(1, this.textScale * 0.9));
             this.hand.setVisible(true)
                 .setPosition(target.x + 6, target.y + 4 + (press ? 0 : (22 + Math.sin(ph * Math.PI * 2) * 6) * hs))
-                .setScale((press ? 0.92 : 1) * hs);
+                .setScale(hs);
             if (press && !this.hand.pressed) this.poof.explode(3, target.x, target.y);
             this.hand.pressed = press;
         } else {
@@ -3295,13 +3397,10 @@ class PatchScene extends Phaser.Scene {
         }
     }
 
-    // Normal zoom is 1 in both orientations: on a phone held upright the view is a tall
-    // slice of the patch with big, tappable characters and lots of sky for the tower.
-    baseZoom() {
-        const w = this.scale.width, h = this.scale.height;
-        const minZoom = Math.max(w / WORLD_W, h / WORLD_FLOOR);
-        return Math.max(minZoom, 1);
-    }
+    // The world camera never zooms: at exactly 1 every art pixel is a whole number of screen
+    // pixels for both Ansel (3 px) and the patch (4 px), and Phaser only snaps sprites to whole
+    // pixels at a whole-number zoom. Anything in between bends the pixel art as it moves.
+    baseZoom() { return 1; }
 
     // The camera frames the ground (Ansel, the pumpkins, the bale and its BOOM sign) and shows as
     // much of the tower as fits. Only while a pumpkin is swaying or falling does it climb to the
@@ -3312,19 +3411,15 @@ class PatchScene extends Phaser.Scene {
         const a = this.ansel;
         const w = this.scale.width, h = this.scale.height;
         const portrait = h > w;
-        const minZoom = Math.max(w / WORLD_W, h / WORLD_FLOOR); // never show past the world's edges
         const groundAt = portrait ? 0.83 : 0.9;                 // where the path sits, as a share of the screen height
         const top = this.towerTop();
         const aiming = !!(this.hovering || this.dropping);
         let focusTop = top.y;
         if (this.hovering) focusTop = Math.min(focusTop, this.hovering.img.y - this.hovering.bh);
         focusTop -= portrait ? 330 : 240; // headroom so the top of the stack sits below the HUD and banner
-        // zoom that fits everything from the tower top down to the ground (at groundAt)
-        const fitZoom = groundAt * h / Math.max(1, GROUND - focusTop);
-        const zoomT = Phaser.Math.Clamp(fitZoom, minZoom, this.baseZoom());
-        this.camZoom = Phaser.Math.Linear(this.camZoom, zoomT, 1 - Math.pow(0.02, dt));
-        this.textScale = (portrait ? 1.35 : 1) / this.camZoom;
-        const visH = h / this.camZoom, visW = w / this.camZoom;
+        this.camZoom = this.baseZoom();
+        this.textScale = portrait ? 1.35 : 1;
+        const visH = h, visW = w;
         // ground framing: the path at groundAt of the screen
         let cy = GROUND + (1 - groundAt) * visH - visH / 2;
         // still too tall to fit: only while aiming, follow the top instead
@@ -3353,6 +3448,7 @@ class UIScene extends Phaser.Scene {
     constructor() { super('ui'); }
 
     create() {
+        crispScene(this);
         this.patch = this.scene.get('patch');
         this.eggUiCreate(); // surprises: sticker badge and tray
 
@@ -3367,7 +3463,7 @@ class UIScene extends Phaser.Scene {
         }).setOrigin(0, 0.5);
         this.stars = [];
         for (let i = 0; i < 5; i++) {
-            this.stars.push(this.add.image(52 + i * 30, 124, 'sparkle').setScale(0.85).setAlpha(0.25).setTint(0x9a8b7a));
+            this.stars.push(this.add.image(52 + i * 30, 124, 'sparkle').setScale(pxScale(0.85)).setAlpha(0.25).setTint(0x9a8b7a));
         }
         this.streakText = this.add.text(204, 124, '', {
             fontFamily: FONT, fontSize: '12px', color: '#ffd35a', stroke: INK, strokeThickness: 4,
@@ -3406,7 +3502,6 @@ class UIScene extends Phaser.Scene {
             fontFamily: FONT, fontSize: '30px', color: '#fff6e0', stroke: INK, strokeThickness: 8,
         }).setOrigin(0.5);
         this.tweens.add({ targets: T.go, alpha: 0.35, duration: 600, yoyo: true, repeat: -1 });
-        this.tweens.add({ targets: [T.p1, T.p2, T.p3], angle: { from: -2, to: 2 }, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         this.title.add([T.shade, T.t1, T.t2, T.hero, T.p1, T.p2, T.p3, T.how, T.go]);
         this.title.setDepth(100);
 
@@ -3472,11 +3567,11 @@ class UIScene extends Phaser.Scene {
         if (T.heroBase === undefined) T.heroBase = T.hero.scaleX;
         const roomTop = T.t2.getBounds().bottom + 52;
         const k = Phaser.Math.Clamp((groundY - roomTop) / 290, 0.45, 1), kx = Math.max(k, 0.8);
-        T.hero.setScale(T.heroBase * k).setPosition(w / 2 - (portrait ? 140 : 150) * kx, groundY);
-        const px = w / 2 + (portrait ? 130 : 120) * kx;
-        T.p1.setScale(k).setPosition(px, groundY);
-        T.p2.setScale(k).setPosition(px + 2 * k, groundY - 90 * k);
-        T.p3.setScale(k).setPosition(px, groundY - 168 * k);
+        T.hero.setScale(pxFit(T.heroBase * k, ANSEL_PX)).setPosition(w / 2 - (portrait ? 140 : 150) * kx, groundY);
+        const px = w / 2 + (portrait ? 130 : 120) * kx, pk = pxFit(k);
+        T.p1.setScale(pk).setPosition(px, groundY);
+        T.p2.setScale(pk).setPosition(px + 2 * pk, groundY - 90 * pk);
+        T.p3.setScale(pk).setPosition(px, groundY - 168 * pk);
         this.tweens.killTweensOf(T.hero);
         this.tweens.add({ targets: T.hero, y: groundY - 6, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         if (portrait) this.bannerText.setWordWrapWidth(w - 320); // clear of the BOOM button
@@ -3697,7 +3792,7 @@ class UIScene extends Phaser.Scene {
         E.tabBox = tab;
         // Ansel stands beside his tower, the two centred together in the picture box
         const fw = E.hero.frame.width, fh = E.hero.frame.height;
-        const hs = Math.min(0.8, (pic.b - pic.t) / fh, (pic.r - pic.l) * 0.45 / fw);
+        const hs = pxFit(Math.min(1, (pic.b - pic.t) / fh, (pic.r - pic.l) * 0.45 / fw), ANSEL_PX); // 2/3 or full size
         const heroW = fw * hs, towerW = Math.min(220, pic.r - pic.l - heroW - 12);
         const x0 = (pic.l + pic.r - (heroW + 12 + towerW)) / 2;
         E.hero.setScale(hs).setPosition(x0 + heroW / 2, pic.b);
@@ -3812,11 +3907,11 @@ class UIScene extends Phaser.Scene {
             top = Math.min(top, p.dy - p.oy * im.height);
             half = Math.max(half, Math.abs(p.dx) + im.width / 2);
         }
-        const k = Math.min(1, spot.maxH / (baleH - top), spot.maxW / (2 * half));
+        const k = pxFit(Math.min(1, spot.maxH / (baleH - top), spot.maxW / (2 * half)));
         C.setPosition(spot.x, spot.y).setScale(k);
         C.add(this.add.image(0, 0, 'haybale').setOrigin(0.5, 1));
         for (const p of tower) {
-            C.add(this.add.image(p.dx, p.dy - baleH + 4, p.key).setOrigin(0.5, p.oy).setAngle(p.angle));
+            C.add(this.add.image(p.dx, p.dy - baleH + 4, p.key).setOrigin(0.5, p.oy).setRotation(quarterTurn(Phaser.Math.DegToRad(p.angle))));
         }
     }
 
@@ -4728,11 +4823,11 @@ const PatchEggs = {
         Sfx.sneeze();
         this.tweens.killTweensOf(p);
         p.setAngle(0).setScale(1);
-        this.tweens.add({ targets: p, scaleY: 1.1, scaleX: 0.96, duration: 150, yoyo: true, repeat: 1, ease: 'Sine.InOut' });
+        const y0 = p.homeY ?? (p.homeY = p.y); // ah... ah...: it draws breath, rising an art pixel twice
+        this.tweens.add({ targets: p, y: y0 - ART_PX, duration: 150, yoyo: true, repeat: 1, ease: 'Sine.InOut', onComplete: () => p.setY(y0) });
         this.time.delayedCall(620, () => {
             p.setTexture('silo_pumpkin_wink');
-            this.tweens.add({ targets: p, angle: { from: -10, to: 0 }, scaleX: { from: 1.15, to: 1 }, scaleY: { from: 0.85, to: 1 },
-                duration: 420, ease: 'Back.Out' });
+            this.tweens.add({ targets: p, scaleX: { from: 1.25, to: 1 }, scaleY: { from: 0.75, to: 1 }, duration: 420, ease: 'Sine.Out' });
             this.eggSeeds.explode(18, SILO_X, SILO_TOP_Y - 28);   // out of its mouth
             this.time.delayedCall(700, () => p.setTexture('silo_pumpkin'));
             this.eggSay('BLESS YOU!', 1100);
@@ -4816,7 +4911,7 @@ const PatchEggs = {
     },
 
     eggShootingStar(x, y) {
-        const s = this.add.image(x, y, 'egg_shooting_star').setDepth(0.2).setAngle(14).setAlpha(0);
+        const s = this.add.image(x, y, 'egg_shooting_star').setDepth(0.2).setAlpha(0);
         Sfx.whoosh();
         this.tweens.add({ targets: s, alpha: 1, duration: 120 });
         this.tweens.add({
@@ -4828,10 +4923,10 @@ const PatchEggs = {
     eggCowOverMoon() {
         // hey diddle diddle
         const J = this.eggJ;
-        const c = this.add.image(J.moon[0] - 230, J.moon[1] + 70, 'egg_cow_jump').setDepth(0.3).setAngle(-14);
+        const c = this.add.image(J.moon[0] - 230, J.moon[1] + 70, 'egg_cow_jump').setDepth(0.3);
         Sfx.moo();
         this.time.delayedCall(300, () => Sfx.diddle());
-        this.tweens.add({ targets: c, x: J.moon[0] + 230, angle: 14, duration: 1500 });
+        this.tweens.add({ targets: c, x: J.moon[0] + 230, duration: 1500 });
         this.tweens.add({ targets: c, y: J.moon[1] - 120, duration: 750, yoyo: true, ease: 'Sine.Out' });
         this.time.delayedCall(750, () => this.sparkles.explode(10, c.x, c.y));
         this.tweens.add({ targets: c, alpha: 0, delay: 1350, duration: 200, onComplete: () => c.destroy() });
@@ -5069,19 +5164,18 @@ const PatchEggs = {
         this.setPose('scoop');
         Sfx.pickup();
         // a stand-in bunny does the cuddle; the real one waits, hidden, until he springs free
-        const p = G.img = this.add.image(h.x, h.y, 'hoppah_stand').setOrigin(0.5, 305 / 327).setScale(0.3)
+        const p = G.img = this.cameo(this.add.image(h.x, h.y, 'hoppah_stand'), 'hoppah_stand')
             .setDepth(21).setFlipX(a.dir < 0);
         h.img.setVisible(false);
         h.shadow.setVisible(false);
         const holdX = a.x + a.dir * 30, holdY = GROUND - 92;
-        this.tweens.add({ targets: p, x: holdX, y: holdY, scale: 0.27, duration: 240, ease: 'Quad.Out' });
+        this.tweens.add({ targets: p, x: holdX, y: holdY, duration: 240, ease: 'Quad.Out' });
         this.time.delayedCall(260, () => {
             this.setPose('hug');
             Sfx.giggle();
             this.say('HOPPAH!', 1100);
             // he wriggles...
-            this.tweens.add({ targets: p, angle: { from: -14, to: 14 }, duration: 80, yoyo: true, repeat: 6, ease: 'Sine.InOut' });
-            this.tweens.add({ targets: p, x: holdX + a.dir * 6, duration: 110, yoyo: true, repeat: 3 });
+            pixelWiggle(this, p, 9, 80);
             [180, 500, 820].forEach(ms => this.time.delayedCall(ms, () => Sfx.peep(3)));
         });
         // ...and springs free with a big boing
@@ -5094,11 +5188,11 @@ const PatchEggs = {
         const p = G.img, dir = h.dir || 1;
         const landX = Phaser.Math.Clamp(a.x + dir * 250, PLAY_L - 60, PLAY_R + 60);
         this.tweens.killTweensOf(p);
-        p.setAngle(0).setTexture('hoppah_jump').setFlipX(dir < 0);
+        this.cameo(p.setAngle(0), 'hoppah_jump').setFlipX(dir < 0);
         Sfx.boing();
         this.time.delayedCall(140, () => Sfx.boing());
         this.sparkles.explode(14, p.x, p.y - 40);
-        this.tweens.add({ targets: p, x: landX, scale: 0.3, duration: 560 });
+        this.tweens.add({ targets: p, x: landX, duration: 560 });
         this.tweens.add({
             targets: p, y: p.y - 170, duration: 280, ease: 'Quad.Out',
             onComplete: () => this.tweens.add({ targets: p, y: GROUND, duration: 280, ease: 'Quad.In' }),
@@ -5501,7 +5595,7 @@ const UIEggs = {
             const s = E.slots[i], id = E.J.stickers[i];
             this.tweens.killTweensOf(s);
             s.setScale(E.sc).setAngle(0);
-            this.tweens.add({ targets: s, angle: { from: -12, to: 12 }, duration: 70, yoyo: true, repeat: 1, onComplete: () => s.setAngle(0) });
+            pixelWiggle(this, s, 3, 70);
             if (this.patch.found.has(id) && EGG_VOICE[id]) EGG_VOICE[id]();
         }
         this.showEggTray(3000);
@@ -5705,6 +5799,20 @@ const UIHtp = {
         return b;
     },
 
+    // A nudge to press it: the button bobs up an art pixel and back (growing it would bend its pixels).
+    htpBob(btn, ms) {
+        this.htpUnbob(btn);
+        btn.bobY = btn.list.map(o => o.y);
+        btn.bob = this.tweens.add({ targets: btn.list, y: '-=' + ART_PX, duration: ms, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    },
+
+    htpUnbob(btn) {
+        if (!btn.bob) return;
+        btn.bob.stop();
+        btn.list.forEach((o, i) => { o.y = btn.bobY[i]; });
+        btn.bob = null;
+    },
+
     htpHit(btn, p) {
         if (!btn || !btn.visible) return false;
         for (let o = btn; o; o = o.parentContainer) if (!o.visible) return false;
@@ -5727,7 +5835,7 @@ const UIHtp = {
         // the sound button stays visible (and in reach) over the title
         if (this.soundBtn) this.soundBtn.setDepth(101);
         if (this.soundIcon) this.soundIcon.setDepth(101);
-        this.tweens.add({ targets: H.help, scale: 1.08, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        this.htpBob(H.help, 700);
     },
 
     // Keeps the extras lined up with the title (whatever size it is), redraws the stepped
@@ -6002,10 +6110,9 @@ const UIHtp = {
         H.skip.label.setText(H.mode === 'auto' ? 'SKIP' : 'CLOSE');
         H.next.label.setText(last ? (H.mode === 'pause' ? 'DONE' : 'PLAY!') : 'NEXT');
         H.back.setVisible(H.page > 0);
-        H.dots.forEach((d, i) => d.setScale(i === H.page ? 0.62 : 0.46).setAlpha(i === H.page ? 1 : 0.4));
-        this.tweens.killTweensOf(H.next);
-        H.next.setScale(1);
-        if (last) this.tweens.add({ targets: H.next, scale: 1.08, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        H.dots.forEach((d, i) => d.setScale(i === H.page ? 0.75 : 0.5).setAlpha(i === H.page ? 1 : 0.4));
+        this.htpUnbob(H.next);
+        if (last) this.htpBob(H.next, 420);
 
         // text rows for this kind of player
         const rows = pg.rows.filter(r => !(r.touch && H.desk) && !(r.desk && !H.desk)).map(r => this.htpRow(r));
@@ -6127,31 +6234,38 @@ const UIHtp = {
             const key = this.textures.exists(ic.img) ? ic.img : 'sparkle';
             const n = ic.n || 1;
             for (let i = 0; i < n; i++) {
-                const im = this.add.image((i - (n - 1) / 2) * 30, 0, key, ic.f).setScale(ic.s || 1);
+                const im = this.add.image((i - (n - 1) / 2) * 30, 0, key, ic.f).setScale(pxScale(ic.s || 1));
                 if (ic.tint) im.setTint(ic.tint);
                 c.add(im);
                 c.ih = Math.max(c.ih, im.displayHeight);
                 c.iw = (n - 1) * 30 + im.displayWidth;
             }
-            if (ic.img === 'sparkle') this.tweens.add({ targets: c.list, scale: 1.25, duration: 500, yoyo: true, repeat: -1,
+            if (ic.img === 'sparkle') this.tweens.add({ targets: c.list, alpha: 0.45, duration: 500, yoyo: true, repeat: -1,
                 delay: this.tweens.stagger(160), ease: 'Sine.InOut' });
         }
         return c;
     },
 
     // ── illustrations ────────────────────────────────────────────────────────
-    // A framed window at (x, y) on the card, artW x artH, onto a little scene built
-    // in world px (HTP_NEAR or HTP_WIDE), scaled to fit and clipped to the frame.
+    // A framed window at (x, y) on the card, up to artW x artH, onto a little scene built
+    // in world px (HTP_NEAR or HTP_WIDE), scaled to fit and clipped to the frame. The scene is
+    // drawn at a whole-pixel size (see pxScale): the nearest one, cropping its edges a little
+    // or making the frame a little smaller.
     htpArtBox(name, x, y, artW, artH) {
         const H = this.htp;
-        H.pageC.add(this.add.rectangle(x - 6, y - 6, artW + 12, artH + 12, 0x2b1810).setOrigin(0));
         const box = name === 'htpArtDay' ? HTP_WIDE : HTP_NEAR;
-        const s = Math.min(artW / box.w, artH / box.h);
-        const c = this.add.container(x + (artW - box.w * s) / 2, y + (artH - box.h * s) / 2).setScale(s);
+        const fit = Math.min(artW / box.w, artH / box.h);
+        const s = [1, 0.75, 0.5, 0.25].find(k => k <= fit * 1.18) || 0.25;
+        const fw = Math.min(artW, Math.round(box.w * s)), fh = Math.min(artH, Math.round(box.h * s));
+        x = Math.round(x + (artW - fw) / 2);
+        y = Math.round(y + (artH - fh) / 2);
+        H.pageC.add(this.add.rectangle(x - 6, y - 6, fw + 12, fh + 12, 0x2b1810).setOrigin(0));
+        const c = this.add.container(Math.round(x + (fw - box.w * s) / 2), Math.round(y + (fh - box.h * s) / 2)).setScale(s);
         c.s = s;
         c.box = box;
+        c.view = { x: (x - c.x) / s, y: (y - c.y) / s }; // the frame's top-left in the scene's px
         H.pageC.add(c);
-        H.maskG.clear().fillStyle(0xffffff).fillRect(H.root.x + x, H.root.y + y, artW, artH);
+        H.maskG.clear().fillStyle(0xffffff).fillRect(H.root.x + x, H.root.y + y, fw, fh);
         c.setMask(H.mask);
         // the patch itself: background, the silo's pumpkin, the fence in front
         const crop = key => this.add.image(-box.x, -box.y, key).setOrigin(0).setCrop(box.x, box.y, box.w, box.h);
@@ -6182,7 +6296,7 @@ const UIHtp = {
 
     htpBale(c, x = HAY_X) {
         const p = this.htpW(c, x, GROUND + 4);
-        c.add(this.add.image(p.x, p.y, 'shadow').setScale(1.35, 1));
+        c.add(this.add.image(p.x, p.y, 'shadow').setScale(pxScale(1.35), 1));
         const img = this.add.image(p.x, p.y, 'haybale').setOrigin(0.5, 1);
         c.add(img);
         return img;
@@ -6193,6 +6307,7 @@ const UIHtp = {
         const AF = this.patch.anselData, p = this.htpW(c, x, GROUND);
         c.add(this.add.image(p.x, p.y + 4, 'shadow'));
         const img = this.add.image(p.x, p.y, this.patch.anselKey(frame, 'everyday')).setFlipX(dir < 0);
+        img.setScale(Math.max(1, Math.round(ANSEL_PX * c.s)) / (ANSEL_PX * c.s)); // his art is 3 px, the scene's 4
         if (AF) img.setOrigin(AF.footX / AF.w, AF.footY / AF.h);
         else img.setOrigin(0.5, 1);
         c.add(img);
@@ -6225,14 +6340,22 @@ const UIHtp = {
     },
 
     htpHand(c) {
-        const h = this.add.image(0, 0, 'hand').setOrigin(0.4, 0).setScale(1.3).setVisible(false);
+        const h = this.add.image(0, 0, 'hand').setOrigin(0.4, 0).setScale(pxScale(1.3)).setVisible(false);
         c.add(h);
         return h;
     },
 
+    // Turns it by deg over ms, drawn in quarter turns (pixel art never sits at an angle).
+    htpTumble(img, deg, ms) {
+        const spin = { a: img.angle };
+        this.htp.plain.push(spin);
+        this.tweens.add({ targets: spin, a: img.angle + deg, duration: ms,
+            onUpdate: () => img.setAngle(Math.round(spin.a / 90) * 90) });
+    },
+
     htpTapAt(hand, x, y) {
-        hand.setPosition(x, y).setVisible(true).setAlpha(1).setScale(1.3);
-        this.tweens.add({ targets: hand, y: y - 14, scale: 1.15, duration: 110, yoyo: true });
+        hand.setPosition(x, y).setVisible(true).setAlpha(1);
+        this.tweens.add({ targets: hand, y: y - 14, duration: 110, yoyo: true });
         this.tweens.add({ targets: hand, alpha: 0, delay: 600, duration: 200 });
     },
 
@@ -6267,7 +6390,7 @@ const UIHtp = {
                 this.htpLater(90, () => {
                     ring.setVisible(false);
                     this.tweens.add({ targets: pk, y: restY, duration: 180, ease: 'Quad.In', onComplete: () => {
-                        this.tweens.add({ targets: pk, scaleX: 1.12, scaleY: 0.88, duration: 70, yoyo: true });
+                        this.tweens.add({ targets: pk, y: restY + ART_PX, duration: 70, yoyo: true });
                         fx.explode(18, top.x, top.y);
                         this.htpPop(c, top.x, top.y - 150, 'PERFECT!', 24, HTP_COL.gold);
                         this.htpSfx('perfect', 1);
@@ -6289,9 +6412,10 @@ const UIHtp = {
             pk.setPosition(top.x + 60, hoverY).setAngle(0).setAlpha(1);
             this.tweens.add({ targets: pk, y: restY, delay: 500, duration: 200, ease: 'Quad.In', onComplete: () => {
                 this.htpSfx('thunk', 20, 3);
-                this.tweens.add({ targets: pk, angle: 16, x: pk.x + 14, duration: 320, ease: 'Sine.In', onComplete: () => {
+                this.tweens.add({ targets: pk, x: pk.x + 14, duration: 320, ease: 'Sine.In', onComplete: () => {
                     this.htpSfx('uhoh');
-                    this.tweens.add({ targets: pk, x: pk.x + 170, angle: 220, duration: 700, ease: 'Linear' });
+                    this.htpTumble(pk, 220, 700);
+                    this.tweens.add({ targets: pk, x: pk.x + 170, duration: 700, ease: 'Linear' });
                     this.tweens.add({ targets: pk, y: groundY, duration: 700, ease: 'Quad.In', onComplete: () => {
                         this.tweens.add({ targets: pk, y: groundY - 26, duration: 140, yoyo: true, ease: 'Quad.Out' });
                         this.htpPop(c, pk.x, groundY - 90, '-10 LB', 28, HTP_COL.red);
@@ -6332,8 +6456,7 @@ const UIHtp = {
         this.htpLoop(5600, () => {
             tower.items.forEach((it, i) => it.setPosition(homes[i].x, homes[i].y).setAngle(0).setAlpha(1));
             sign.setVisible(true).setScale(1).setAngle(0);
-            this.tweens.add({ targets: sign, angle: { from: -4, to: 4 }, duration: 90, yoyo: true, repeat: 2, delay: 300,
-                onComplete: () => sign.setAngle(0) });
+            this.htpLater(300, () => pixelWiggle(this, sign, 5, 90));
             ansel.setX(startX);
             this.htpPose(ansel, htpHero());
             this.htpLater(800, () => this.htpTapAt(hand, sp.x + 30, sp.y + 30));
@@ -6349,10 +6472,10 @@ const UIHtp = {
                 sign.setVisible(false);
                 fx.explode(30, top.x, top.y + 60);
                 burst.explode(24, top.x, top.y + 100);
-                this.tweens.add({ targets: c, x: c.x + 8, duration: 50, yoyo: true, repeat: 3 });
                 tower.items.forEach((it, i) => {
                     const dx = (i % 2 ? -1 : 1) * (60 + 70 * i) + 120, up = 160 + 60 * i;
-                    this.tweens.add({ targets: it, x: it.x + dx, angle: (i % 2 ? -1 : 1) * (220 + 90 * i), duration: 1000 });
+                    this.tweens.add({ targets: it, x: it.x + dx, duration: 1000 });
+                    this.htpTumble(it, (i % 2 ? -1 : 1) * (220 + 90 * i), 1000);
                     this.tweens.add({ targets: it, y: it.y - up, duration: 380, ease: 'Quad.Out', onComplete: () =>
                         this.tweens.add({ targets: it, y: GROUND - c.box.y - it.bh / 2, duration: 520, ease: 'Quad.In' }) });
                 });
@@ -6389,7 +6512,7 @@ const UIHtp = {
         const dusk = this.add.rectangle(0, 0, c.box.w, c.box.h, 0xffffff).setOrigin(0)
             .setBlendMode(Phaser.BlendModes.MULTIPLY);
         c.add(dusk);
-        const label = this.add.container(28, 26);
+        const label = this.add.container(c.view.x + 28, c.view.y + 26);
         const lt = this.htpArtText(c, 0, 0, '', 20, HTP_COL.cream).setOrigin(0, 0.5);
         const lb = this.add.nineslice(0, 0, 'panel', null, 100, lt.height + 30, 20, 20, 20, 20).setOrigin(0, 0.5);
         label.add([lb, lt]);
@@ -6430,7 +6553,10 @@ const UIHtp = {
                 lvl = 3;
                 leaves.setFrequency(60);
                 this.htpSfx('wind', 0.4, 2);
-                this.tweens.add({ targets: sway, angle: { from: 0, to: 3.2 }, duration: 500, yoyo: true, repeat: 1, ease: 'Sine.InOut' });
+                const lean = { u: 0 };
+                this.htp.plain.push(lean);
+                this.tweens.add({ targets: lean, u: 1, duration: 500, yoyo: true, repeat: 1, ease: 'Sine.InOut',
+                    onUpdate: () => sway.list.forEach((o, i) => { o.x = Math.round(lean.u * 6 * i); }) });
             });
             this.htpLater(4400, () => { lvl = 1; leaves.stop(); });
         });
